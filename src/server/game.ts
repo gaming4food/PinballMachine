@@ -1,65 +1,637 @@
-// The pinball game on the server. A stub: it keeps the Machine interface (kit/src/server/games/machine.ts) with empty
-// bodies, so the manifest, the stand-in host and the contract test have something to make. The table, the physics and
-// the rules come in later tasks.
-import type { FeedItem, FeedTone, RoomInfo, ServerMsg } from '@kit/shared';
-import type { Economy, Machine, MachineOutlet, StreamEvent, User } from '@kit/server';
-import type { PinballMsg } from '../shared/pinball';
+// The pinball game on the server (Task 4 of the pinball plan): viewers line their balls up with `ball`, and each
+// launches when the table is free; all of chat flips with `left` and `right`, and when chat goes quiet the auto-save
+// flips for it (missing now and then). The table's parts score, all 4 drop targets light the lock, a ball in the lit
+// lock starts multiball (more balls from the line, then the house's), all 3 top rollovers light the kickback, the ball
+// saver gives a quick drain back, and a stuck ball gets a nudge. A drained ball pays: its points make coins, 70% to its
+// owner and the rest shared by everyone else who flipped it.
+//
+// The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
+// the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
+// its saver and the auto-save all wait with it.
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
+import { type Economy, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
+import { LIT, parsePinballCommands, RULES, type PinballMsg, type PinballState } from '../shared/pinball';
+import { STAND_IN, TABLE, type Table } from '../shared/table';
+import { PinballSim, type Hit } from './sim';
+
+/** How many high scores are kept. */
+const HIGH_SCORES = 10;
+/** How many lines of the feed a stage that connects is sent. */
+const FEED_KEPT = 12;
+/** The auto-save misses 1 flip in this many. */
+const AUTO_MISS = 6;
+/** After an auto-save flip, the flipper is left down this long before the next, so it can drop and swing again. */
+const AUTO_REST = 0.15;
+/** Multiball's balls are launched this far apart (s), so two never sit in the plunger lane at once. */
+const MULTIBALL_GAP = 0.6;
+
+/** The table's physics, with the snapshot the city asks for (no arguments) lit as the game has it. */
+class LitSim extends PinballSim {
+  constructor(table: Table, hits: (hit: Hit) => void, private readonly litNow: () => number) {
+    super(table, hits);
+  }
+
+  override snapshot(lit: number = this.litNow()): Buffer {
+    return super.snapshot(lit);
+  }
+}
+
+/** A ball on the table, as the game keeps it. */
+interface BallPlay {
+  /** Its owner (null for a house ball). */
+  owner: User | null;
+  points: number;
+  /** Everyone who flipped while it was on the table, each once (its owner too, though the owner isn't paid as one). */
+  flippers: Map<number, User>;
+  /** When it was first launched: the ball saver's start (a save keeps it, so a save doesn't start a new one). */
+  launchedAt: number;
+  /** Where it last was more than a ball's radius from, and when: a ball that stays put for stuckSeconds is nudged. */
+  anchor: { x: number; z: number; at: number };
+  /** Where it last was across the table, for the score popups when it drains. */
+  x: number;
+}
+
+/** What save() writes. */
+interface SavedPinball {
+  highScores: { name: string; points: number }[];
+}
 
 export class PinballGame implements Machine {
-  readonly sim = { tick: 0, items: new Map<number, unknown>(), snapshot: () => Buffer.alloc(0) };
-  readonly queued = 0;
-  readonly stepMs = 0;
+  readonly sim: LitSim;
   avatarUrl: (userId: number) => string | null = () => null;
+
+  /** The balls waiting their turn, in order. */
+  private line: User[] = [];
+  /** The ball whose launch moment it is, and when it launches. */
+  private upNext: { user: User; at: number } | null = null;
+  /** Multiball's balls still to launch (null: a house ball), and when the next goes. */
+  private extraBalls: (User | null)[] = [];
+  private nextExtraAt = 0;
+  private readonly balls = new Map<number, BallPlay>();
+  /** The ball held in the lock for multiball, or null. */
+  private heldBall: number | null = null;
+  private multiball = false;
+  private lockLit = false;
+  private kickbackLit = false;
+  /** The drop targets down and the top rollovers lit since the lock or the kickback last lit, by id. */
+  private readonly targetsHit = new Set<string>();
+  private readonly rolloversLit = new Set<string>();
+  /** Double score and the bought ball saver run until these, on the table's clock (-Infinity: off). Task 5 sets them. */
+  private doubleUntil = -Infinity;
+  private saverUntil = -Infinity;
+  /** When chat's last flip word came, and till when each flipper is held up for chat and for the auto-save. */
+  private lastWord = -Infinity;
+  private readonly chatUp = { left: -Infinity, right: -Infinity };
+  private readonly autoUp = { left: -Infinity, right: -Infinity };
+  /** The auto-save's next flip on each side waits till this (its rest after a flip, or after a miss). */
+  private readonly autoNext = { left: -Infinity, right: -Infinity };
+  private lastResult: PinballState['lastResult'] = null;
+  private scores: { name: string; points: number }[] = [];
+  private lastStepMs = 0;
+
+  private readonly feedLog: FeedItem[] = [];
+  private feedId = 1;
+  private boardDirty = true;
+  private meterDirty = true;
+  private stateDirty = true;
+  private lastBoardAt = 0;
+  private lastLeadersAt = 0;
 
   constructor(
     readonly room: RoomInfo,
     private readonly economy: Economy,
-    _out: MachineOutlet,
-    _saveFile: string,
-  ) {}
+    private readonly out: MachineOutlet,
+    private readonly saveFile: string,
+    private readonly table: Table = STAND_IN,
+  ) {
+    this.sim = new LitSim(table, (hit) => this.hit(hit), () => this.lit());
+  }
 
-  load(): void {}
-  save(): void {}
+  private get platforms(): ReadonlySet<Platform> {
+    return new Set(this.room.platforms);
+  }
+
+  /** The balls in the line (the status line's "in line"). */
+  get queued(): number {
+    return this.line.length;
+  }
+
+  get stepMs(): number {
+    return this.lastStepMs;
+  }
+
+  /** Whether the auto-save has the flippers (no flip from chat for autoSaveAfter). */
+  get autoSaving(): boolean {
+    return this.sim.time - this.lastWord >= RULES.autoSaveAfter;
+  }
+
+  // --- Saving ---
+
+  load(): void {
+    if (!existsSync(this.saveFile)) return;
+    try {
+      const saved = JSON.parse(readFileSync(this.saveFile, 'utf8')) as Partial<SavedPinball>;
+      const rows = Array.isArray(saved.highScores) ? saved.highScores : [];
+      this.scores = rows
+        .filter((r) => typeof r?.name === 'string' && Number.isFinite(r?.points))
+        .map((r) => ({ name: r.name, points: Math.max(0, Math.round(r.points)) }))
+        .sort((a, b) => b.points - a.points)
+        .slice(0, HIGH_SCORES);
+      log.info(`pinball: ${this.scores.length} high scores from the last session`);
+    } catch (err) {
+      log.warn('pinball: could not read the saved high scores; starting with none', err);
+    }
+  }
+
+  save(): void {
+    const tmp = `${this.saveFile}.tmp`;
+    const saved: SavedPinball = { highScores: this.scores };
+    writeFileSync(tmp, JSON.stringify(saved));
+    renameSync(tmp, this.saveFile);
+  }
+
+  /** The best balls so far, best first (at most 10). */
+  highScores(): { name: string; points: number }[] {
+    return this.scores.map((s) => ({ ...s }));
+  }
+
+  // --- What the stages and the panel get ---
 
   hello(): ServerMsg {
     return {
       t: 'hello',
       room: this.room,
-      simTime: 0,
+      simTime: this.sim.time,
       pusherZ: 0,
-      bodies: [],
+      bodies: [...this.balls.keys()].filter((id) => this.sim.items.has(id)).map((id) => this.body(id)),
       avatars: {},
       board: this.leaderboard(),
       meter: this.economy.meterState(this.room.id),
-      feed: this.recentFeed(),
+      feed: this.feedLog,
       machine: this.panelState(),
     };
   }
 
   /** The pinball as its stage and its card get it: hello's and each 'machine' message's. */
   panelState(): PinballMsg {
+    return { kind: 'pinball', state: this.state() };
+  }
+
+  state(): PinballState {
+    const now = this.sim.time;
     return {
-      kind: 'pinball',
-      state: { phase: 'idle', balls: [], line: [], multiball: false, doubleUntil: null, saverUntil: null, lockLit: false, lastResult: null, waiting: [] },
+      phase: this.balls.size > 0 ? 'playing' : this.upNext ? 'launching' : 'idle',
+      balls: [...this.balls.values()].map((b) => ({ owner: b.owner?.id ?? null, name: b.owner?.name ?? null, score: b.points })),
+      line: this.line.map((u) => ({ userId: u.id, name: u.name })),
+      multiball: this.multiball,
+      doubleUntil: this.doubleUntil > now ? this.doubleUntil : null,
+      saverUntil: this.saverEnds(),
+      lockLit: this.lockLit,
+      lastResult: this.lastResult,
+      waiting: [],
     };
   }
 
-  leaders(): ServerMsg {
-    return { t: 'leaders', leaders: [] };
+  /** When the ball saver now on ends (the bought one, or a fresh ball's), or null when none is on. */
+  private saverEnds(): number | null {
+    let ends = this.saverUntil;
+    for (const b of this.balls.values()) ends = Math.max(ends, b.launchedAt + RULES.ballSaverStart);
+    return ends > this.sim.time ? ends : null;
   }
+
+  /** The inserts lit, for the snapshot (shared/pinball.ts LIT). */
+  private lit(): number {
+    let bits = 0;
+    if (this.lockLit) bits |= LIT.lock;
+    if (this.kickbackLit) bits |= LIT.kickback;
+    const rollovers = [LIT.rollover0, LIT.rollover1, LIT.rollover2];
+    this.table.rollovers.forEach((r, i) => {
+      if (i < rollovers.length && this.rolloversLit.has(r.id)) bits |= rollovers[i];
+    });
+    if (this.doubleUntil > this.sim.time) bits |= LIT.double;
+    if (this.saverEnds() !== null) bits |= LIT.saver;
+    return bits;
+  }
+
+  /** A ball's body state for the stages, with its owner (sim.state) and their name effect, for its tag. */
+  private body(id: number): BodyState {
+    const body = this.sim.state(id);
+    const owner = this.balls.get(id)?.owner;
+    if (owner?.nameFx) body.fx = owner.nameFx;
+    return body;
+  }
+
+  avatarReady(userId: number, url: string): void {
+    this.out.send({ t: 'avatar', owner: userId, url });
+  }
+
   leaderboard(): ReturnType<Economy['leaderboard']> {
-    return [];
+    return this.economy.leaderboard(this.platforms);
   }
+
+  leaders(): ServerMsg {
+    return { t: 'leaders', leaders: this.economy.careerLeaders(this.platforms) };
+  }
+
   recentFeed(): FeedItem[] {
-    return [];
+    return this.feedLog;
   }
-  handle(_ev: StreamEvent): void {}
-  step(): void {}
-  publish(_now: number): void {}
+
+  /** A line in this machine's live feed, from the channel (its answers to !coins and !color). */
+  announce(text: string, tone: FeedTone, user?: User): void {
+    this.feed(text, tone, user);
+  }
+
+  markBoardDirty(): void {
+    this.boardDirty = true;
+  }
+
+  /** Nothing to prune: chat's words aren't rate limited (a flood of flips counts each viewer once, on each ball). */
   pruneLimits(): void {}
-  resetMachine(): void {}
-  resetMeter(): void {}
-  markBoardDirty(): void {}
-  avatarReady(_userId: number, _url: string): void {}
-  announce(_text: string, _tone: FeedTone, _user?: User): void {}
+
+  resetMeter(): void {
+    this.economy.resetMeter(this.room.id);
+    this.meterDirty = true;
+  }
+
+  /** Board, meter and pinball updates that have piled up. Called a few times a second. */
+  publish(now: number): void {
+    if (now - this.lastLeadersAt >= 30_000) {
+      this.lastLeadersAt = now;
+      this.out.send(this.leaders());
+    }
+    if (this.meterDirty) {
+      this.meterDirty = false;
+      this.out.send({ t: 'meter', meter: this.economy.meterState(this.room.id) });
+    }
+    if (this.boardDirty && now - this.lastBoardAt >= 1000) {
+      this.boardDirty = false;
+      this.lastBoardAt = now;
+      this.out.send({ t: 'board', rows: this.leaderboard() });
+    }
+    if (this.stateDirty) {
+      this.stateDirty = false;
+      this.out.send({ t: 'machine', msg: this.panelState() });
+    }
+  }
+
+  // --- The panel ---
+
+  /**
+   * From the control panel (a 'machine.action'). `{ kind: 'remove', userId }` takes that viewer's ball out of the line
+   * (not off the table). Anything can arrive, so anything else is ignored (the hype buttons come in Task 5).
+   */
+  action(action: unknown): void {
+    const a = action as { kind?: unknown; userId?: unknown } | null;
+    if (a?.kind !== 'remove' || typeof a.userId !== 'number') return;
+    const user = this.line.find((u) => u.id === a.userId) ?? (this.upNext?.user.id === a.userId ? this.upNext.user : null);
+    if (!user) return;
+    this.line = this.line.filter((u) => u.id !== a.userId);
+    if (this.upNext?.user.id === a.userId) this.upNext = null;
+    this.feed(`${user.name}'s ball leaves the line.`, 'info', user);
+    this.stateDirty = true;
+  }
+
+  /** From the control panel: the table cleared and the line emptied, paying nothing. */
+  resetMachine(): void {
+    for (const id of this.sim.clear()) this.out.send({ t: 'despawn', at: this.sim.time, id, reason: 'cleared' });
+    this.balls.clear();
+    this.line = [];
+    this.upNext = null;
+    this.extraBalls = [];
+    this.heldBall = null;
+    this.multiball = false;
+    this.lockLit = false;
+    this.kickbackLit = false;
+    this.targetsHit.clear();
+    this.rolloversLit.clear();
+    this.sim.resetTargets();
+    this.chatUp.left = this.chatUp.right = -Infinity;
+    this.autoUp.left = this.autoUp.right = -Infinity;
+    this.setFlippers();
+    this.feed('The table is cleared.', 'info');
+    this.stateDirty = true;
+  }
+
+  // --- Chat ---
+
+  handle(ev: StreamEvent): void {
+    // Known to the wallet either way; the pusher gives newcomers their welcome bonus, since it sees them first.
+    const { user } = this.economy.touch(ev.platform, ev.userId, ev.name);
+    if (ev.kind !== 'chat') return;
+    const cmd = parsePinballCommands(ev.text);
+    if (cmd.join) this.join(user);
+    if (cmd.left) this.chatFlip('left', user);
+    if (cmd.right) this.chatFlip('right', user);
+  }
+
+  /** `ball`: into the line, unless they have a ball in it, up next, or on the table already. */
+  private join(user: User): void {
+    const has =
+      this.line.some((u) => u.id === user.id) ||
+      this.upNext?.user.id === user.id ||
+      this.extraBalls.some((u) => u?.id === user.id) ||
+      [...this.balls.values()].some((b) => b.owner?.id === user.id);
+    if (has) {
+      this.feed(`${user.name} already has a ball.`, 'info', user);
+      return;
+    }
+    this.line.push(user);
+    this.feed(`${user.name} is in line (${ordinal(this.line.length)}).`, 'drop', user);
+    this.stateDirty = true;
+  }
+
+  /** `left` or `right`: that flipper up for flipHold from now, and the viewer counted once on every ball in play. */
+  private chatFlip(side: 'left' | 'right', user: User): void {
+    const now = this.sim.time;
+    this.lastWord = now;
+    this.chatUp[side] = now + RULES.flipHold;
+    // The auto-save hands back at once: a flip of its own still up drops.
+    this.autoUp.left = this.autoUp.right = -Infinity;
+    for (const [id, b] of this.balls) if (id !== this.heldBall) b.flippers.set(user.id, user);
+    this.setFlippers();
+  }
+
+  // --- Stepping ---
+
+  step(): void {
+    const t0 = performance.now();
+    this.launches();
+    this.autoSave();
+    this.setFlippers();
+    this.sim.step();
+    this.watchStuck();
+    this.lastStepMs = performance.now() - t0;
+  }
+
+  /** Multiball's balls and the line's next ball (after its moment), as their times come. */
+  private launches(): void {
+    const now = this.sim.time;
+    if (this.extraBalls.length && now >= this.nextExtraAt) {
+      const user = this.extraBalls.shift()!;
+      this.launch(user && this.economy.get(user.id) ? user : null);
+      this.nextExtraAt = now + MULTIBALL_GAP;
+    }
+    if (this.upNext && now >= this.upNext.at) {
+      const { user } = this.upNext;
+      this.upNext = null;
+      if (this.economy.get(user.id)) this.launch(user);
+    }
+    if (!this.upNext && this.balls.size === 0 && this.extraBalls.length === 0) {
+      const user = this.nextInLine();
+      if (user) {
+        this.upNext = { user, at: now + RULES.launchDelay };
+        this.feed(`${user.name} is up!`, 'drop', user);
+        this.stateDirty = true;
+      }
+    }
+  }
+
+  /** The line's next viewer, skipping any the wallet no longer has (removed). */
+  private nextInLine(): User | undefined {
+    while (this.line.length && !this.economy.get(this.line[0].id)) this.line.shift();
+    const user = this.line.shift();
+    if (user) this.stateDirty = true;
+    return user;
+  }
+
+  /** Fires a ball for `owner` (null: the house's) up the plunger lane, and tells the stages. A save carries its play. */
+  private launch(owner: User | null, carry?: BallPlay): number {
+    const id = this.sim.launch(owner?.id ?? null);
+    const now = this.sim.time;
+    const p = this.sim.items.get(id)!.body.translation();
+    this.balls.set(id, {
+      owner,
+      points: carry?.points ?? 0,
+      flippers: carry?.flippers ?? new Map(),
+      launchedAt: carry?.launchedAt ?? now,
+      anchor: { x: p.x, z: p.z, at: now },
+      x: p.x,
+    });
+    this.out.send({ t: 'spawn', at: now, body: this.body(id), ...(owner ? { label: owner.name } : {}) });
+    this.stateDirty = true;
+    return id;
+  }
+
+  /** With chat quiet, a ball near a flipper is flipped at, missing 1 time in AUTO_MISS. */
+  private autoSave(): void {
+    if (!this.autoSaving) return;
+    const now = this.sim.time;
+    for (const id of this.balls.keys()) {
+      if (id === this.heldBall) continue;
+      const side = this.sim.nearFlipper(id);
+      if (!side || now < this.autoNext[side]) continue;
+      this.autoNext[side] = now + RULES.flipHold + AUTO_REST;
+      if (Math.random() * AUTO_MISS < 1) continue; // a miss: the flipper stays down this time
+      this.autoUp[side] = now + RULES.flipHold;
+    }
+  }
+
+  private setFlippers(): void {
+    const now = this.sim.time;
+    for (const side of ['left', 'right'] as const) this.sim.flip(side, now < this.chatUp[side] || now < this.autoUp[side]);
+  }
+
+  /** A ball that has stayed within a ball's radius of one spot for stuckSeconds gets the table nudged. */
+  private watchStuck(): void {
+    const now = this.sim.time;
+    let stuck = false;
+    for (const [id, b] of this.balls) {
+      const ball = this.sim.items.get(id);
+      if (!ball) continue;
+      const p = ball.body.translation();
+      b.x = p.x;
+      if (id === this.heldBall || Math.hypot(p.x - b.anchor.x, p.z - b.anchor.z) > TABLE.ballRadius) {
+        b.anchor = { x: p.x, z: p.z, at: now };
+      } else if (now - b.anchor.at >= RULES.stuckSeconds) {
+        stuck = true;
+      }
+    }
+    if (!stuck) return;
+    this.sim.nudge();
+    for (const b of this.balls.values()) b.anchor.at = now;
+    this.feed('The table gets a nudge.', 'info');
+  }
+
+  // --- The table's hits ---
+
+  /** A part of the table was hit (after a substep, so this may launch, remove and clear). */
+  private hit(hit: Hit): void {
+    if (hit.kind === 'drain') {
+      this.drained(hit.ball);
+      return;
+    }
+    const b = this.balls.get(hit.ball);
+    if (!b) return;
+    this.score(b, this.pointsFor(hit));
+    switch (hit.kind) {
+      case 'target':
+        this.targetsHit.add(hit.id);
+        if (this.table.targets.every((t) => this.targetsHit.has(t.id))) {
+          // The bank comes back up for the next time round; the lock stays lit till a ball goes in.
+          this.targetsHit.clear();
+          this.sim.resetTargets();
+          if (!this.lockLit) {
+            this.lockLit = true;
+            this.feed('Lock lit!', 'milestone');
+          }
+        }
+        break;
+      case 'rollover':
+        this.rolloversLit.add(hit.id);
+        if (this.table.rollovers.every((r) => this.rolloversLit.has(r.id))) {
+          this.rolloversLit.clear();
+          if (!this.kickbackLit) {
+            this.kickbackLit = true;
+            this.feed('Kickback lit!', 'milestone');
+          }
+        }
+        break;
+      case 'lock':
+        if (this.lockLit && this.heldBall === null) this.startMultiball(hit.ball);
+        break;
+      case 'kickback':
+        if (this.kickbackLit) {
+          this.kickbackLit = false;
+          this.sim.kickback(hit.ball);
+          this.feed('Kickback!', 'win', b.owner ?? undefined);
+        }
+        break;
+    }
+    this.stateDirty = true;
+  }
+
+  /** What a hit scores, from the table (doubled under double score). */
+  private pointsFor(hit: Hit): number {
+    const t = this.table;
+    let points = 0;
+    if (hit.kind === 'bumper') points = t.bumpers.find((p) => p.id === hit.id)?.points ?? 0;
+    else if (hit.kind === 'sling') points = t.slings.find((p) => p.id === hit.id)?.points ?? 0;
+    else if (hit.kind === 'target') points = t.targets.find((p) => p.id === hit.id)?.points ?? 0;
+    else if (hit.kind === 'rollover') points = t.rollovers.find((p) => p.id === hit.id)?.points ?? 0;
+    else if (hit.kind === 'spinner') points = t.spinner.pointsPerTurn;
+    return this.doubleUntil > this.sim.time ? points * 2 : points;
+  }
+
+  private score(b: BallPlay, points: number): void {
+    if (points <= 0) return;
+    b.points += points;
+    this.stateDirty = true;
+  }
+
+  /** The lit lock holds this ball, and multiball begins: maxExtraBalls more, from the line and then the house. */
+  private startMultiball(id: number): void {
+    this.lockLit = false;
+    this.heldBall = id;
+    this.multiball = true;
+    this.sim.holdInLock(id);
+    for (let i = 0; i < RULES.maxExtraBalls; i++) this.extraBalls.push(this.nextInLine() ?? null);
+    this.nextExtraAt = this.sim.time;
+    const owner = this.balls.get(id)?.owner;
+    this.feed(`${owner ? `${owner.name}'s ball` : 'The ball'} is locked: MULTIBALL!`, 'milestone', owner ?? undefined);
+  }
+
+  /** A ball went down the drain (it's already off the table): saved, or paid. */
+  private drained(id: number): void {
+    const b = this.balls.get(id);
+    if (!b) return;
+    this.balls.delete(id);
+    this.out.send({ t: 'despawn', at: this.sim.time, id, reason: 'lost' });
+    this.stateDirty = true;
+    const now = this.sim.time;
+    if (now < b.launchedAt + RULES.ballSaverStart || now < this.saverUntil) {
+      this.launch(b.owner, b);
+      this.feed(`${b.owner ? `${b.owner.name}'s ball` : 'The house ball'} is saved!`, 'win', b.owner ?? undefined);
+      return;
+    }
+    this.pay(b);
+    // The multiball's last ball but one has drained: the held ball is let go.
+    const free = [...this.balls.keys()].filter((k) => k !== this.heldBall).length;
+    if (this.heldBall !== null && free <= 1 && this.extraBalls.length === 0) {
+      this.sim.release(this.heldBall);
+      this.heldBall = null;
+    }
+    if (this.heldBall === null && this.extraBalls.length === 0 && this.balls.size <= 1) this.multiball = false;
+  }
+
+  /**
+   * A drained ball's points make coins: round(ownerShare) of them to its owner, the rest shared equally by the others
+   * who flipped it (floor), and what's left over to the owner. Anyone the wallet no longer has is skipped, and a house
+   * ball pays nobody.
+   */
+  private pay(b: BallPlay): void {
+    const points = b.points.toLocaleString('en-US');
+    if (!b.owner) {
+      this.feed(`The house ball: ${points} points.`, 'info');
+      return;
+    }
+    const owner = b.owner;
+    const coins = Math.floor(b.points / RULES.pointsPerCoin);
+    const flippers = [...b.flippers.values()].filter((u) => u.id !== owner.id && this.economy.get(u.id));
+    const ownerShare = Math.round(coins * RULES.ownerShare);
+    const rest = coins - ownerShare;
+    const each = flippers.length ? Math.floor(rest / flippers.length) : 0;
+    const toOwner = ownerShare + (rest - each * flippers.length);
+    if (this.economy.get(owner.id)) this.credit(owner, toOwner, b.x);
+    for (const u of flippers) this.credit(u, each, b.x);
+    this.lastResult = { name: owner.name, points: b.points, coins };
+    this.feed(`${owner.name}'s ball: ${points} points, ${coins} coins.`, coins > 0 ? 'win' : 'info', owner);
+    if (b.points > 0) {
+      this.scores.push({ name: owner.name, points: b.points });
+      this.scores.sort((a, c) => c.points - a.points);
+      this.scores.length = Math.min(this.scores.length, HIGH_SCORES);
+    }
+    if (coins > 0) {
+      const milestone = this.economy.addToMeter(this.room.id, coins);
+      this.meterDirty = true;
+      if (milestone) {
+        this.feed(`CITY METER: ${milestone} unlocked!`, 'milestone');
+        this.meterDirty = false;
+        this.out.send({ t: 'meter', meter: this.economy.meterState(this.room.id), reached: milestone });
+      }
+    }
+  }
+
+  private credit(user: User, amount: number, x: number): void {
+    if (amount <= 0) return;
+    this.economy.credit(user, amount, true);
+    user.career.biggestWin = Math.max(user.career.biggestWin, amount);
+    this.economy.touched(user);
+    this.out.send({ t: 'score', at: this.sim.time, name: user.name, color: user.color, ...(user.nameFx ? { fx: user.nameFx } : {}), amount, balance: user.balance, x });
+    this.boardDirty = true;
+  }
+
+  private feed(text: string, tone: FeedTone, user?: User): void {
+    const item: FeedItem = { id: this.feedId++, text, tone, color: user?.color, platform: user?.platform };
+    if (user?.nameFx) item.fx = user.nameFx;
+    this.feedLog.push(item);
+    if (this.feedLog.length > FEED_KEPT) this.feedLog.shift();
+    this.out.send({ t: 'feed', item });
+  }
+
+  // --- For the tests ---
+
+  /** Test hook: points added to a ball on the table. */
+  addPoints(ball: number, points: number): void {
+    const b = this.balls.get(ball);
+    if (b) this.score(b, points);
+  }
+
+  /** Test hook: every drop target hit by this ball, through the hits' own path (so the lock lights). */
+  knockAllTargets(ball: number): void {
+    for (const t of this.table.targets) this.hit({ kind: 'target', id: t.id, ball });
+  }
+
+  /** How many viewers have flipped this ball (each once). */
+  flipperCount(ball: number): number {
+    return this.balls.get(ball)?.flippers.size ?? 0;
+  }
+}
+
+/** 1st, 2nd, 3rd, 4th ... 11th, 12th, 13th ... 21st. */
+function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+  return `${n}${suffix}`;
 }
