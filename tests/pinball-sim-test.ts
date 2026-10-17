@@ -1,5 +1,6 @@
 // The pinball's physics (server/sim.ts), headless with the real Rapier: a launch goes up the plunger lane and onto the
-// table, no shot gets out through a wall, a ball left alone drains, the flippers shoot to the upper table, a bumper
+// table, no shot gets out through a wall, a ball left alone drains, the right flipper shoots to the upper table (up the
+// left ramp and round the left orbit) and the left flipper into the pyramid's Eye bank and the sun bumper, a bumper
 // kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
 // is held and let go cleanly, and the snapshot has the Task 2 layout. (The pathways round the table are
 // pinball-layout-test's.)
@@ -40,11 +41,16 @@ function place(sim: PinballSim, x: number, z: number, vx = 0, vz = 0): number {
   return id;
 }
 
-/** Has ball `id` touch the part `partId` now, through the sim's own touch path (as a contact in a substep would). */
+/**
+ * Has ball `id` touch the part `partId` now, through the sim's own touch path (as a contact in a substep would). For
+ * flip targets and other parts that act in touch itself: it passes touch an empty to-drop list that nothing reads, so a
+ * drop target touched this way reports but never drops.
+ */
 function touch(sim: PinballSim, id: number, partId: string): void {
   const S = sim as any;
   const part = [...S.parts.values()].find((p: any) => p.id === partId);
   assert.ok(part, `no part ${partId}`);
+  assert.ok(part.kind !== 'target' || TABLE_IN_USE.targets[part.index].flip, `touch() is for flip targets, not the drop target ${partId}`);
   S.touch(S.items.get(id), part, sim.time, []);
 }
 
@@ -174,7 +180,7 @@ const checks: [string, () => void][] = [
     }
     assert.deepEqual(late, []);
   }],
-  ['flipper shots reach the upper table', () => {
+  ["the right flipper's shots reach the upper table", () => {
     // The right flipper: on the pyramid table its shots go up the left ramp and round the left orbit, over z 12 (the pop
     // bumpers' level, as on the stand-in table); the left flipper's, from these drops, run into the pyramid's Eye bank.
     const flipper = TABLE_IN_USE.flippers.find((f) => f.side === 'right')!;
@@ -208,6 +214,37 @@ const checks: [string, () => void][] = [
     }
     const reached = tops.filter((z) => z > 12).length;
     assert.ok(reached >= 6, `only ${reached} of 10 shots got past z 12: ${tops.map((z) => z.toFixed(1)).join(', ')}`);
+  }],
+  ["the left flipper's shots reach the Eye bank and the sun bumper", () => {
+    // On the pyramid table the left flipper shoots at the pyramid's lower-right face (the Eye bank, facing it) and the sun
+    // bumper above the right sling. Ten drops onto it, the same kind as the right flipper's but fixed (evenly spread over
+    // the drop spots and the flip points; measured 2026-10-17: 8 of these 10 hit one or the other, 7 the sun bumper).
+    const flipper = TABLE_IN_USE.flippers.find((f) => f.side === 'left')!;
+    const eyeBank = TABLE_IN_USE.banks.find((b) => b.id === 'bank-eye')!.targets;
+    const results: string[] = [];
+    let reached = 0;
+    for (let n = 0; n < 10; n++) {
+      const { sim, hits } = make();
+      sim.flip('left', true);
+      const id = place(sim, flipper.pivot[0] + 0.5 + (0.8 * n) / 9, flipper.pivot[1] + 1.6 + (0.8 * ((7 * n) % 10)) / 9);
+      for (let i = 0; i < 1.5 / DT; i++) sim.step();
+      sim.flip('left', false);
+      const at = (0.5 + (0.45 * ((3 * n) % 10)) / 9) * flipper.length;
+      const along = () => {
+        const p = sim.items.get(id)!.body.translation();
+        const a = (sim.flipperAngle('left') * Math.PI) / 180;
+        return (p.x - flipper.pivot[0]) * Math.cos(a) + (p.z - flipper.pivot[1]) * Math.sin(a);
+      };
+      for (let i = 0; i < 2 / DT && sim.items.has(id) && along() < at; i++) sim.step();
+      assert.ok(sim.items.has(id), `drop ${n}: the ball drained before the flip`);
+      hits.length = 0;
+      sim.flip('left', true);
+      for (let i = 0; i < 2 / DT && sim.items.has(id); i++) sim.step();
+      const got = hits.filter((h) => h.ball === id && (h.id === 'bumper-sun' || eyeBank.includes(h.id))).map((h) => h.id);
+      if (got.length) reached++;
+      results.push([...new Set(got)].join('+') || 'neither');
+    }
+    assert.ok(reached >= 7, `only ${reached} of 10 shots hit the Eye bank or the sun bumper: ${results.join(', ')}`);
   }],
   ['a bumper kicks and reports', () => {
     const { sim, hits } = make();
@@ -377,6 +414,24 @@ const checks: [string, () => void][] = [
         for (let i = 0; i < 2 / DT; i++) sim.step();
       });
     }
+  }],
+  ["multiball on a saucer's ball: holdInLock takes it from the saucer, and release throws it out of the lock", () => {
+    const { sim } = make();
+    const l = TABLE_IN_USE.lock;
+    const id = intoSaucer(sim);
+    sim.holdInLock(id);
+    assert.equal(sim.heldBy(id), 'lock');
+    // Past the saucer's hold: the saucer doesn't throw it out of the lock.
+    for (let i = 0; i < 2 / DT; i++) sim.step();
+    assert.equal(sim.heldBy(id), 'lock', "still the lock's after the saucer's hold");
+    const at = sim.items.get(id)!.body.translation();
+    assert.ok(Math.hypot(at.x - l.x, at.z - l.z) < 0.05, 'it sits in the lock');
+    sim.release(id);
+    assert.equal(sim.heldBy(id), null);
+    const v = sim.items.get(id)!.body.linvel();
+    // The lock's eject: down and in, toward the flippers (0.6, -0.8).
+    const cos = (v.x * 0.6 - v.z * 0.8) / Math.hypot(v.x, v.z);
+    assert.ok(cos > 0.99, `it left along the lock's eject (cos ${cos.toFixed(2)} to it)`);
   }],
   ['release() on a ball a saucer holds does nothing; the saucer lets it go along its own eject', () => {
     const { sim } = make();
