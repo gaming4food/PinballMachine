@@ -1,0 +1,49 @@
+/* The stand-in host's own bits: its small feed and connection line, and the panel page's layout. */
+body.host-stage {
+  margin: 0;
+  overflow: hidden;
+  background: #05060c;
+}
+#host-feed {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: 520px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: 500 26px 'Chakra Petch', sans-serif;
+  color: #fff;
+  text-shadow: 0 2px 4px #000;
+  z-index: 3;
+}
+#host-offline {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #b00020;
+  color: #fff;
+  font: 14px sans-serif;
+}
+body.host-panel {
+  max-width: 760px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+.host-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.host-row input[type='text'] {
+  flex: 1;
+  min-width: 120px;
+}
+#host-panel-feed {
+  max-height: 260px;
+  overflow: auto;
+  padding-left: 18px;
+}

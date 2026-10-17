@@ -1,0 +1,65 @@
+/*
+ * Animated names (2026-10-02), shared by the stage and the viewer dashboard; bought with !color rainbow, gold, glitch or sparkle: on the leaderboard, in the feed,
+ * over coins, in win popups and on alert cards. They override the plain name color wherever they're applied.
+ */
+.fx-rainbow {
+  background: linear-gradient(90deg, #ff3355, #ffd23f, #3dff8a, #22e6ff, #4d8dff, #ff2bd6, #ff3355) 0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none !important;
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.35));
+  animation: fx-slide 2s linear infinite;
+}
+
+.fx-gold {
+  background: linear-gradient(100deg, #b8860b 0%, #ffd23f 30%, #fff8d0 45%, #ffd23f 60%, #b8860b 100%) 0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none !important;
+  filter: drop-shadow(0 0 6px rgba(255, 200, 74, 0.55));
+  animation: fx-shimmer 2.4s linear infinite;
+}
+
+.fx-glitch {
+  color: #e8fbff !important;
+  text-shadow: 2px 0 #ff2bd6, -2px 0 #22e6ff !important;
+  animation: fx-glitch 1.8s steps(1) infinite;
+}
+
+.fx-sparkle {
+  color: #ffffff !important;
+  animation: fx-sparkle 1.4s ease-in-out infinite;
+}
+
+@keyframes fx-slide {
+  to { background-position: 200% 0; }
+}
+
+@keyframes fx-shimmer {
+  from { background-position: 125% 0; }
+  to { background-position: -125% 0; }
+}
+
+@keyframes fx-glitch {
+  0%, 72%, 100% { transform: none; text-shadow: 2px 0 #ff2bd6, -2px 0 #22e6ff; opacity: 1; }
+  74% { transform: translateX(-3px) skewX(-8deg); text-shadow: -4px 0 #ff2bd6, 4px 0 #22e6ff; }
+  78% { transform: translateX(3px); text-shadow: 3px 0 #3dff8a, -3px 0 #ff3355; opacity: 0.75; }
+  82% { transform: translateX(-1px) skewX(6deg); }
+  86% { transform: none; opacity: 1; }
+}
+
+@keyframes fx-sparkle {
+  0%, 100% { text-shadow: 0 0 4px #fff, 0 0 10px #ff9af0; }
+  50% { text-shadow: 0 0 8px #fff, 0 0 18px #9af0ff, 0 0 28px #fff6c8; }
+}
+
+/* Inline elements can't be shifted by transform, so glitching names become inline blocks. */
+span.fx-glitch,
+div.fx-glitch {
+  display: inline-block;
+}
+

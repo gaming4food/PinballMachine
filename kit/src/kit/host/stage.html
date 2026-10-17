@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stand-in stage</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body class="host-stage">
+    <div id="stage">
+      <canvas id="gl"></canvas>
+      <div id="labels"></div>
+      <div id="machine-overlay"></div>
+      <ol id="host-feed"></ol>
+    </div>
+    <div id="host-offline" hidden>Connecting to the stand-in host…</div>
+    <script type="module" src="./stage.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,2322 @@
+:root {
+  --bg: #0a0614;
+  --card: #140c26;
+  --line: #2d2150;
+  --ink: #f1eaff;
+  --muted: #a99bd0;
+  --pink: #ff2bd6;
+  --cyan: #22e6ff;
+  --yellow: #ffd23f;
+  --red: #ff4d6a;
+  --arcade: 'Press Start 2P', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Chakra Petch', system-ui, sans-serif;
+  font-size: 16px;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The header's clickable group: Setup guide, and on the owner's PC Admin and Subscriber view. */
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* For watching, on the right: whose panel it is, and whether the server is running. */
+.header-state {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+h1 {
+  margin: 0;
+  font-family: var(--arcade);
+  font-size: 18px;
+  color: var(--pink);
+  text-shadow: 0 0 10px rgba(255, 43, 214, 0.6);
+}
+
+h1 small {
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--cyan);
+  text-shadow: none;
+}
+
+/* Whether the server is running: a light, not a button. */
+.conn {
+  font-weight: 700;
+  color: var(--red);
+  white-space: nowrap;
+}
+
+.conn::before {
+  content: '●';
+  margin-right: 6px;
+}
+
+.conn.on {
+  color: #4dffb0;
+}
+
+/* The numbers for keeping an eye on things (topbar.ts): quiet words, nothing to click. */
+.status-line {
+  margin: 0;
+  padding: 10px 24px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.status-line b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.stat + .stat::before {
+  content: '·';
+  margin: 0 9px;
+  color: #4a3d73;
+}
+
+/* Each platform (topbar.ts): a button to its tab in the Connections card, its dot as on the card's tabs. */
+.conn-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 24px 0;
+}
+
+.conn-shortcut {
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #0c0719;
+}
+
+.conn-shortcut::after {
+  content: '›';
+  margin-left: 8px;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 24px 0;
+}
+
+.chip {
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.chip b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip.conn-connected {
+  border-color: #1f6b4f;
+}
+
+.chip.conn-connected b {
+  color: #4dffb0;
+}
+
+.chip.conn-connecting b {
+  color: var(--yellow);
+}
+
+.chip.conn-waiting b {
+  color: var(--cyan);
+}
+
+.chip.conn-error {
+  border-color: #6a2038;
+}
+
+.chip.conn-error b {
+  color: var(--red);
+}
+
+.notice {
+  margin: 14px 24px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+  background: #0d2e24;
+  color: #4dffb0;
+}
+
+.notice.error {
+  background: #3a1020;
+  color: #ffb3c2;
+}
+
+/* What's on the stream (air.ts, onair.ts): red while a machine is on air, grey while none is. */
+.air-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 14px 24px 0;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.air-bar.live {
+  background: var(--red);
+  color: #fff;
+}
+
+.air-bar.off {
+  background: var(--muted);
+  color: var(--bg);
+}
+
+/* A studio's on-air light. */
+.air-text::before {
+  content: '●';
+  margin-right: 8px;
+}
+
+.air-bar button {
+  font-size: 15px;
+}
+
+/* The switch whose "Switch now?" is showing stays lit. */
+.air-bar button[aria-expanded='true'] {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.air-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.air-confirm[hidden] {
+  display: none;
+}
+
+/* Why Switch can't move the machine the panel controls: a line of its own, under the buttons. */
+.air-note {
+  flex-basis: 100%;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.code-box {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #0c0719;
+  border: 1px solid var(--pink);
+  font-size: 18px;
+}
+
+.code-box b {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #221540;
+  font-family: var(--arcade);
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: var(--yellow);
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cyan);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 24px 40px;
+}
+
+@media (max-width: 1100px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* The machine column's head (air.ts): the machine the panel controls, and whether it's on air. */
+.machine-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.machine-head-icon {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.machine-head-name {
+  margin: 0;
+  font-family: var(--arcade);
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.machine-head-air {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--bg);
+  font-family: var(--arcade);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.machine-head-air.live {
+  background: var(--red);
+  color: #fff;
+}
+
+.card {
+  position: relative;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
+/* Folding: the arrow in each card's corner (see main.ts). A folded card shows only its title. */
+.fold {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.fold:hover,
+.fold:focus-visible {
+  border-color: var(--line);
+  background: #221540;
+  color: var(--ink);
+}
+
+.fold svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
+}
+
+.card.folded .fold svg {
+  transform: rotate(-90deg);
+}
+
+.card.folded > :not(h2, .fold) {
+  display: none;
+}
+
+.card.folded h2 {
+  margin-bottom: 0;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  padding-right: 34px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--arcade);
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--yellow);
+}
+
+.card h3 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  color: var(--cyan);
+}
+
+.card.danger {
+  border-color: #5a1a2c;
+}
+
+/* A checkerboard behind the preview, so a see-through layout shows as see-through, not black. */
+.preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: repeating-conic-gradient(#1a1430 0% 25%, #120d24 0% 50%) 0 0 / 20px 20px;
+}
+
+.now-playing {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0c0719;
+  border: 1px solid var(--line);
+}
+
+.np-label {
+  font-family: var(--arcade);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--cyan);
+}
+
+.np-title {
+  margin: 6px 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-bar {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#np-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--pink), var(--cyan));
+  transition: width 1s linear;
+}
+
+.np-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+
+.np-controls .hint {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mute music on my end (MusicState.mutedHere), and how to add the music source it needs. */
+.here-mute {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 14px 0 0;
+}
+
+.here-mute .hint {
+  margin: 0;
+}
+
+#music-source-help ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+#music-source-help li {
+  margin-bottom: 6px;
+}
+
+#music-source-help code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.range.volume {
+  grid-template-columns: 8.5em 1fr 4ch;
+}
+
+.board.queue {
+  margin: 10px 0;
+}
+
+.queue:empty::before {
+  content: 'No requests waiting.';
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.queue .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue .coins {
+  color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.segmented label {
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:has(input:checked) {
+  background: #221540;
+  color: var(--ink);
+  box-shadow: inset 0 -2px var(--pink);
+}
+
+.segmented label:has(input:focus-visible) {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.backdrops {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backdrops:empty::before {
+  content: 'No video loops yet.';
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.backdrops li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 10px;
+  background: #0c0719;
+  border: 1px solid var(--line);
+}
+
+.backdrops li.on-air {
+  border-color: var(--pink);
+  box-shadow: 0 0 12px rgba(255, 43, 214, 0.35);
+}
+
+.backdrops button.thumb {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+.backdrops button.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.backdrops .badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--pink);
+  color: #fff;
+  font-family: var(--arcade);
+  font-size: 7px;
+}
+
+.backdrops .title {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backdrops label.inline {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.preview-off {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  text-align: center;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.preview-off[hidden] {
+  display: none;
+}
+
+#preview-mode {
+  margin-left: 6px;
+  padding: 4px 8px;
+}
+
+.preview iframe,
+.preview video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Always 16:9 like the stage: a frame of another shape is OBS's picture stretched to fit, and this undoes it. */
+.preview video {
+  object-fit: fill;
+  background: #000;
+}
+
+.preview video[hidden],
+.preview iframe[hidden] {
+  display: none;
+}
+
+.preview-off button {
+  margin-top: 12px;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+a {
+  color: var(--cyan);
+}
+
+code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: #0a0614;
+  color: var(--cyan);
+}
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.row input {
+  flex: 1;
+  min-width: 0;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: var(--ink);
+  background: #0c0719;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+button {
+  cursor: pointer;
+  font-weight: 700;
+  background: #221540;
+}
+
+button:hover {
+  border-color: var(--cyan);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button.warn {
+  background: #3a1020;
+  border-color: #6a2038;
+  color: #ffb3c2;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+label.inline {
+  cursor: pointer;
+}
+
+label.inline input {
+  accent-color: var(--cyan);
+  vertical-align: middle;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.switch input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--pink);
+}
+
+.range {
+  display: grid;
+  grid-template-columns: auto 1fr 3ch;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.range input {
+  accent-color: var(--cyan);
+  padding: 0;
+}
+
+.board,
+.feed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.board li,
+.feed li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #0c0719;
+}
+
+.board .name {
+  flex: 1;
+  color: var(--c, var(--ink));
+  font-weight: 700;
+}
+
+.board .coins {
+  color: var(--yellow);
+  font-variant-numeric: tabular-nums;
+}
+
+.feed li {
+  border-left: 3px solid var(--c, var(--line));
+}
+
+.plat {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 20px;
+  flex: none;
+  border-radius: 5px;
+  font-family: var(--arcade);
+  font-size: 8px;
+  color: #fff;
+}
+
+.plat-twitch {
+  background: #9146ff;
+}
+
+.plat-youtube {
+  background: #ff0033;
+}
+
+.plat-tiktok {
+  background: #111;
+  box-shadow: inset 3px 0 #25f4ee, inset -3px 0 #fe2c55;
+}
+
+.plat-kick {
+  background: #53fc18;
+  color: #062100;
+}
+
+.plat-tips {
+  background: #ffd23f;
+  color: #3a1d00;
+}
+
+.plat-sim {
+  background: #555;
+}
+
+/* The Chat card (chat.ts), and its pop-out window (chat.html): every platform's chat in one list. */
+.chat-box {
+  position: relative;
+}
+
+.chat {
+  height: 420px;
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.chat-line {
+  padding: 4px 8px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.chat-line:hover {
+  background: #0c0719;
+}
+
+.chat-line time {
+  margin-right: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-line .plat {
+  width: 26px;
+  height: 16px;
+  margin-right: 6px;
+  font-size: 7px;
+  vertical-align: 1px;
+}
+
+.chat-tag {
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #2b2440;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.chat-name {
+  margin-right: 2px;
+  color: var(--ink);
+}
+
+.chat-line:not(.chat-support) .chat-name::after {
+  content: ':';
+  color: var(--muted);
+}
+
+.chat-twitch {
+  color: #bf94ff;
+}
+
+.chat-youtube {
+  color: #ff7a8a;
+}
+
+.chat-kick {
+  color: #53fc18;
+}
+
+.chat-tips {
+  color: var(--yellow);
+}
+
+.chat-tiktok {
+  color: #25f4ee;
+}
+
+.chat-sim {
+  color: var(--muted);
+}
+
+.chat-text {
+  color: var(--ink);
+}
+
+/* Support (gifts, subs, Super Chats, raids, tips) stands out, so none of it scrolls past unnoticed. */
+.chat-support {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--yellow);
+  background: #231a0a;
+}
+
+.chat-support:hover {
+  background: #2c2110;
+}
+
+.chat-what {
+  color: var(--yellow);
+  font-weight: 700;
+}
+
+/* Your own messages. */
+.chat-streamer {
+  background: rgba(34, 230, 255, 0.07);
+}
+
+.chat-empty {
+  padding: 8px;
+  color: var(--muted);
+}
+
+.chat-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--cyan);
+  color: #04121a;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.chat-jump:hover {
+  background: #7cf0ff;
+  color: #04121a;
+}
+
+.chat-jump[hidden] {
+  display: none;
+}
+
+/* The pop-out window: the list fills it, for a second screen or an OBS dock (which can be narrow). */
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+}
+
+.chat-page header {
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.chat-page .chat-box {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 4px 6px 8px;
+}
+
+.chat-page .chat {
+  height: 100%;
+}
+
+/* The StreamElements tip pages whose tips come in. */
+.tips-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 4px;
+  font-size: 14px;
+}
+
+.tips-list li.conn-connected b {
+  color: #4dffb0;
+}
+
+.tips-list li.conn-error b {
+  color: var(--red);
+}
+
+/* The viewer lookup's results (2026-10-02): one card per viewer, their career in labelled groups. */
+#career-results {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.career {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.career-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+
+.career h3 {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--cyan, #22e6ff);
+}
+
+.career dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.career dt {
+  opacity: 0.75;
+}
+
+.career dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Remove this viewer…, quiet at the foot of their card, asking first in the card (main.ts, removeViewer). */
+.career-remove {
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+/* The Viewer dashboard card's form: address and token on their own lines. */
+.stack {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.warn-text {
+  color: #ff6b8a;
+}
+
+/* The Layouts card (2026-10-02): one box per layout. */
+/* --- Layouts card: tabs, the picked layout's mini map, chips, banner and countdown (see layouts.ts) --- */
+
+.layout-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 14px;
+}
+
+.layout-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #0c0719;
+  color: var(--muted);
+}
+
+.layout-tab[aria-selected='true'] {
+  color: var(--ink);
+  border-color: var(--pink);
+  background: #221540;
+  box-shadow: 0 0 14px rgba(255, 43, 214, 0.25);
+}
+
+.layout-tab.add {
+  color: var(--cyan);
+  border-style: dashed;
+}
+
+.tab-timer {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(34, 230, 255, 0.14);
+  color: var(--cyan);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Which machine a layout shows, on its tab (the Machine row under the tabs switches it). */
+.tab-machine {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+/* The Machine row (2026-10-07): the machine the picked layout shows, right under the layout tabs. */
+.layout-machines {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 14px;
+  margin: -4px 0 16px;
+}
+
+.layout-machines .row-label {
+  padding-top: 13px;
+}
+
+/* The buttons wrap under each other, not under the label. */
+.machine-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.layout-machines .hint-inline {
+  grid-column: 2;
+}
+
+.machine-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 12px;
+  background: #0c0719;
+  color: var(--muted);
+}
+
+.machine-pick[aria-pressed='true'] {
+  color: var(--ink);
+  border-color: var(--cyan);
+  background: #10233a;
+  box-shadow: 0 0 14px rgba(34, 230, 255, 0.3);
+}
+
+.machine-icon {
+  font-size: 19px;
+  line-height: 1;
+}
+
+/* A machine not unlocked, or on the way: darkened, with a bright tab; the whole of it opens the website. */
+a.machine-pick {
+  border: 1px dashed var(--line);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+a.machine-pick:hover {
+  border-color: var(--cyan);
+}
+
+a.machine-pick .machine-icon,
+a.machine-pick .machine-name {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.machine-tab {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.machine-pick.locked .machine-tab {
+  border: 1px solid rgba(255, 210, 63, 0.55);
+  background: rgba(255, 210, 63, 0.14);
+  color: var(--yellow);
+}
+
+.machine-pick.soon .machine-tab {
+  border: 1px solid rgba(34, 230, 255, 0.45);
+  background: rgba(34, 230, 255, 0.1);
+  color: var(--cyan);
+}
+
+.layout-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+/* The mini map: the screen in small, each piece a button. On pieces glow; off ones are dashed outlines. */
+.layout-map {
+  position: relative;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  cursor: pointer;
+  background: radial-gradient(120% 90% at 50% 100%, #3a1a6e 0%, #1a0d33 55%, #0b0618 100%);
+}
+
+.layout-map.full {
+  width: 300px;
+  aspect-ratio: 16 / 9;
+}
+
+/* Background off: see-through, like the corner layout. */
+.layout-map.full.no-bg {
+  background: repeating-conic-gradient(#1a1430 0% 25%, #120d24 0% 50%) 0 0 / 16px 16px;
+}
+
+/* The corner layout is see-through: a checkerboard says so. */
+.layout-map.corner {
+  width: 156px;
+  aspect-ratio: 1040 / 1200;
+  cursor: default;
+  background: repeating-conic-gradient(#1a1430 0% 25%, #120d24 0% 50%) 0 0 / 16px 16px;
+}
+
+.map-machine,
+.map-banner,
+.map-piece {
+  position: absolute;
+  border-radius: 6px;
+}
+
+.map-machine {
+  border: 2px solid rgba(255, 43, 214, 0.75);
+  background: linear-gradient(180deg, rgba(255, 43, 214, 0.18), rgba(34, 230, 255, 0.12));
+  box-shadow: 0 0 12px rgba(255, 43, 214, 0.35);
+  pointer-events: none;
+}
+
+.map-banner {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pink);
+  background: rgba(10, 5, 24, 0.85);
+  color: var(--ink);
+  font: 7px/1 var(--arcade);
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.map-banner[hidden] {
+  display: none;
+}
+
+.map-piece {
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+  background: rgba(34, 230, 255, 0.16);
+  border: 1px solid rgba(34, 230, 255, 0.7);
+  overflow: hidden;
+}
+
+.map-piece[aria-pressed='false'] {
+  color: rgba(169, 155, 208, 0.55);
+  background: transparent;
+  border: 1px dashed rgba(169, 155, 208, 0.45);
+}
+
+.map-piece:hover {
+  border-color: var(--yellow);
+}
+
+.piece-names,
+.piece-alerts,
+.corner .map-piece {
+  font-size: 9px;
+}
+
+.piece-alerts[aria-pressed='true'] {
+  background: rgba(255, 210, 63, 0.85);
+  color: #3a2200;
+  border-color: var(--yellow);
+}
+
+.piece-names[aria-pressed='true'] {
+  background: rgba(255, 43, 214, 0.35);
+  border-color: var(--pink);
+}
+
+.layout-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.layout-name {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 18px;
+  font-weight: 700;
+  background: transparent;
+  border-color: transparent;
+}
+
+.layout-name:hover,
+.layout-name:focus {
+  border-color: var(--line);
+  background: #0c0719;
+}
+
+.layout-about {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.layout-own {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.layout-obs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.copy-link {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.layout-size {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.layout-link {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-rows {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.layout-row {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.row-label {
+  padding-top: 9px;
+  color: var(--muted);
+  font: 9px/1.6 var(--arcade);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.piece-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.piece-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  color: var(--ink);
+  background: rgba(34, 230, 255, 0.12);
+  border-color: rgba(34, 230, 255, 0.6);
+}
+
+.piece-chip::before {
+  content: '●';
+  margin-right: 6px;
+  color: var(--cyan);
+}
+
+.piece-chip[aria-pressed='false'] {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--line);
+}
+
+.piece-chip[aria-pressed='false']::before {
+  content: '○';
+  color: var(--muted);
+}
+
+.banner-input {
+  width: 100%;
+  max-width: 340px;
+}
+
+.countdown {
+  display: grid;
+  gap: 10px;
+}
+
+.countdown-head,
+.countdown-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.countdown-switch {
+  min-width: 58px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.countdown-switch[aria-pressed='true'] {
+  color: #08040f;
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.hint-inline {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.segmented.small .seg {
+  border: 0;
+  border-radius: 0;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.segmented.small .seg[aria-pressed='true'] {
+  background: #221540;
+  color: var(--ink);
+  box-shadow: inset 0 -2px var(--pink);
+}
+
+.words {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.words-input {
+  width: 150px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stepper .step {
+  border: 0;
+  border-radius: 0;
+  width: 38px;
+  font-size: 18px;
+  padding: 6px 0;
+}
+
+.stepper-value {
+  min-width: 82px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.start {
+  border-color: var(--pink);
+}
+
+.countdown-status {
+  color: var(--cyan);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.go-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.countdown .hint {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .layout-top {
+    grid-template-columns: 1fr;
+  }
+
+  .layout-map.full {
+    width: 100%;
+  }
+
+  .layout-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .row-label {
+    padding-top: 0;
+  }
+}
+
+/* --- The owner's and the subscriber's views (see panels.ts and docs/CONTROL_PANELS.md) --- */
+
+body.view-subscriber [data-view='owner'],
+body:not(.view-subscriber) [data-view='subscriber'] {
+  display: none !important;
+}
+
+/* In the owner's view, cards a paying streamer doesn't get are labeled. */
+body:not(.view-subscriber) .card[data-view='owner'] > h2::after {
+  content: 'OWNER';
+  margin-left: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  vertical-align: 2px;
+}
+
+.view-link {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.view-link {
+  border: 1px solid var(--line);
+  color: var(--cyan);
+  text-decoration: none;
+}
+
+.view-link:hover {
+  border-color: var(--cyan);
+}
+
+/* Whose panel it is: a label, not a button. */
+.view-badge {
+  color: var(--pink);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* A machine's own hype buttons (src/kit/hype.ts draws them, here and on the stand-in host's panel). */
+.hype-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+/* The icon, then the name with its caption under it. They stay together in the middle if the button is stretched. */
+.hype-button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  align-content: center;
+  column-gap: 10px;
+  padding: 12px 14px;
+  text-align: left;
+  border-width: 2px;
+  border-color: var(--pink);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--pink) 22%, #120a24), #120a24 70%);
+}
+
+.hype-button:hover {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--pink) 45%, transparent);
+}
+
+.hype-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* Small print on its own line under the name, when the panel gives the button a caption (drawHype's captions). */
+.hype-caption {
+  grid-column: 2;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Waiting for the next drop: it says Ready, and another press does nothing. */
+.hype-button.ready {
+  border-color: #4dffb0;
+  background: #0d2e24;
+  color: #4dffb0;
+  box-shadow: none;
+  cursor: default;
+}
+
+.hype-button.ready:active {
+  transform: none;
+}
+
+/* Connections: a tab per service, with a dot for how it's doing. */
+.conn-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 14px;
+}
+
+.conn-tab {
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--muted);
+  background: #0c0719;
+}
+
+.conn-tab::before,
+.conn-shortcut::before {
+  content: '●';
+  margin-right: 6px;
+  color: #3a2f5c;
+}
+
+.conn-tab[aria-selected='true'] {
+  color: var(--ink);
+  border-color: var(--pink);
+  background: #221540;
+}
+
+.conn-tab[data-state='connected']::before,
+.conn-shortcut[data-state='connected']::before {
+  color: #4dffb0;
+}
+
+.conn-tab[data-state='waiting']::before,
+.conn-shortcut[data-state='waiting']::before {
+  color: var(--cyan);
+}
+
+.conn-tab[data-state='connecting']::before,
+.conn-shortcut[data-state='connecting']::before {
+  color: var(--yellow);
+}
+
+.conn-tab[data-state='error']::before,
+.conn-shortcut[data-state='error']::before {
+  color: var(--red);
+}
+
+/* Connections' long addresses (in code, and as links) wrap, so a phone-width window doesn't scroll sideways. */
+.tab-panel code,
+.tab-panel a {
+  overflow-wrap: anywhere;
+}
+
+/* Prices: one row each, with the owner's limits at the end in the owner's view. */
+.prices {
+  display: grid;
+  gap: 8px;
+}
+
+.price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.price-name {
+  min-width: 11em;
+  font-weight: 700;
+}
+
+.price-row input[type='number'] {
+  width: 92px;
+}
+
+.price-limits {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.price-row .price-limits input[type='number'] {
+  width: 78px;
+  padding: 5px 6px;
+}
+
+/* A machine's hype in the Prices card: its heading and its switch, then a price row for each button chat can buy. */
+.price-group {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.price-group h3 {
+  margin: 0;
+}
+
+/* A hype row's name is longer ("!word (button)"), so its column is wider and the price boxes still line up. */
+.price-group .price-name {
+  min-width: 13em;
+}
+
+/* Alert voice: one tile each, with a play button for its sample. */
+.voices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+}
+
+.voice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.voice:has(input:checked) {
+  border-color: var(--pink);
+  background: #221540;
+}
+
+.voice-name {
+  font-weight: 700;
+}
+
+.voice .play {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+/* Resets: what's about to happen, and RESET typed before it does. */
+.confirm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--red);
+  border-radius: 10px;
+}
+
+.confirm-row[hidden] {
+  display: none;
+}
+
+.confirm-row input {
+  width: 110px;
+  text-transform: uppercase;
+}
+
+/* The machine column's resets: the machine's own words, then its Reset and, smaller, its City Meter's. */
+#reset-words {
+  margin: 0 0 12px;
+}
+
+#reset-meter {
+  align-self: center;
+  padding: 5px 10px;
+  font-size: 14px;
+}
+
+/* --- The setup guide (see guide.ts): one step per screen over the panel, opened again with Setup guide --- */
+
+.guide-open {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border-color: var(--cyan);
+  background: transparent;
+  color: var(--cyan);
+  white-space: nowrap;
+}
+
+dialog.guide {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--pink);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 0 40px rgba(255, 43, 214, 0.25);
+}
+
+dialog.guide[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.guide::backdrop {
+  background: rgba(5, 2, 12, 0.8);
+  backdrop-filter: blur(3px);
+}
+
+.guide-head {
+  position: relative;
+  padding: 16px 20px 0;
+}
+
+.guide-eyebrow {
+  font: 10px/1 var(--arcade);
+  letter-spacing: 1px;
+  color: var(--cyan);
+}
+
+.guide-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.guide-close:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.guide-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0 40px 0 0;
+  list-style: none;
+}
+
+.guide-pill {
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--muted);
+  background: #0c0719;
+}
+
+.guide-pill.done::before {
+  content: '✓ ';
+  color: #4dffb0;
+}
+
+.guide-pill[aria-current='step'] {
+  color: var(--ink);
+  border-color: var(--pink);
+  background: #221540;
+}
+
+.guide-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 20px 8px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.guide-body h2 {
+  margin: 16px 0 8px;
+  font-family: var(--arcade);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--yellow);
+}
+
+.guide-lead {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.guide-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.guide-foot .spacer {
+  flex: 1;
+}
+
+.guide-foot button.link[hidden] {
+  display: none;
+}
+
+.guide-next {
+  padding: 10px 18px;
+  border-color: var(--pink);
+  background: var(--pink);
+  color: #08040f;
+}
+
+.guide-next:hover {
+  border-color: var(--yellow);
+}
+
+/* OBS Studio or Streamlabs. */
+.guide-app {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+}
+
+.guide-app-label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* The welcome screen's list of steps, each one a way in. */
+.guide-checklist {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-checklist button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: #0c0719;
+}
+
+.guide-checklist .state {
+  flex: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.guide-checklist .done .state {
+  color: #4dffb0;
+}
+
+/* Connect your chat: a row per platform. */
+.guide-platforms {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-platform {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0c0719;
+}
+
+.guide-platform.on {
+  border-color: #1f6b4f;
+}
+
+.guide-platform.problem {
+  border-color: #6a2038;
+}
+
+.guide-platform .who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.guide-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.guide-platform.on .guide-state {
+  color: #4dffb0;
+}
+
+.guide-platform.problem .guide-state {
+  color: var(--red);
+}
+
+.guide-platform .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.guide-kick {
+  display: flex;
+  gap: 6px;
+}
+
+.guide-kick input {
+  width: 150px;
+}
+
+.guide-note {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 700;
+  background: #0d2e24;
+  color: #4dffb0;
+}
+
+.guide-note.error {
+  background: #3a1020;
+  color: #ffb3c2;
+}
+
+/* A layout's step: its link, the clicks, and whether OBS has it yet. */
+.guide-link {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.guide-link-field {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  color: var(--cyan);
+}
+
+.guide-how li {
+  margin-bottom: 4px;
+}
+
+.guide-seen {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.guide-seen.on {
+  border-style: solid;
+  border-color: #1f6b4f;
+  background: #0d2e24;
+  color: #4dffb0;
+}
+
+/* Test it: the two test buttons, big. */
+.guide-tests {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.guide-test {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  text-align: left;
+  border-width: 2px;
+  border-color: var(--cyan);
+}
+
+.guide-test b {
+  font-size: 17px;
+  color: var(--cyan);
+}
+
+.guide-test span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.guide-help {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.guide-help summary {
+  cursor: pointer;
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.guide-help ul,
+.guide-done {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.guide-done li {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 560px) {
+  .guide-tests {
+    grid-template-columns: 1fr;
+  }
+
+  .guide-platform {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .guide-platform > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .guide-kick input {
+    flex: 1;
+    width: auto;
+  }
+}
+
+/* A source's name stays on one line. */
+.guide-how code {
+  white-space: nowrap;
+}
+
+/* On a phone the header's badges go onto a second line instead of making the page wider than the screen. */
+@media (max-width: 700px) {
+  header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+}
+
+/* The streamer's plan across the top when it needs them (panels.ts's renderBilling): no trial yet, or a problem. */
+.billing-banner {
+  margin: 14px 24px 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--pink);
+  background: #1d0f35;
+}
+
+.billing-banner.warn {
+  border-color: #6a2038;
+  background: #2a0d1a;
+}
+
+.billing-banner p {
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.billing-go {
+  border-color: var(--pink);
+  background: var(--pink);
+  color: #08040f;
+}
+
+.billing-go:hover {
+  border-color: var(--yellow);
+}
+
+#account-billing {
+  margin: 4px 0 2px;
+}
+
+#account-billing[hidden],
+.billing-banner[hidden] {
+  display: none;
+}
+
+/* The setup guide's note when the machine is off (no trial yet, unpaid, ended), with what switches it on. */
+.guide-billing {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--pink);
+  border-radius: 10px;
+  background: #1d0f35;
+}
+
+.guide-billing.warn {
+  border-color: #6a2038;
+  background: #2a0d1a;
+}
+
+.guide-billing p {
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+/* The owner's own panel links to the admin view. */
+.admin-link {
+  text-decoration: none;
+}
+
+.admin-link[hidden] {
+  display: none;
+}
+
+/* The app's downloads (the Downloads card): one bar across the card. */
+.downloads-bar {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--pink);
+}
+
+/* The app's License card (licence.ts): one line per machine, with Add it and All machines on the ones not covered. */
+.licence-machines {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.licence-machines button {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+#licence-key {
+  flex: 1;
+  min-width: 260px;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 1px;
+}
+
+#licence-error {
+  color: #ff8a8a;
+}
+
+#licence [hidden] {
+  display: none;
+}

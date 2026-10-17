@@ -1,0 +1,3 @@
+# Line endings stay LF on Windows checkouts too, as in coin-op-city: the files on disk are the files in git, byte for
+# byte. machine:import reads each file of src/ from the commit, not the disk, so what it copies is LF either way.
+* text=auto eol=lf

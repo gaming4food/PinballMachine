@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stand-in panel</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body class="host-panel">
+    <h1 id="host-title">Stand-in host</h1>
+    <p><a href="./stage.html" target="_blank">Open the stage</a> · <span id="host-online">connecting…</span></p>
+    <article class="card">
+      <h2>Chat</h2>
+      <form id="host-chat" class="host-row">
+        <input id="host-name" type="text" value="Amy" aria-label="Viewer's name" />
+        <input id="host-text" type="text" placeholder="What they type, e.g. join" aria-label="Chat line" />
+        <button type="submit">Send</button>
+      </form>
+    </article>
+    <article class="card">
+      <h2>Fake audience</h2>
+      <div class="host-row">
+        <label><input id="host-bot" type="checkbox" /> On</label>
+        <label>Messages a second <input id="host-rate" type="number" min="0" max="50" step="1" value="3" /></label>
+      </div>
+    </article>
+    <article class="card" id="host-card">
+      <h2 id="host-card-title"></h2>
+      <div id="host-card-body"></div>
+    </article>
+    <article class="card" id="host-hype" hidden>
+      <h2>Hype buttons</h2>
+      <div id="host-hype-buttons" class="buttons"></div>
+    </article>
+    <article class="card" id="host-reset" hidden>
+      <h2>Reset</h2>
+      <div class="buttons">
+        <button id="host-reset-button" type="button" class="warn"></button>
+      </div>
+      <p id="host-reset-words" class="hint"></p>
+    </article>
+    <article class="card">
+      <h2>Feed</h2>
+      <ol id="host-panel-feed"></ol>
+    </article>
+    <script type="module" src="./panel.ts"></script>
+  </body>
+</html>

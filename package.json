@@ -1,0 +1,33 @@
+{
+  "name": "pinball-machine",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinball: Coin-Op City's pinball table, as its own project.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --disable-warning=ExperimentalWarning kit/src/kit/host/host.ts --dir src --port 7841",
+    "contract-test": "tsx --disable-warning=ExperimentalWarning tests/contract-test.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run -s contract-test"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-simd-compat": "^0.21.0",
+    "@fontsource/chakra-petch": "^5.3.0",
+    "@fontsource/monoton": "^5.3.0",
+    "@fontsource/press-start-2p": "^5.3.0",
+    "obscenity": "^0.4.6",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
