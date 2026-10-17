@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
 import { PinballSim } from '../src/server/sim';
 import { LIT, SNAP_PINBALL_HEADER } from '../src/shared/pinball';
-import { STAND_IN } from '../src/shared/table';
+import { TABLE_IN_USE } from '../src/shared/table';
 import { readPinballHeader } from '../src/stage/pinball-header';
 
 await initPhysics();
@@ -17,7 +17,7 @@ const test = (name: string, fn: () => void) => tests.push([name, fn]);
 const headerOf = (sim: PinballSim, lit: number) => new DataView(new Uint8Array(sim.snapshot(lit)).buffer, 0, SNAP_PINBALL_HEADER);
 
 test('the stage reads the header as the server wrote it: the time, the count, both flippers, the lit inserts, the targets and the spinner', () => {
-  const sim = new PinballSim(STAND_IN, () => {});
+  const sim = new PinballSim(TABLE_IN_USE, () => {});
   sim.launch(3);
   sim.launch(null);
   sim.flip('left', true);
@@ -34,13 +34,13 @@ test('the stage reads the header as the server wrote it: the time, the count, bo
 });
 
 test('a table at rest: no balls, both flippers down, nothing lit, every target up', () => {
-  const sim = new PinballSim(STAND_IN, () => {});
+  const sim = new PinballSim(TABLE_IN_USE, () => {});
   const h = readPinballHeader(headerOf(sim, 0));
   assert.deepEqual(h, { simTime: 0, count: 0, left: -30, right: 210, lit: 0, targets: 0, spinner: 0 });
 });
 
 test('the right flipper up and every lit bit on', () => {
-  const sim = new PinballSim(STAND_IN, () => {});
+  const sim = new PinballSim(TABLE_IN_USE, () => {});
   sim.flip('right', true);
   for (let i = 0; i < 10; i++) sim.step();
   const all = Object.values(LIT).reduce((a, b) => a | b, 0);

@@ -34,7 +34,7 @@ import {
   WIDTH,
 } from '@kit/stage';
 import { pinballHypeOf, type PinballState, pinballStateOf } from '../shared/pinball';
-import { STAND_IN, TABLE } from '../shared/table';
+import { TABLE_IN_USE, TABLE } from '../shared/table';
 import { CoinBurst } from './coin-burst';
 import { type PinballHeader, readPinballHeader } from './pinball-header';
 import { ballSaved } from './pinball-hud';
@@ -127,7 +127,7 @@ export class PinballScene implements MachineScene {
   ) {
     // The pinball's own sounds on the stage's synth (pinball-sounds.ts); the bumpers and slings flash with theirs.
     const voice = new PinballVoice(sounds?.synth() ?? null);
-    this.parts = new TableParts(STAND_IN);
+    this.parts = new TableParts(TABLE_IN_USE);
     this.cues = new PinballSoundCues({
       flip: () => voice.flip(),
       bumper: (id) => {
@@ -163,7 +163,7 @@ export class PinballScene implements MachineScene {
 
     this.table.scale.z = -1;
     this.table.rotation.x = THREE.MathUtils.degToRad(TABLE.tiltDeg);
-    this.table.add(standInTable(STAND_IN, look, TABLE.width, TABLE.length), this.parts.group, this.burst.group);
+    this.table.add(standInTable(TABLE_IN_USE, look, TABLE.width, TABLE.length), this.parts.group, this.burst.group);
     this.scene.add(this.table);
     this.table.updateMatrixWorld(true);
     this.addLights();

@@ -9,7 +9,7 @@
 // Tested without a sound card: npm run pinball-sounds-test.
 import type { StageSynth } from '@kit/stage';
 import { type PinballHypeMsg, type PinballState } from '../shared/pinball';
-import { STAND_IN, TABLE, type Table } from '../shared/table';
+import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { PINBALL_SOUNDS, type PinballMoment, type PinballPicks } from './pinball-sound-picks';
 
 /** What the cues tell: each moment, with which part it was (the scene flashes a bumper's cap with it). */
@@ -67,7 +67,7 @@ export class PinballSoundCues {
 
   constructor(
     private readonly sink: PinballCueSink,
-    private readonly table: Table = STAND_IN,
+    private readonly table: Table = TABLE_IN_USE,
   ) {}
 
   /** The flippers as drawn, at simulation time t: one starting up is a flip (the first look is only a look). */

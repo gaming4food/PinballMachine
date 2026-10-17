@@ -1,16 +1,19 @@
-// The pinball table as data: what the physics (the server) and the stage (the picture) both read. Until the picture's
-// own table comes in (Task 8), STAND_IN is a classic layout to play on.
+// The pinball table as data: what the physics (the server) and the stage (the picture) both read. The table in use is
+// the pyramid table (pyramid.ts), designed and proven in a Blender spike.
 //
 // Units are scene units, 1 unit = 5.1 cm. The playfield is the plane y = 0; x runs across it (-5 left, +5 right) and z
-// runs up the table (0 at the drain, 20 at the top). The shooter lane is the strip at the right, x from 4.2 to 5.
+// runs up the table (0 at the drain, 16.7 at the top). The shooter lane is the strip at the right, x from 4.2 to 5.
+import { PYRAMID } from './pyramid';
 
-/** The table's size and the ball's. */
-export const TABLE = { width: 10, length: 20, tiltDeg: 6.5, ballRadius: 0.27, glassY: 0.8 } as const;
+/** The table's size and the ball's. The walls stand `wallTop` high; the glass is `glassY` over the playfield, clear of the ramps and the dish. */
+export const TABLE = { width: 10, length: 16.7, tiltDeg: 6.5, ballRadius: 0.27, glassY: 2.4, wallTop: 0.7 } as const;
 
 /** A wall: a polyline in (x, z) that the ball bounces off, with how lively the bounce is (0 dead, 1 perfect). */
 export interface Wall {
   points: [number, number][];
   restitution: number;
+  /** What the wall is, for the picture: the outer wall, the shooter lane's, a guide, the orbit's, the pyramid's, a lane's, a sling's back, an island's. */
+  kind?: 'outer' | 'shooter' | 'guide' | 'orbit' | 'pyramid' | 'lane' | 'slingback' | 'island';
 }
 
 /** A pop bumper: a round post that kicks the ball away when it's hit. */
@@ -21,6 +24,8 @@ export interface Bumper {
   radius: number;
   kick: number;
   points: number;
+  /** How far up off the playfield its base stands, for one on a dish (default 0). */
+  y0?: number;
 }
 
 /** A slingshot: a rubber face from a to b, above a flipper, that kicks the ball back out. */
@@ -32,13 +37,17 @@ export interface Sling {
   points: number;
 }
 
-/** A drop target: one of a bank, centered at (x, z) and `width` wide along its wall. */
+/** A target: a drop target or a flip target, centered at (x, z) and `width` wide along its face. */
 export interface Target {
   id: string;
   x: number;
   z: number;
   width: number;
   points: number;
+  /** The way its face runs (degrees, x toward z), for one not along one of the table's walls. */
+  angle?: number;
+  /** A flip target: it stays up when hit and turns to its back, rather than dropping. */
+  flip?: boolean;
 }
 
 /** A rollover lane at the top: it scores and lights when a ball rolls over it. */
@@ -55,6 +64,58 @@ export interface Spinner {
   z: number;
   width: number;
   pointsPerTurn: number;
+}
+
+/** A spinner of its own, beside the table's first one (`Table.spinner`). */
+export type ExtraSpinner = Spinner & { id: string };
+
+/**
+ * A saucer: a slow ball (under `maxSpeed`) that reaches it is held `hold` seconds, then kicked out along `eject` at
+ * `speed`. With `alternate`, every other ball goes out mirrored (x the other way): a magnet flinging balls left and right.
+ */
+export interface Saucer {
+  id: string;
+  x: number;
+  z: number;
+  radius: number;
+  hold: number;
+  eject: [number, number];
+  speed: number;
+  maxSpeed: number;
+  alternate?: boolean;
+  points: number;
+}
+
+/**
+ * A raised ramp: a trough along a centre line of [x, z, y] points (y the floor's height), `width` wide, with rails
+ * `rail` high. A ramp low at its start is skirted down to the playfield both sides unless `skirt` is false; `flare` is
+ * how much wider its mouth opens.
+ */
+export interface Ramp {
+  id: string;
+  path: [number, number, number][];
+  width: number;
+  rail: number;
+  skirt?: boolean;
+  flare?: number;
+}
+
+/** A raised round dish at (x, z), its floor `y` up and `r` across, with a rim `rail` high open over each arc of `gaps` (degrees). */
+export interface Dish {
+  id: string;
+  x: number;
+  z: number;
+  y: number;
+  r: number;
+  rail: number;
+  gaps: [number, number][];
+}
+
+/** A bank of flip targets: when all of them show their backs the bank matches, the game pays `bonus`, and they turn back. */
+export interface Bank {
+  id: string;
+  targets: string[];
+  bonus: number;
 }
 
 /** The lock: a saucer that holds a ball (for multiball). */
@@ -109,6 +170,12 @@ export interface Table {
   /** A ball below this z has drained. */
   drainZ: number;
   flippers: Flipper[];
+  ramps: Ramp[];
+  dishes: Dish[];
+  saucers: Saucer[];
+  /** The spinners besides `spinner`. */
+  spinners: ExtraSpinner[];
+  banks: Bank[];
 }
 
 /** Where a flipper's tip is at a given angle (its rest angle by default), from its pivot and length. */
@@ -117,60 +184,5 @@ export function flipperTip(f: Flipper, deg: number = f.restDeg): [number, number
   return [f.pivot[0] + f.length * Math.cos(a), f.pivot[1] + f.length * Math.sin(a)];
 }
 
-/*
- * The stand-in layout. The playfield is x from -5 to 4.2, so its middle is x = -0.4; the shooter lane (x 4.2 to 5) is
- * walled off on the right. The two sides are mirrors about that middle: x on one side is -0.8 - x on the other.
- */
-export const STAND_IN: Table = {
-  walls: [
-    // The outer wall: up the left side, over the arch at the top, and down the right side (the shooter lane's outer wall).
-    {
-      points: [[-5, 0], [-5, 16], [-4.2, 18.2], [-2.5, 19.4], [0, 20], [2.5, 19.4], [4.2, 18.2], [5, 16], [5, 0.3]],
-      restitution: 0.4,
-    },
-    // The shooter lane's floor and its inner wall, which stops short of the top so a launched ball comes out over the arch.
-    // It stops at 15.2, a ball and more below where the arch stops a ball in the lane (about 16.1 at x 4.6): ending at
-    // 16.4, it left a pocket under the arch narrower than a ball, and every launch stuck there (Task 3).
-    { points: [[4.2, 0.3], [5, 0.3]], restitution: 0.1 },
-    { points: [[4.2, 0.3], [4.2, 15.2]], restitution: 0.4 },
-    // The inlane guides, from the top of each inlane down to the flipper's pivot.
-    { points: [[-3.7, 5.6], [-3.7, 3.6], [-2.1, 2]], restitution: 0.3 },
-    { points: [[2.9, 5.6], [2.9, 3.6], [1.3, 2]], restitution: 0.3 },
-    // The outlanes' inner walls, from the pivots down to the drain.
-    { points: [[2.9, 3.6], [2.9, 0]], restitution: 0.3 },
-    { points: [[-3.7, 3.6], [-3.7, 0]], restitution: 0.3 },
-    // The orbit lane on the right: a rail that guides a ball up past the spinner.
-    { points: [[3.2, 11.5], [3.2, 15.5], [2.2, 17.2]], restitution: 0.3 },
-  ],
-  bumpers: [
-    { id: 'bumper-1', x: -1.6, z: 12.5, radius: 0.55, kick: 9, points: 100 },
-    { id: 'bumper-2', x: 0.8, z: 12.5, radius: 0.55, kick: 9, points: 100 },
-    { id: 'bumper-3', x: -0.4, z: 10.6, radius: 0.55, kick: 9, points: 100 },
-  ],
-  slings: [
-    { id: 'sling-left', a: [-2.8, 4.8], b: [-2.2, 3.2], kick: 7, points: 10 },
-    { id: 'sling-right', a: [2.0, 4.8], b: [1.4, 3.2], kick: 7, points: 10 },
-  ],
-  targets: [
-    { id: 'target-1', x: -4.8, z: 8, width: 0.7, points: 500 },
-    { id: 'target-2', x: -4.8, z: 9, width: 0.7, points: 500 },
-    { id: 'target-3', x: -4.8, z: 10, width: 0.7, points: 500 },
-    { id: 'target-4', x: -4.8, z: 11, width: 0.7, points: 500 },
-  ],
-  rollovers: [
-    { id: 'rollover-1', x: -1.6, z: 17.6, points: 50 },
-    { id: 'rollover-2', x: -0.4, z: 17.6, points: 50 },
-    { id: 'rollover-3', x: 0.8, z: 17.6, points: 50 },
-  ],
-  spinner: { x: 3.7, z: 13.5, width: 0.9, pointsPerTurn: 10 },
-  lock: { x: -3.2, z: 15, radius: 0.5 },
-  kickback: { side: 'left', x: -4.35, z: 1.8 },
-  // 34 units/s (1.7 m/s): a launch, already rolling, gets round the arch from 28 up (measured, Task 3); 34 is room to
-  // spare for the launch's spread. At 20 a launch got only to z 7: tilted gravity takes 21.7 units/s² off it.
-  plunger: { x: 4.6, zFrom: 0.7, zTo: 2, speed: 34 },
-  drainZ: 0.1,
-  flippers: [
-    { side: 'left', pivot: [-2.1, 2], length: 1.6, restDeg: -30, upDeg: 30 },
-    { side: 'right', pivot: [1.3, 2], length: 1.6, restDeg: 210, upDeg: 150 },
-  ],
-};
+/** The table in use: the pyramid table (pyramid.ts), which the server's physics and the stage both read. */
+export const TABLE_IN_USE: Table = PYRAMID;

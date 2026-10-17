@@ -7,7 +7,7 @@ import { initPhysics } from '@kit/server';
 import { SNAP_STRIDE } from '@kit/shared';
 import { DT, PinballSim, type Hit } from '../src/server/sim';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../src/shared/pinball';
-import { STAND_IN, TABLE, type Table } from '../src/shared/table';
+import { TABLE_IN_USE, TABLE, type Table } from '../src/shared/table';
 
 await initPhysics();
 
@@ -23,7 +23,7 @@ const rand = (lo: number, hi: number) => lo + (hi - lo) * Math.random();
 const R = TABLE.ballRadius;
 
 /** A sim on the stand-in table, and every hit it reports. */
-function make(table: Table = STAND_IN): { sim: PinballSim; hits: Hit[] } {
+function make(table: Table = TABLE_IN_USE): { sim: PinballSim; hits: Hit[] } {
   const hits: Hit[] = [];
   return { sim: new PinballSim(table, (hit) => hits.push(hit)), hits };
 }
@@ -88,7 +88,7 @@ const checks: [string, () => void][] = [
   }],
   ['no ball escapes the table', () => {
     const { sim, hits } = make();
-    const t = STAND_IN;
+    const t = TABLE_IN_USE;
     const aims: [number, number][] = [];
     for (const w of t.walls) for (const p of w.points) aims.push(p);
     for (const f of t.flippers) aims.push(f.pivot, [f.pivot[0] + Math.cos((f.restDeg * Math.PI) / 180), f.pivot[1] + Math.sin((f.restDeg * Math.PI) / 180)]);
@@ -154,7 +154,7 @@ const checks: [string, () => void][] = [
     assert.deepEqual(late, []);
   }],
   ['flipper shots reach the upper table', () => {
-    const left = STAND_IN.flippers.find((f) => f.side === 'left')!;
+    const left = TABLE_IN_USE.flippers.find((f) => f.side === 'left')!;
     const tops: number[] = [];
     for (let n = 0; n < 10; n++) {
       const { sim } = make();
@@ -188,7 +188,7 @@ const checks: [string, () => void][] = [
   }],
   ['a bumper kicks and reports', () => {
     const { sim, hits } = make();
-    const b = STAND_IN.bumpers[0];
+    const b = TABLE_IN_USE.bumpers[0];
     const id = place(sim, b.x - 1.5, b.z + 0.1, 6, 0);
     let before = 0, after = 0;
     for (let i = 0; i < 1 / DT; i++) {
@@ -208,7 +208,7 @@ const checks: [string, () => void][] = [
   }],
   ['the kickback fires a ball back up, when the game says', () => {
     const { sim, hits } = make();
-    const k = STAND_IN.kickback;
+    const k = TABLE_IN_USE.kickback;
     // Down the left outlane onto the kickback.
     const id = place(sim, k.x, k.z + 2, 0, -3);
     for (let i = 0; i < 1 / DT && !hits.some((h) => h.kind === 'kickback'); i++) sim.step();
@@ -224,7 +224,7 @@ const checks: [string, () => void][] = [
   }],
   ['the lock reports, holds and lets go', () => {
     const { sim, hits } = make();
-    const l = STAND_IN.lock;
+    const l = TABLE_IN_USE.lock;
     const id = place(sim, l.x, l.z + 1.2, 0, -2);
     for (let i = 0; i < 1 / DT && !hits.some((h) => h.kind === 'lock'); i++) sim.step();
     assert.deepEqual(hits.find((h) => h.kind === 'lock'), { kind: 'lock', id: 'lock', ball: id });
@@ -239,7 +239,7 @@ const checks: [string, () => void][] = [
   }],
   ['a hit handler can take balls off mid-step: two drains together, cleared on the first', () => {
     const hits: Hit[] = [];
-    const sim: PinballSim = new PinballSim(STAND_IN, (hit) => {
+    const sim: PinballSim = new PinballSim(TABLE_IN_USE, (hit) => {
       hits.push(hit);
       if (hit.kind === 'drain') sim.clear();
     });
@@ -255,13 +255,13 @@ const checks: [string, () => void][] = [
   }],
   ['a hit handler can take balls off mid-step: a bumper hit clears the table', () => {
     let bumped = 0;
-    const sim: PinballSim = new PinballSim(STAND_IN, (hit) => {
+    const sim: PinballSim = new PinballSim(TABLE_IN_USE, (hit) => {
       if (hit.kind === 'bumper') {
         bumped++;
         sim.clear();
       }
     });
-    const bp = STAND_IN.bumpers[0];
+    const bp = TABLE_IN_USE.bumpers[0];
     place(sim, bp.x - 1.5, bp.z + 0.1, 6, 0);
     // Another ball on the table at the same time.
     place(sim, -0.4, 6, 0, 0);

@@ -5,7 +5,7 @@
 // Usage: npm run pinball-sounds-test
 import assert from 'node:assert/strict';
 import type { PinballState } from '../src/shared/pinball';
-import { STAND_IN } from '../src/shared/table';
+import { TABLE_IN_USE } from '../src/shared/table';
 import './stub-assets';
 
 const { PINBALL_SOUNDS } = await import('../src/stage/pinball-sound-picks');
@@ -99,7 +99,7 @@ test("targets already down when the page opens aren't hits", () => {
 
 test('a ball meeting a bumper pops it once, and again only after it has left', () => {
   const { c, heard } = cues();
-  const b = STAND_IN.bumpers[0];
+  const b = TABLE_IN_USE.bumpers[0];
   c.balls([{ id: 1, x: b.x, z: b.z - 2 }]);
   c.balls([{ id: 1, x: b.x, z: b.z - b.radius - 0.3 }]);
   c.balls([{ id: 1, x: b.x, z: b.z - b.radius - 0.32 }]);
@@ -111,10 +111,10 @@ test('a ball meeting a bumper pops it once, and again only after it has left', (
 
 test('a ball seen first touching a bumper (a page opening) is no hit; a sling hit sounds', () => {
   const { c, heard } = cues();
-  const b = STAND_IN.bumpers[1];
+  const b = TABLE_IN_USE.bumpers[1];
   c.balls([{ id: 4, x: b.x, z: b.z - b.radius - 0.3 }]);
   assert.deepEqual(heard, []);
-  const s = STAND_IN.slings[0];
+  const s = TABLE_IN_USE.slings[0];
   const mid = [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
   c.balls([{ id: 5, x: mid[0] + 1.5, z: mid[1] }]);
   c.balls([{ id: 5, x: mid[0] + 0.3, z: mid[1] }]);

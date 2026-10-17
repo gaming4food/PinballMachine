@@ -13,7 +13,7 @@ import { entry } from '../src/entry';
 import { PinballGame } from '../src/server/game';
 import { DT } from '../src/server/sim';
 import { RULES } from '../src/shared/pinball';
-import { STAND_IN, TABLE } from '../src/shared/table';
+import { TABLE_IN_USE, TABLE } from '../src/shared/table';
 
 await initPhysics();
 
@@ -65,14 +65,14 @@ function put(id: number, x: number, z: number, vx = 0, vz = 0): void {
 const hold = (id: number, x: number, z: number, seconds: number) => run(seconds, () => game.sim.items.has(id) && put(id, x, z));
 /** Drains a ball the way the table does: down the gap between the flippers and past the drain. */
 function drain(id: number): void {
-  put(id, -0.4, STAND_IN.drainZ - 0.05, 0, -5);
+  put(id, -0.4, TABLE_IN_USE.drainZ - 0.05, 0, -5);
   run(DT);
   assert.ok(!game.sim.items.has(id), `ball ${id} drained`);
 }
 /** Where a ball sits on the left flipper at rest, rolling toward its tip. */
 const onLeftFlipper = (id: number) => put(id, -1.2, 2.1);
-const left = STAND_IN.flippers.find((f) => f.side === 'left')!;
-const right = STAND_IN.flippers.find((f) => f.side === 'right')!;
+const left = TABLE_IN_USE.flippers.find((f) => f.side === 'left')!;
+const right = TABLE_IN_USE.flippers.find((f) => f.side === 'right')!;
 /** Runs until there's a ball on the table (at most 5 s), and returns its id. */
 function tableBall(): number {
   for (let i = 0; i < 300 && game.sim.items.size === 0; i++) run(DT);
@@ -234,7 +234,7 @@ step('multiball pulls from the line, then the house', () => {
   held = ballOf(gus)!;
   game.knockAllTargets(held);
   assert.equal(game.state().lockLit, true, 'all 4 targets down light the lock');
-  put(held, STAND_IN.lock.x, STAND_IN.lock.z);
+  put(held, TABLE_IN_USE.lock.x, TABLE_IN_USE.lock.z);
   run(DT);
   assert.equal(game.state().lockLit, false, 'the lock took the ball');
   assert.equal(game.state().multiball, true);
@@ -243,7 +243,7 @@ step('multiball pulls from the line, then the house', () => {
   assert.deepEqual([...game.sim.items.values()].map((b) => b.owner).sort(), [gus.id, hal.id, null].sort());
   assert.equal(game.state().line.length, 0, "Hal's ball came from the line");
   const p = game.sim.items.get(held)!.body.translation();
-  assert.ok(Math.hypot(p.x - STAND_IN.lock.x, p.z - STAND_IN.lock.z) < 0.01, "Gus's ball is held in the lock");
+  assert.ok(Math.hypot(p.x - TABLE_IN_USE.lock.x, p.z - TABLE_IN_USE.lock.z) < 0.01, "Gus's ball is held in the lock");
 });
 
 step('a house ball pays nobody', () => {
@@ -260,7 +260,7 @@ step('a house ball pays nobody', () => {
   // That was the multiball's last ball but one (or Hal's went first): Gus's ball is let go.
   run(0.5);
   const p = game.sim.items.get(held)?.body.translation();
-  assert.ok(!p || Math.hypot(p.x - STAND_IN.lock.x, p.z - STAND_IN.lock.z) > 0.2, "Gus's ball left the lock");
+  assert.ok(!p || Math.hypot(p.x - TABLE_IN_USE.lock.x, p.z - TABLE_IN_USE.lock.z) > 0.2, "Gus's ball left the lock");
 });
 
 step("a removed viewer's ball pays nobody", () => {

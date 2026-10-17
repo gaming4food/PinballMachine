@@ -1,4 +1,4 @@
-// The stand-in table drawn in three.js, until the owner's picture comes (Task 8 swaps this module for the picture): the
+// The pyramid table drawn in three.js, plainly, until its picture comes (a later task swaps this module for the picture): the
 // playfield, the walls with some height and a neon edge, the bumpers' bodies, the slings' plastics, the plunger lane
 // and its plunger, the side rails and the apron. Only what stays put is here; what moves or lights up (the flippers,
 // the bumper caps, the drop targets, the spinner, the inserts) is the scene's live parts (pinball-parts.ts), which the
@@ -206,6 +206,19 @@ export function standInTable(table: Table, look: Look, width: number, length: nu
     const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.55, 8), post);
     p.position.set(sp.x + (side * sp.width) / 2, 0.275, sp.z);
     group.add(p);
+  }
+  // The ramps and the dish, the simplest way for now (the picture's own look comes later): a line along each ramp's
+  // centre line, and a flat disc for the dish at its floor.
+  const rampLine = new THREE.LineBasicMaterial({ color: 0xffc83a });
+  for (const r of table.ramps) {
+    const geo = new THREE.BufferGeometry().setFromPoints(r.path.map(([x, z, y]) => new THREE.Vector3(x, y, z)));
+    group.add(new THREE.Line(geo, rampLine));
+  }
+  const dishFloor = new THREE.MeshStandardMaterial({ color: 0x2a2208, emissive: 0xffc83a, emissiveIntensity: 0.3, roughness: 0.4, metalness: 0.5 });
+  for (const d of table.dishes) {
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(d.r, d.r, 0.04, 40), dishFloor);
+    disc.position.set(d.x, d.y - 0.02, d.z);
+    group.add(disc);
   }
   return group;
 }

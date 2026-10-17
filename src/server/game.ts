@@ -14,7 +14,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
 import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
 import { type HypeBuyer, LIT, parsePinballCommands, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
-import { STAND_IN, TABLE, type Table } from '../shared/table';
+import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { PinballSim, type Hit } from './sim';
 
 /** How many high scores are kept. */
@@ -162,7 +162,7 @@ export class PinballGame implements Machine {
     private readonly economy: Economy,
     private readonly out: MachineOutlet,
     private readonly saveFile: string,
-    private readonly table: Table = STAND_IN,
+    private readonly table: Table = TABLE_IN_USE,
   ) {
     this.sim = new LitSim(table, (hit) => this.hit(hit), () => this.lit());
   }
