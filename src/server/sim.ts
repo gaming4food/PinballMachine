@@ -1,16 +1,19 @@
 // The pinball table's physics, on the server (as the claw's is: the server is the one source of truth, and the stages
-// only draw the snapshots it sends). The playfield, the walls, the glass, the bumpers, the slings and the drop targets
-// are fixed colliders; the balls are dynamic spheres with CCD; the flippers are kinematic bodies swung toward up or
-// rest. Bumpers and slings kick a ball away and report it; the rollovers, the spinner, the lock and the kickback are
-// sensors that report; a ball past the drain is taken off and reported. What the hits are worth, whose balls they are
-// and what's lit is the game's (game.ts): this is only the physics.
+// only draw the snapshots it sends). The playfield, the walls, the glass, the bumpers, the slings, the targets, the
+// raised ramps and the dish are fixed colliders; the balls are dynamic spheres with CCD; the flippers are kinematic
+// bodies swung toward up or rest. Bumpers and slings kick a ball away and report it; drop targets drop, and flip targets
+// turn to their backs (a bank of them all turned reports a match); the rollovers, the spinners, the lock and the kickback
+// are sensors that report; a saucer holds a slow ball a moment and kicks it out; a ball past the drain is taken off and
+// reported. What the hits are worth, whose balls they are and what's lit is the game's (game.ts): this is only the
+// physics. (The ramps, the dish, the flip targets, the saucers and the second spinner were built and proven in the
+// Blender spike, spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { DT } from '@kit/server';
 import { SNAP_STRIDE, type BodyState } from '@kit/shared';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../shared/pinball';
-import { TABLE, type Flipper, type Table } from '../shared/table';
+import { TABLE, type Dish, type Flipper, type Ramp, type Table } from '../shared/table';
 
 // Passed on for the game and the tests, which import it from here; it's every machine's (@kit/server).
 export { DT } from '@kit/server';
@@ -21,7 +24,8 @@ export const GRAVITY = 192;
 export const SUBSTEPS = 4;
 const H = DT / SUBSTEPS;
 
-/** Half a wall's thickness (walls are boxes along each segment, rounded at the joints, from the playfield to the glass). */
+/** Half a wall's thickness (walls are boxes along each segment, rounded at the joints, from the playfield up to
+ * TABLE.wallTop: well over the ball, and under the ramps, the dish and the wireform, which pass over them). */
 const WALL_HALF = 0.08;
 /** Half a sling's thickness. */
 const SLING_HALF = 0.08;
@@ -78,6 +82,13 @@ const KICKBACK_SPEED = 30;
 const LOCK_EJECT = { speed: 8, dir: [0.6, -0.8] as const };
 /** After it's let go, a ball doesn't set the lock off again for this long (s). */
 const LOCK_IGNORE = 0.75;
+/** A matched bank shows all its backs this long (s) before its plaques turn back to the front. */
+const BANK_SHOW = 1.0;
+/** An extra spinner's sensor is this tall (half of it each side of its middle), only as tall as a ball: so a ball on a
+ * ramp over one doesn't turn it. */
+const SPINNER2_HALF_Y = 0.3;
+/** A ramp's rails are slick, so a ball glancing along one keeps its speed. */
+const RAIL = { friction: 0, restitution: 0.2 };
 /** How much a nudge shoves each ball: up the table, and a random bit sideways (units/s). */
 const NUDGE = { up: 4, side: 2 };
 /** The plunger's launch varies by up to this share of its speed, so no two launches go quite the same. */
@@ -91,7 +102,7 @@ const NEAR = { reach: 0.3, deg: 15 };
 const GATE_RESTITUTION = 0.2;
 
 export interface Hit {
-  kind: 'bumper' | 'sling' | 'target' | 'rollover' | 'spinner' | 'lock' | 'drain' | 'kickback';
+  kind: 'bumper' | 'sling' | 'target' | 'rollover' | 'spinner' | 'lock' | 'drain' | 'kickback' | 'saucer' | 'bank';
   id: string;
   ball: number;
 }
@@ -113,6 +124,8 @@ type Part =
   | { kind: 'rollover'; id: string }
   | { kind: 'spinner' }
   | { kind: 'lock' }
+  | { kind: 'saucer'; index: number }
+  | { kind: 'spinner2'; index: number }
   | { kind: 'kickback' }
   | { kind: 'gate' };
 
@@ -138,10 +151,22 @@ export class PinballSim {
   private readonly parts = new Map<number, Part>();
   private readonly ballByCollider = new Map<number, Ball>();
   private readonly flippers: FlipperState[] = [];
-  private readonly targets: { collider: RAPIER.Collider; down: boolean }[] = [];
+  /** Each target: a drop target is `down` (its collider off); a flip target stays up, `turned` to its back. */
+  private readonly targets: { collider: RAPIER.Collider; down: boolean; turned: boolean }[] = [];
+  /** Matched banks, and when their plaques turn back to the front. */
+  private readonly bankResets = new Map<string, number>();
   private readonly lastKick = new Map<string, number>();
   private readonly lockIgnoreUntil = new Map<number, number>();
+  /** Every ball held still: the lock's, and the saucers' (those also in saucerHold). */
   private readonly held = new Set<number>();
+  /** The extra spinners' turns (table.spinners, in order). */
+  private readonly spin2: { angle: number; speed: number; ball: number }[] = [];
+  /** The balls a saucer holds: which saucer, and when it kicks the ball out. */
+  private readonly saucerHold = new Map<number, { index: number; until: number }>();
+  /** Balls just kicked out of a saucer, and until when the saucers ignore them. */
+  private readonly saucerIgnore = new Map<number, number>();
+  /** How many balls the saucers have kicked out (an alternating one mirrors every other). */
+  private saucerKicks = 0;
   private nextId = 1;
   private spinAngle = 0;
   private spinSpeed = 0;
@@ -193,20 +218,20 @@ export class PinballSim {
     return collider;
   }
 
-  /** A box from a to b in (x, z), `half` thick each side, standing from the playfield to the glass. */
+  /** A box from a to b in (x, z), `half` thick each side, standing from the playfield to the walls' top. */
   private segment(a: [number, number], b: [number, number], half: number): RAPIER.ColliderDesc {
     const dx = b[0] - a[0], dz = b[1] - a[1];
     const len = Math.hypot(dx, dz);
-    const hy = TABLE.glassY / 2;
+    const hy = TABLE.wallTop / 2;
     return RAPIER.ColliderDesc.cuboid(len / 2, hy, half)
       .setTranslation((a[0] + b[0]) / 2, hy, (a[1] + b[1]) / 2)
       .setRotation(turnTo((Math.atan2(dz, dx) * 180) / Math.PI));
   }
 
-  /** A round post at (x, z), from the playfield to the glass. */
-  private post(x: number, z: number, r: number): RAPIER.ColliderDesc {
-    const hy = TABLE.glassY / 2;
-    return RAPIER.ColliderDesc.cylinder(hy, r).setTranslation(x, hy, z);
+  /** A round post at (x, z), the walls' height, standing on y0 (the playfield, or the dish's floor). */
+  private post(x: number, z: number, r: number, y0 = 0): RAPIER.ColliderDesc {
+    const hy = TABLE.wallTop / 2;
+    return RAPIER.ColliderDesc.cylinder(hy, r).setTranslation(x, y0 + hy, z);
   }
 
   private sensor(desc: RAPIER.ColliderDesc, part: Part): void {
@@ -233,7 +258,7 @@ export class PinballSim {
     }
 
     for (const b of t.bumpers) {
-      this.fixed(this.post(b.x, b.z, b.radius).setFriction(0).setRestitution(BUMPER_RESTITUTION), { kind: 'bumper', id: b.id, x: b.x, z: b.z, kick: b.kick });
+      this.fixed(this.post(b.x, b.z, b.radius, b.y0 ?? 0).setFriction(0).setRestitution(BUMPER_RESTITUTION), { kind: 'bumper', id: b.id, x: b.x, z: b.z, kick: b.kick });
     }
 
     // A sling kicks out from its face, the side toward the table's middle (halfway between the flippers' pivots).
@@ -252,9 +277,11 @@ export class PinballSim {
       for (const [x, z] of [s.a, s.b]) this.fixed(this.post(x, z, SLING_HALF).setFriction(0).setRestitution(SLING_RESTITUTION), part);
     }
 
-    // Each drop target stands along the wall nearest it.
+    // Each target stands along the wall nearest it, or runs its own way (angle).
     t.targets.forEach((g, index) => {
-      const [a, b] = nearestSegment(t, [g.x, g.z]);
+      const [a, b] = g.angle !== undefined
+        ? ([[g.x, g.z], [g.x + Math.cos(rad(g.angle)), g.z + Math.sin(rad(g.angle))]] as [[number, number], [number, number]])
+        : nearestSegment(t, [g.x, g.z]);
       const ux = b[0] - a[0], uz = b[1] - a[1];
       const len = Math.hypot(ux, uz);
       const ex = ((ux / len) * g.width) / 2, ez = ((uz / len) * g.width) / 2;
@@ -262,13 +289,18 @@ export class PinballSim {
         this.segment([g.x - ex, g.z - ez], [g.x + ex, g.z + ez], TARGET_HALF).setFriction(WALL_FRICTION).setRestitution(TARGET_RESTITUTION),
         { kind: 'target', id: g.id, index },
       );
-      this.targets.push({ collider, down: false });
+      this.targets.push({ collider, down: false, turned: false });
     });
 
     for (const r of t.rollovers) this.sensor(this.post(r.x, r.z, ROLLOVER_R), { kind: 'rollover', id: r.id });
     const sp = t.spinner;
     this.sensor(RAPIER.ColliderDesc.cuboid(sp.width / 2, hy, 0.05).setTranslation(sp.x, hy, sp.z), { kind: 'spinner' });
     this.sensor(this.post(t.lock.x, t.lock.z, t.lock.radius), { kind: 'lock' });
+    t.spinners.forEach((s2, index) => {
+      this.spin2.push({ angle: 0, speed: 0, ball: 0 });
+      this.sensor(RAPIER.ColliderDesc.cuboid(s2.width / 2, SPINNER2_HALF_Y, 0.05).setTranslation(s2.x, SPINNER2_HALF_Y, s2.z), { kind: 'spinner2', index });
+    });
+    t.saucers.forEach((sc, index) => this.sensor(this.post(sc.x, sc.z, sc.radius), { kind: 'saucer', index }));
     this.sensor(this.post(t.kickback.x, t.kickback.z, KICKBACK_R), { kind: 'kickback' });
 
     // The shooter lane's one-way gate: from the top of the lane's inner wall (the straight up-and-down wall just left of
@@ -284,6 +316,14 @@ export class PinballSim {
       this.parts.set(gate.handle, { kind: 'gate' });
     }
 
+    // A ramp's floor grips as the playfield; its rails are slick. The dish, floor and rim, is the playfield's.
+    for (const r of t.ramps) {
+      const [floor, sides] = this.rampMeshes(r);
+      this.fixed(floor.setFriction(PLAYFIELD.friction).setRestitution(PLAYFIELD.restitution));
+      this.fixed(sides.setFriction(RAIL.friction).setRestitution(RAIL.restitution));
+    }
+    for (const d of t.dishes) for (const m of this.dishMeshes(d)) this.fixed(m.setFriction(PLAYFIELD.friction).setRestitution(PLAYFIELD.restitution));
+
     for (const f of t.flippers) {
       const body = this.world.createRigidBody(
         RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(f.pivot[0], 0, f.pivot[1]).setRotation(turnTo(f.restDeg)),
@@ -294,6 +334,79 @@ export class PinballSim {
       );
       this.flippers.push({ f, body, angle: f.restDeg, up: false });
     }
+  }
+
+  /**
+   * A ramp as two triangle meshes. Its floor shares its vertices and has Rapier fix its internal edges (with a vertex per
+   * triangle, the ball hit every edge between triangles as a step and a 29 units/s shot stopped halfway up). Its rails, a
+   * skirt down each side to the playfield and a cap across each raised end are the other, so the ramp is a solid wedge
+   * (skirted only at its low end, balls rolled in under its high end and wedged where it got low).
+   */
+  private rampMeshes(r: Ramp): [RAPIER.ColliderDesc, RAPIER.ColliderDesc] {
+    const edges = r.path.map(([x, z, y], i) => {
+      const [px, pz] = r.path[Math.max(0, i - 1)], [nx, nz] = r.path[Math.min(r.path.length - 1, i + 1)];
+      const dx = nx - px, dz = nz - pz, l = Math.hypot(dx, dz) || 1;
+      // A flared mouth, `flare` wider at the start and back to `width` within the first quarter (a shot a little off the
+      // ramp's line caught the end of a rail head-on and stopped dead).
+      const along = i / (r.path.length - 1), w = r.width + (r.flare ?? 0) * Math.max(0, 1 - along * 4) ** 2;
+      const ox = (-dz / l) * (w / 2), oz = (dx / l) * (w / 2);
+      return { l: [x + ox, z + oz], r: [x - ox, z - oz], y };
+    });
+    const fv: number[] = [], fi: number[] = [];
+    for (const e of edges) fv.push(e.l[0], e.y, e.l[1], e.r[0], e.y, e.r[1]);
+    for (let i = 0; i + 1 < edges.length; i++) {
+      const al = 2 * i, ar = al + 1, bl = al + 2, br = al + 3;
+      // Wound so the floor faces up (with its internal edges fixed the mesh is one-sided).
+      fi.push(al, br, ar, al, bl, br);
+    }
+    const sv: number[] = [], si: number[] = [];
+    const at = (x: number, y: number, z: number) => (sv.push(x, y, z), sv.length / 3 - 1);
+    const quad = (a: number, b: number, c: number, d: number) => si.push(a, b, c, a, c, d);
+    for (let i = 0; i + 1 < edges.length; i++) {
+      const a = edges[i], b = edges[i + 1];
+      for (const side of ['l', 'r'] as const) {
+        const p = a[side], q = b[side];
+        quad(at(p[0], a.y, p[1]), at(q[0], b.y, q[1]), at(q[0], b.y + r.rail, q[1]), at(p[0], a.y + r.rail, p[1]));
+        if (r.skirt !== false) quad(at(p[0], 0, p[1]), at(q[0], 0, q[1]), at(q[0], b.y, q[1]), at(p[0], a.y, p[1]));
+      }
+    }
+    // A raised wireform (skirt: false) stands clear of the playfield, so balls pass under it; it has no end caps.
+    for (const e of r.skirt === false ? [] : [edges[0], edges[edges.length - 1]]) {
+      if (e.y > 0.02) quad(at(e.l[0], 0, e.l[1]), at(e.r[0], 0, e.r[1]), at(e.r[0], e.y, e.r[1]), at(e.l[0], e.y, e.l[1]));
+    }
+    const flags = RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES;
+    return [RAPIER.ColliderDesc.trimesh(new Float32Array(fv), new Uint32Array(fi), flags), RAPIER.ColliderDesc.trimesh(new Float32Array(sv), new Uint32Array(si))];
+  }
+
+  /**
+   * A dish as two triangle meshes: its flat floor (shared vertices) and its rim round all but its gaps. (Its bumper
+   * stands near the uphill rim so no ball can rest uphill of it.)
+   */
+  private dishMeshes(d: Dish): [RAPIER.ColliderDesc, RAPIER.ColliderDesc] {
+    const N = 48;
+    const inGap = (deg: number) => d.gaps.some(([from, to]) => {
+      const g0 = (from + 360) % 360, g1 = (to + 360) % 360, a = (deg + 360) % 360;
+      return g0 <= g1 ? a >= g0 && a <= g1 : a >= g0 || a <= g1;
+    });
+    const fv: number[] = [d.x, d.y, d.z], fi: number[] = [];
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      fv.push(d.x + d.r * Math.cos(a), d.y, d.z + d.r * Math.sin(a));
+    }
+    for (let k = 0; k < N; k++) fi.push(0, 1 + ((k + 1) % N), 1 + k); // facing up
+    const sv: number[] = [], si: number[] = [];
+    const at = (x: number, y: number, z: number) => (sv.push(x, y, z), sv.length / 3 - 1);
+    for (let k = 0; k < N; k++) {
+      const a0 = (k / N) * Math.PI * 2, a1 = ((k + 1) / N) * Math.PI * 2;
+      if (inGap((a0 * 180) / Math.PI) || inGap((a1 * 180) / Math.PI)) continue;
+      const x0 = d.x + d.r * Math.cos(a0), z0 = d.z + d.r * Math.sin(a0), x1 = d.x + d.r * Math.cos(a1), z1 = d.z + d.r * Math.sin(a1);
+      const p = at(x0, d.y, z0), q = at(x1, d.y, z1), qt = at(x1, d.y + d.rail, z1), pt = at(x0, d.y + d.rail, z0);
+      si.push(p, q, qt, p, qt, pt);
+    }
+    return [
+      RAPIER.ColliderDesc.trimesh(new Float32Array(fv), new Uint32Array(fi), RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES),
+      RAPIER.ColliderDesc.trimesh(new Float32Array(sv), new Uint32Array(si)),
+    ];
   }
 
   // --- Balls ---
@@ -353,6 +466,8 @@ export class PinballSim {
     this.items.delete(id);
     this.held.delete(id);
     this.lockIgnoreUntil.delete(id);
+    this.saucerHold.delete(id);
+    this.saucerIgnore.delete(id);
     for (const key of this.lastKick.keys()) if (key.endsWith(`:${id}`)) this.lastKick.delete(key);
   }
 
@@ -368,6 +483,8 @@ export class PinballSim {
     const ball = this.items.get(id);
     if (!ball) return;
     const { x, z } = this.table.lock;
+    // Out of a saucer, if one had it: the lock has it now.
+    this.saucerHold.delete(id);
     ball.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -376,14 +493,20 @@ export class PinballSim {
     this.held.add(id);
   }
 
-  /** Lets a held ball go: out of the lock, toward the flippers. */
+  /** Lets a ball the lock holds go: out of the lock, toward the flippers. (A saucer's ball goes when its hold ends.) */
   release(id: number): void {
     const ball = this.items.get(id);
-    if (!ball || !this.held.has(id)) return;
+    if (!ball || this.heldBy(id) !== 'lock') return;
     this.held.delete(id);
     ball.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
     ball.body.setLinvel({ x: LOCK_EJECT.speed * LOCK_EJECT.dir[0], y: 0, z: LOCK_EJECT.speed * LOCK_EJECT.dir[1] }, true);
     this.lockIgnoreUntil.set(id, this.time + LOCK_IGNORE);
+  }
+
+  /** What holds a ball still: the lock (holdInLock), a saucer or the magnet, or nothing. */
+  heldBy(id: number): 'lock' | 'saucer' | null {
+    if (this.saucerHold.has(id)) return 'saucer';
+    return this.held.has(id) ? 'lock' : null;
   }
 
   /** Fires a ball back up the table from the kickback (the game calls this when the kickback is lit). */
@@ -411,9 +534,14 @@ export class PinballSim {
     for (const s of this.flippers) if (s.f.side === side) s.up = up;
   }
 
-  /** A flipper's angle now, in the table's degrees. */
+  /** A flipper's angle now, in the table's degrees: the side's first (its main flipper). */
   flipperAngle(side: 'left' | 'right'): number {
     return this.flippers.find((s) => s.f.side === side)?.angle ?? 0;
+  }
+
+  /** Every flipper's angle now, in the table's order. */
+  flipperAngles(): number[] {
+    return this.flippers.map((s) => s.angle);
   }
 
   /** Which drop targets are down: bit i for target i. */
@@ -425,16 +553,43 @@ export class PinballSim {
     return bits;
   }
 
+  /** Which flip targets show their backs: bit i for target i. */
+  targetsTurned(): number {
+    let bits = 0;
+    this.targets.forEach((g, i) => {
+      if (g.turned) bits |= 1 << i;
+    });
+    return bits;
+  }
+
+  /** Raises every drop target and turns every flip target back to its front. */
   resetTargets(): void {
     for (const g of this.targets) {
       g.down = false;
+      g.turned = false;
       g.collider.setEnabled(true);
     }
+    this.bankResets.clear();
+  }
+
+  /** Raises the drop targets only; the flip targets stay as they're turned. */
+  resetDropTargets(): void {
+    this.table.targets.forEach((spec, i) => {
+      if (spec.flip) return;
+      const g = this.targets[i];
+      g.down = false;
+      g.collider.setEnabled(true);
+    });
   }
 
   /** The spinner's turn, in radians (0 to 2π). */
   spinnerAngle(): number {
     return this.spinAngle;
+  }
+
+  /** Every spinner's turn, in radians: the table's spinner, then its other spinners in order. */
+  spinnerAngles(): number[] {
+    return [this.spinAngle, ...this.spin2.map((s2) => s2.angle)];
   }
 
   /** The flipper a ball is within reach of (in its sweep, or about to be), or null. */
@@ -482,6 +637,15 @@ export class PinballSim {
       if (!ball || !part || !this.items.has(ball.id)) return;
       this.touch(ball, part, now, toDrop);
     });
+    for (const [id, at] of [...this.bankResets]) {
+      if (now < at) continue;
+      this.bankResets.delete(id);
+      const bank = this.table.banks.find((b) => b.id === id);
+      for (const tid of bank?.targets ?? []) {
+        const g = this.targets[this.targetIndex(tid)];
+        if (g) g.turned = false;
+      }
+    }
     for (const index of toDrop) {
       const g = this.targets[index];
       if (g.down) continue;
@@ -494,6 +658,29 @@ export class PinballSim {
     if (Math.floor(this.spinAngle / (2 * Math.PI)) > spinTurns) {
       this.spinAngle %= 2 * Math.PI;
       if (this.items.has(this.spinBall)) this.report({ kind: 'spinner', id: 'spinner', ball: this.spinBall });
+    }
+    this.spin2.forEach((s2, i) => {
+      const turns = Math.floor(s2.angle / (2 * Math.PI));
+      s2.speed = Math.max(0, s2.speed - SPINNER_DRAG * H);
+      s2.angle += s2.speed * H;
+      if (Math.floor(s2.angle / (2 * Math.PI)) > turns) {
+        s2.angle %= 2 * Math.PI;
+        if (this.items.has(s2.ball)) this.report({ kind: 'spinner', id: this.table.spinners[i].id, ball: s2.ball });
+      }
+    });
+    // A saucer's hold over: its ball goes out along its eject (mirrored every other time, for an alternating one).
+    for (const [id, h] of [...this.saucerHold]) {
+      if (now < h.until) continue;
+      this.saucerHold.delete(id);
+      const ball = this.items.get(id);
+      if (!ball) continue;
+      this.held.delete(id);
+      const sc = this.table.saucers[h.index];
+      const len = Math.hypot(sc.eject[0], sc.eject[1]) || 1;
+      const mirror = sc.alternate && this.saucerKicks++ % 2 === 1 ? -1 : 1;
+      ball.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      ball.body.setLinvel({ x: (mirror * sc.speed * sc.eject[0]) / len, y: 0, z: (sc.speed * sc.eject[1]) / len }, true);
+      this.saucerIgnore.set(id, now + LOCK_IGNORE);
     }
     for (const ball of [...this.items.values()]) {
       if (this.held.has(ball.id)) continue;
@@ -587,11 +774,32 @@ export class PinballSim {
         this.report({ kind: part.kind, id: part.id, ball: ball.id });
         return;
       }
-      case 'target':
-        if (this.targets[part.index].down || toDrop.includes(part.index)) return;
-        toDrop.push(part.index);
+      case 'target': {
+        if (!this.table.targets[part.index].flip) {
+          if (this.targets[part.index].down || toDrop.includes(part.index)) return;
+          toDrop.push(part.index);
+          this.report({ kind: 'target', id: part.id, ball: ball.id });
+          return;
+        }
+        // A flip target stays up; the first hit turns it to its back. Every hit scores (with the bumpers' cool-down).
+        const g = this.targets[part.index];
+        const key = `${part.id}:${ball.id}`;
+        if (now - (this.lastKick.get(key) ?? -Infinity) < KICK_COOLDOWN) return;
+        this.lastKick.set(key, now);
         this.report({ kind: 'target', id: part.id, ball: ball.id });
+        if (g.turned) return;
+        g.turned = true;
+        // Its bank matches when all its plaques are turned: once, until they turn back (a second ball on the last plaque
+        // in the same step finds it already turned, above).
+        for (const bank of this.table.banks) {
+          if (!bank.targets.includes(part.id) || this.bankResets.has(bank.id)) continue;
+          if (bank.targets.every((id) => this.targets[this.targetIndex(id)]?.turned)) {
+            this.report({ kind: 'bank', id: bank.id, ball: ball.id });
+            this.bankResets.set(bank.id, now + BANK_SHOW);
+          }
+        }
         return;
+      }
       case 'rollover':
         this.report({ kind: 'rollover', id: part.id, ball: ball.id });
         return;
@@ -599,6 +807,28 @@ export class PinballSim {
         const v = ball.body.linvel();
         this.spinSpeed = Math.max(this.spinSpeed, Math.hypot(v.x, v.z) * SPINNER_SPIN);
         this.spinBall = ball.id;
+        return;
+      }
+      case 'spinner2': {
+        const v = ball.body.linvel();
+        const s2 = this.spin2[part.index];
+        s2.speed = Math.max(s2.speed, Math.hypot(v.x, v.z) * SPINNER_SPIN);
+        s2.ball = ball.id;
+        return;
+      }
+      case 'saucer': {
+        // A slow ball is held still at the saucer's middle for its hold (the substep lets it go when the hold is over).
+        const sc = this.table.saucers[part.index];
+        const v = ball.body.linvel();
+        if (this.held.has(ball.id) || now < (this.saucerIgnore.get(ball.id) ?? -Infinity) || Math.hypot(v.x, v.z) > sc.maxSpeed) return;
+        ball.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+        ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        ball.body.setTranslation({ x: sc.x, y: TABLE.ballRadius, z: sc.z }, true);
+        ball.body.setNextKinematicTranslation({ x: sc.x, y: TABLE.ballRadius, z: sc.z });
+        this.held.add(ball.id);
+        this.saucerHold.set(ball.id, { index: part.index, until: now + sc.hold });
+        this.report({ kind: 'saucer', id: sc.id, ball: ball.id });
         return;
       }
       case 'lock':
@@ -611,6 +841,10 @@ export class PinballSim {
       case 'gate':
         return;
     }
+  }
+
+  private targetIndex(id: string): number {
+    return this.table.targets.findIndex((t) => t.id === id);
   }
 
   // --- Snapshot ---

@@ -15,5 +15,5 @@
     "forceConsistentCasingInFileNames": true,
     "paths": { "@kit/*": ["./kit/src/kit/*"] }
   },
-  "include": ["src", "tests", "kit", "vite.config.ts"]
+  "include": ["src", "tests", "tools", "kit", "vite.config.ts"]
 }

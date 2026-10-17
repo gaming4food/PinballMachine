@@ -9,6 +9,8 @@
     "contract-test": "tsx --disable-warning=ExperimentalWarning tests/contract-test.ts",
     "table-test": "tsx --disable-warning=ExperimentalWarning tests/table-test.ts",
     "pinball-sim-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sim-test.ts",
+    "pinball-layout-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-layout-test.ts",
+    "pinball-stress": "tsx --disable-warning=ExperimentalWarning tools/pinball-stress.ts",
     "pinball-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-test.ts",
     "pinball-hype-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-hype-test.ts",
     "pinball-header-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-header-test.ts",
@@ -16,7 +18,7 @@
     "pinball-sounds-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sounds-test.ts",
     "pinball-play": "tsx --disable-warning=ExperimentalWarning tests/pinball-play.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test && npm run -s pinball-test && npm run -s pinball-hype-test && npm run -s pinball-header-test && npm run -s pinball-hud-test && npm run -s pinball-sounds-test"
+    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test && npm run -s pinball-layout-test && npm run -s pinball-test && npm run -s pinball-hype-test && npm run -s pinball-header-test && npm run -s pinball-hud-test && npm run -s pinball-sounds-test"
   },
   "engines": {
     "node": ">=22.5"

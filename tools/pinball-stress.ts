@@ -1,0 +1,70 @@
+// A stress run of the table in use (TABLE_IN_USE) in the real physics: 250 launches played for 25 s each with random
+// flips, then up to 3000 shots off the flippers, looking for any ball that gets down on the floor outside the outer wall
+// (behind the arch: a ball there is lost). For each one found (up to 4) it prints the last second of the ball's path
+// (x, y, z and its velocity, every third step), to see how it got out. The Blender spike's trace-out10.mts, seeded the
+// same (11). It takes minutes, so it isn't part of npm test; expected: "found 0 in 3250 runs".
+// Usage: npm run pinball-stress (or npx tsx tools/pinball-stress.ts)
+import { initPhysics } from '@kit/server';
+import { DT, PinballSim } from '../src/server/sim';
+import { TABLE_IN_USE as L } from '../src/shared/table';
+
+await initPhysics();
+
+let seed = 11;
+Math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+
+const sim = new PinballSim(L, () => {});
+/** The outer wall's outline, closed along the bottom below the drain. */
+const OUT = [...L.walls[0].points, [5, -2], [-5, -2]] as [number, number][];
+function inside(x: number, z: number): boolean {
+  let c = false;
+  for (let i = 0, j = OUT.length - 1; i < OUT.length; j = i++) {
+    const [ax, az] = OUT[i], [bx, bz] = OUT[j];
+    if ((az > z) !== (bz > z) && x < ax + ((z - az) * (bx - ax)) / (bz - az)) c = !c;
+  }
+  return c;
+}
+
+let found = 0, runs = 0;
+/** Plays ball `id` for `seconds`, each flipper flipped now and then when the ball is near it. */
+function play(id: number, seconds: number): void {
+  const hold: Record<'left' | 'right', number> = { left: 0, right: 0 };
+  const hist: number[][] = [];
+  for (let k = 0; k < seconds / DT; k++) {
+    const side = sim.nearFlipper(id);
+    if (side && hold[side] <= 0 && Math.random() < 0.08) {
+      sim.flip(side, true);
+      hold[side] = 0.12 + Math.random() * 0.25;
+    }
+    for (const s of ['left', 'right'] as const) if (hold[s] > 0 && (hold[s] -= DT) <= 0) sim.flip(s, false);
+    sim.step();
+    const b = sim.items.get(id);
+    if (!b) return;
+    const p = b.body.translation(), v = b.body.linvel();
+    hist.push([+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2), +v.x.toFixed(1), +v.y.toFixed(1), +v.z.toFixed(1)]);
+    if (hist.length > 40) hist.shift();
+    if (!inside(p.x, p.z) && p.y < 0.6 && found < 4) {
+      found++;
+      console.log('OUT at run', runs, JSON.stringify(hist.filter((_, i) => i % 3 === 0)));
+      return;
+    }
+  }
+}
+
+for (let n = 0; n < 250; n++) {
+  runs++;
+  sim.clear();
+  sim.resetTargets();
+  play(sim.launch(null), 25);
+}
+for (let n = 0; n < 3000 && found < 4; n++) {
+  runs++;
+  sim.clear();
+  sim.resetTargets();
+  const f = L.flippers[n % L.flippers.length];
+  const x = f.pivot[0] + (Math.random() - 0.5) * 2.4, z = f.pivot[1] + 0.3 + Math.random() * 0.8;
+  const a = Math.PI / 2 + (Math.random() - 0.5) * 2.4, v = 15 + Math.random() * 45;
+  play((sim as any).addBall(null, x, z, Math.cos(a) * v, Math.sin(a) * v), 6);
+}
+console.log('found', found, 'in', runs, 'runs');
+process.exit(found ? 1 : 0);

@@ -1,6 +1,8 @@
 // The pinball's physics (server/sim.ts), headless with the real Rapier: a launch goes up the plunger lane and onto the
 // table, no shot gets out through a wall, a ball left alone drains, the flippers shoot to the upper table, a bumper
-// kicks, the kickback and the lock do what the game asks, and the snapshot has the Task 2 layout.
+// kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
+// is held and let go cleanly, and the snapshot has the Task 2 layout. (The pathways round the table are
+// pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
@@ -22,7 +24,7 @@ const rand = (lo: number, hi: number) => lo + (hi - lo) * Math.random();
 
 const R = TABLE.ballRadius;
 
-/** A sim on the stand-in table, and every hit it reports. */
+/** A sim on the table in use (the pyramid table), and every hit it reports. */
 function make(table: Table = TABLE_IN_USE): { sim: PinballSim; hits: Hit[] } {
   const hits: Hit[] = [];
   return { sim: new PinballSim(table, (hit) => hits.push(hit)), hits };
@@ -37,6 +39,25 @@ function place(sim: PinballSim, x: number, z: number, vx = 0, vz = 0): number {
   body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   return id;
 }
+
+/** Has ball `id` touch the part `partId` now, through the sim's own touch path (as a contact in a substep would). */
+function touch(sim: PinballSim, id: number, partId: string): void {
+  const S = sim as any;
+  const part = [...S.parts.values()].find((p: any) => p.id === partId);
+  assert.ok(part, `no part ${partId}`);
+  S.touch(S.items.get(id), part, sim.time, []);
+}
+
+/** A slow ball rolled down into the Scarab saucer, stepped until the saucer holds it; returns its id. */
+function intoSaucer(sim: PinballSim): number {
+  const sc = TABLE_IN_USE.saucers.find((s) => s.id === 'saucer-scarab')!;
+  const id = place(sim, sc.x, sc.z + 1.3, 0, -1.5);
+  for (let i = 0; i < 2 / DT && sim.heldBy(id) !== 'saucer'; i++) sim.step();
+  assert.equal(sim.heldBy(id), 'saucer', 'the saucer never caught the ball');
+  return id;
+}
+
+const targetIndex = (id: string) => TABLE_IN_USE.targets.findIndex((t) => t.id === id);
 
 const speedOf = (sim: PinballSim, id: number) => {
   const v = sim.items.get(id)!.body.linvel();
@@ -98,7 +119,7 @@ const checks: [string, () => void][] = [
       sim.clear();
       sim.resetTargets();
       let p: [number, number];
-      do p = [rand(-4.9, 4.9), rand(0.4, 19.8)]; while (!clearSpot(p, t));
+      do p = [rand(-4.9, 4.9), rand(0.4, TABLE.length - 0.4)]; while (!clearSpot(p, t));
       // Half the shots are aimed at a wall's corner or a flipper; the rest go any way.
       let angle: number;
       if (shot % 2 === 0) {
@@ -121,7 +142,7 @@ const checks: [string, () => void][] = [
         const ball = sim.items.get(id);
         if (!ball) break;
         const at = ball.body.translation();
-        if (Math.abs(at.x) > 5.2 || at.z < -1 || at.z > 20.5 || at.y < 0 || at.y > TABLE.glassY) {
+        if (Math.abs(at.x) > 5.2 || at.z < -1 || at.z > TABLE.length + 0.5 || at.y < 0 || at.y > TABLE.glassY) {
           escaped++;
           if (first.length < 5) first.push(`shot ${shot} from (${p.map((v) => v.toFixed(2))}) at ${speed.toFixed(1)} u/s, ${((angle * 180) / Math.PI).toFixed(0)} deg: at (${at.x.toFixed(2)}, ${at.y.toFixed(2)}, ${at.z.toFixed(2)})`);
           sim.remove(id);
@@ -154,26 +175,28 @@ const checks: [string, () => void][] = [
     assert.deepEqual(late, []);
   }],
   ['flipper shots reach the upper table', () => {
-    const left = TABLE_IN_USE.flippers.find((f) => f.side === 'left')!;
+    // The right flipper: on the pyramid table its shots go up the left ramp and round the left orbit, over z 12 (the pop
+    // bumpers' level, as on the stand-in table); the left flipper's, from these drops, run into the pyramid's Eye bank.
+    const flipper = TABLE_IN_USE.flippers.find((f) => f.side === 'right')!;
     const tops: number[] = [];
     for (let n = 0; n < 10; n++) {
       const { sim } = make();
       // The flipper up, and a ball dropped onto it: it rolls down to the flipper's base and sits there.
-      sim.flip('left', true);
-      const id = place(sim, left.pivot[0] + rand(0.5, 1.3), left.pivot[1] + rand(1.6, 2.4));
+      sim.flip('right', true);
+      const id = place(sim, flipper.pivot[0] - rand(0.5, 1.3), flipper.pivot[1] + rand(1.6, 2.4));
       for (let i = 0; i < 1.5 / DT; i++) sim.step();
       // Let go: the ball rolls down the flipper toward its tip; flip when it's between the flipper's middle and its tip,
       // as a player does (a ball still at the base goes up slow and straight, into bumper-3: a weak shot on any table).
-      sim.flip('left', false);
-      const at = rand(0.5, 0.95) * left.length;
+      sim.flip('right', false);
+      const at = rand(0.5, 0.95) * flipper.length;
       const along = () => {
         const p = sim.items.get(id)!.body.translation();
-        const a = (sim.flipperAngle('left') * Math.PI) / 180;
-        return (p.x - left.pivot[0]) * Math.cos(a) + (p.z - left.pivot[1]) * Math.sin(a);
+        const a = (sim.flipperAngle('right') * Math.PI) / 180;
+        return (p.x - flipper.pivot[0]) * Math.cos(a) + (p.z - flipper.pivot[1]) * Math.sin(a);
       };
       for (let i = 0; i < 2 / DT && sim.items.has(id) && along() < at; i++) sim.step();
       assert.ok(sim.items.has(id), `drop ${n}: the ball drained before the flip`);
-      sim.flip('left', true);
+      sim.flip('right', true);
       let top = -Infinity;
       for (let i = 0; i < 2 / DT; i++) {
         sim.step();
@@ -270,6 +293,116 @@ const checks: [string, () => void][] = [
     });
     assert.equal(bumped, 1);
     assert.equal(sim.items.size, 0);
+  }],
+  ['flip targets turn and stay up; resetDropTargets raises only the drop targets', () => {
+    const { sim, hits } = make();
+    // The scarab drop target, on the pyramid's upper-left face (which runs at 45 degrees): a ball rolled square at it.
+    const drop = TABLE_IN_USE.targets[targetIndex('target-scarab')];
+    const shot = place(sim, drop.x - 0.6 * Math.SQRT1_2, drop.z + 0.6 * Math.SQRT1_2, 9 * Math.SQRT1_2, -9 * Math.SQRT1_2);
+    for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === drop.id); i++) sim.step();
+    const plaque = TABLE_IN_USE.targets.find((t) => t.flip)!;
+    const id = place(sim, -0.4, 3, 0, 0);
+    touch(sim, id, plaque.id);
+    sim.step();
+    assert.ok(hits.some((h) => h.kind === 'target' && h.id === drop.id && h.ball === shot), 'the drop target reported');
+    assert.ok(hits.some((h) => h.kind === 'target' && h.id === plaque.id && h.ball === id), 'the plaque reported');
+    assert.equal(sim.targetsDown(), 1 << targetIndex(drop.id), 'the drop target is down');
+    assert.equal(sim.targetsTurned(), 1 << targetIndex(plaque.id), 'the plaque is turned, and not down');
+    sim.resetDropTargets();
+    assert.equal(sim.targetsDown(), 0);
+    assert.equal(sim.targetsTurned(), 1 << targetIndex(plaque.id), 'resetDropTargets leaves the plaques');
+    sim.resetTargets();
+    assert.equal(sim.targetsTurned(), 0, 'resetTargets turns the plaques back too');
+  }],
+  ['a bank pays once: a plaque hit twice, and its last plaque hit by two balls in one step', () => {
+    const { sim, hits } = make();
+    const bank = TABLE_IN_USE.banks[0];
+    const [t1, t2, t3] = bank.targets;
+    const bankHits = () => hits.filter((h) => h.kind === 'bank');
+    // The first two plaques, by a ball held still in the lock (so the steps between don't roll it into anything).
+    const c = place(sim, -0.4, 9.5);
+    sim.holdInLock(c);
+    touch(sim, c, t1);
+    sim.step();
+    // The first plaque hit again, after the kick cool-down: it scores again and stays turned.
+    for (let i = 0; i < 0.2 / DT; i++) sim.step();
+    touch(sim, c, t1);
+    touch(sim, c, t2);
+    sim.step();
+    assert.equal(hits.filter((h) => h.kind === 'target' && h.id === t1).length, 2, 'a turned plaque still scores');
+    assert.equal(bankHits().length, 0, 'no match on two plaques');
+    // Two balls on the last plaque's face, both touching it in the same step.
+    const face = TABLE_IN_USE.targets[targetIndex(t3)];
+    const u = [Math.cos(((face.angle ?? 0) * Math.PI) / 180), Math.sin(((face.angle ?? 0) * Math.PI) / 180)];
+    let n = [-u[1], u[0]];
+    if (n[0] * (-0.4 - face.x) + n[1] * (2 - face.z) < 0) n = [-n[0], -n[1]];
+    const on = (k: number) => place(sim, face.x + n[0] * 0.38 + u[0] * k, face.z + n[1] * 0.38 + u[1] * k);
+    const a = on(-0.27), b = on(0.27);
+    touch(sim, a, t3);
+    touch(sim, b, t3);
+    sim.step();
+    assert.deepEqual(bankHits(), [{ kind: 'bank', id: bank.id, ball: a }], 'the bank hit came once');
+    assert.equal(hits.filter((h) => h.kind === 'target' && h.id === t3).length, 2, 'both balls scored the plaque');
+    // A plaque hit while the bank shows its match pays no second bonus.
+    for (let i = 0; i < 0.2 / DT; i++) sim.step();
+    touch(sim, c, t2);
+    touch(sim, c, t3);
+    sim.step();
+    assert.equal(bankHits().length, 1, 'no second bank hit while it shows its match');
+  }],
+  ['heldBy: the lock, a saucer, or nothing', () => {
+    const { sim } = make();
+    const free = place(sim, -0.4, 9.5);
+    assert.equal(sim.heldBy(free), null);
+    sim.holdInLock(free);
+    assert.equal(sim.heldBy(free), 'lock');
+    sim.release(free);
+    assert.equal(sim.heldBy(free), null);
+    const id = intoSaucer(sim);
+    assert.equal(sim.heldBy(id), 'saucer');
+    assert.equal(sim.heldBy(12345), null);
+  }],
+  ['remove() and clear() while a saucer holds a ball', () => {
+    for (const how of ['remove', 'clear'] as const) {
+      const { sim } = make();
+      const id = intoSaucer(sim);
+      const handle = sim.items.get(id)!.body.handle;
+      if (how === 'remove') sim.remove(id);
+      else sim.clear();
+      assert.equal(sim.items.has(id), false, `${how}: the ball is gone`);
+      assert.equal((sim as any).world.getRigidBody(handle), null, `${how}: its body is gone from the world`);
+      assert.equal(sim.heldBy(id), null, `${how}: nothing holds it`);
+      // Past the hold's end: nothing tries to kick a ball that's gone.
+      assert.doesNotThrow(() => {
+        for (let i = 0; i < 2 / DT; i++) sim.step();
+      });
+    }
+  }],
+  ['release() on a ball a saucer holds does nothing; the saucer lets it go along its own eject', () => {
+    const { sim } = make();
+    const sc = TABLE_IN_USE.saucers.find((s) => s.id === 'saucer-scarab')!;
+    const id = intoSaucer(sim);
+    sim.release(id);
+    assert.equal(sim.heldBy(id), 'saucer', 'still held by the saucer');
+    sim.step();
+    const at = sim.items.get(id)!.body.translation();
+    assert.ok(Math.hypot(at.x - sc.x, at.z - sc.z) < 0.05, 'still sitting in the saucer');
+    for (let i = 0; i < 2 / DT && sim.heldBy(id) === 'saucer'; i++) sim.step();
+    assert.equal(sim.heldBy(id), null, 'the saucer let it go');
+    const v = sim.items.get(id)!.body.linvel();
+    const len = Math.hypot(sc.eject[0], sc.eject[1]);
+    const along = (v.x * sc.eject[0] + v.z * sc.eject[1]) / (len * Math.hypot(v.x, v.z));
+    assert.ok(along > 0.9, `it left along the saucer's eject (cos ${along.toFixed(2)} to it), not the lock's`);
+  }],
+  ['every flipper and spinner has its angle', () => {
+    const { sim } = make();
+    assert.deepEqual(sim.flipperAngles(), TABLE_IN_USE.flippers.map((f) => f.restDeg));
+    sim.flip('right', true);
+    for (let i = 0; i < 10; i++) sim.step();
+    // Both right flippers (the main one and the upper one) go up together.
+    assert.deepEqual(sim.flipperAngles(), TABLE_IN_USE.flippers.map((f) => (f.side === 'right' ? f.upDeg : f.restDeg)));
+    assert.equal(sim.spinnerAngles().length, 1 + TABLE_IN_USE.spinners.length);
+    assert.equal(sim.spinnerAngles()[0], sim.spinnerAngle());
   }],
   ['the snapshot', () => {
     const { sim } = make();
