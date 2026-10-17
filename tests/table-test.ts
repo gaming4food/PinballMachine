@@ -94,19 +94,19 @@ const checks: [string, () => void][] = [
     for (const s of TABLE_IN_USE.slings) {
       for (const end of [s.a, s.b]) {
         for (const w of TABLE_IN_USE.walls) {
-          // A sling's back wall starts at the sling's own end (it closes the pocket behind the sling): no gap to leave.
-          if (w.kind === 'slingback') continue;
           for (let i = 0; i + 1 < w.points.length; i++) {
             const d = dist(end, w.points[i], w.points[i + 1]);
+            // A sling's back wall starts at the sling's own end (it closes the pocket behind the sling): that point is no gap.
+            if (w.kind === 'slingback' && d < 1e-9) continue;
             assert.ok(d >= need, `${s.id} end (${end}) is ${d.toFixed(2)} from a wall; a ball needs ${need.toFixed(2)}`);
           }
         }
       }
     }
   }],
-  ['ids are unique', () => {
+  ['ids are unique across every part', () => {
     const t = TABLE_IN_USE;
-    const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers].map((p) => p.id);
+    const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers, ...t.saucers, ...t.spinners, ...t.banks, ...t.ramps, ...t.dishes].map((p) => p.id);
     assert.equal(new Set(ids).size, ids.length, `duplicate id in ${ids.join(', ')}`);
   }],
   ['the rules and the snapshot header', () => {

@@ -55,10 +55,9 @@ export const PYRAMID: Table = {
     { id: 'sling-right', a: [2, 4.8], b: [1.4, 3.2], kick: 7, points: 10 },
   ],
   targets: [
-    // The scarab target on the pyramid's upper-left face, and the eye on its upper-right face, each 0.12 out from the
-    // middle of its face. (The lower faces carry banks of flip plaques, below.)
+    // The scarab target on the pyramid's upper-left face, 0.12 out from the middle of its face. (The lower faces carry
+    // banks of flip plaques, below.) The order of this list is the snapshot's and the sim's target numbering.
     { id: 'target-scarab', x: -1.195, z: 7.895, width: 0.6, points: 500 },
-    { id: 'target-eye', x: 0.395, z: 7.895, width: 0.6, points: 500 },
     // The Ra bank: three flip targets along the right orbit's inner wall, facing the left flipper. They are 0.5 wide, 0.54
     // apart, from 9.2 to 10.78: standing (no longer dropping), the top plaque (to 11.0) held a ball under the upper
     // flipper's base, and a bottom one moved lower closed the gap to the Horus bank's end.
@@ -72,6 +71,8 @@ export const PYRAMID: Table = {
     { id: 'target-horus-1', x: 0.983, z: 9.468, width: 0.6, points: 300, angle: -29.31, flip: true },
     { id: 'target-horus-2', x: 1.55, z: 9.15, width: 0.6, points: 300, angle: -29.31, flip: true },
     { id: 'target-horus-3', x: 2.117, z: 8.832, width: 0.6, points: 300, angle: -29.31, flip: true },
+    // The eye target on the pyramid's upper-right face, 0.12 out from the middle of its face.
+    { id: 'target-eye', x: 0.395, z: 7.895, width: 0.6, points: 500 },
     // The Ankh bank on the pyramid's lower-left face (facing the right flipper) and the Eye bank on its lower-right face
     // (facing the left): three plaques along each face from the front corner, close to the face (0.14 out) and slid 0.18
     // toward the front corner, 0.5 wide. Across the whole face at 0.6, the top one stood out into the shot up the left
