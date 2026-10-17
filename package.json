@@ -11,8 +11,11 @@
     "pinball-sim-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sim-test.ts",
     "pinball-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-test.ts",
     "pinball-hype-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-hype-test.ts",
+    "pinball-header-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-header-test.ts",
+    "pinball-hud-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-hud-test.ts",
+    "pinball-sounds-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sounds-test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test && npm run -s pinball-test && npm run -s pinball-hype-test"
+    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test && npm run -s pinball-test && npm run -s pinball-hype-test && npm run -s pinball-header-test && npm run -s pinball-hud-test && npm run -s pinball-sounds-test"
   },
   "engines": {
     "node": ">=22.5"

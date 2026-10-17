@@ -1,0 +1,170 @@
+/*
+ * The pinball's scoreboard (PinballHud, pinball-hud.ts), in the stage's #machine-overlay: the backglass over the top of
+ * the table, as the claw's turn box sits across its cabinet's base.
+ */
+#pinball-hud {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  width: 640px;
+  transform: translateX(-50%);
+  padding: 10px 22px 9px;
+  border-radius: 14px;
+  background: rgba(10, 4, 24, 0.86);
+  border: 3px solid var(--cyan);
+  font-family: var(--arcade);
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 0 10px var(--cyan);
+}
+
+#pinball-hud[data-phase='playing'] {
+  border-color: var(--pink);
+  text-shadow: 0 0 10px var(--pink);
+}
+
+#pinball-hud b {
+  color: var(--yellow);
+  text-shadow: 0 0 10px var(--yellow);
+}
+
+#pinball-hud [hidden] {
+  display: none;
+}
+
+#pinball-hud .pinball-row > span + span {
+  margin-left: 0.9em;
+}
+
+/* The balls on the table: whose, and their score, big. */
+.pinball-ball {
+  font-size: 20px;
+}
+
+.pinball-ball .score {
+  color: var(--yellow);
+  text-shadow: 0 0 12px var(--yellow);
+}
+
+.pinball-flags {
+  font-size: 12px;
+  color: var(--yellow);
+  text-shadow: 0 0 10px var(--yellow);
+}
+
+.pinball-next,
+.pinball-result {
+  font-size: 12px;
+  color: #d9d4f0;
+}
+
+.pinball-next .label,
+.pinball-result .label {
+  color: var(--cyan);
+}
+
+.pinball-next .more {
+  color: var(--muted, #9a94b8);
+}
+
+.pinball-result .coins {
+  color: var(--yellow);
+}
+
+/*
+ * Play commands off (the layout's switch): the scoreboard shows the play, not what to type; with nothing on the table,
+ * nobody in line and no last ball, it waits out of sight.
+ */
+body.no-commands #pinball-hud .cmd {
+  display: none;
+}
+
+body.no-commands #pinball-hud[data-phase='idle']:not(:has(.pinball-result:not([hidden]), .pinball-next:not([hidden]))) {
+  display: none;
+}
+
+/* A ball's name tag (the stage's .tag), a little smaller: it rides a small ball. */
+.pinball-tag {
+  font-size: 15px;
+  padding: 2px 8px;
+}
+
+/*
+ * The big title over the table (PinballHud): MULTIBALL!, BALL SAVER!, DOUBLE SCORE!, NUDGE!, BALL SAVED! and a ball's
+ * result, in its own colour (data-title), popping in, holding and fading over TITLE_SECONDS (2.2 s), as the claw's hype
+ * titles. data-run flips between two names for the same animation, so a title right after another starts it afresh.
+ */
+#pinball-title {
+  --c: var(--yellow);
+  position: absolute;
+  top: 420px;
+  left: 50%;
+  white-space: nowrap;
+  text-align: center;
+  font-family: var(--arcade);
+  font-size: 50px;
+  color: #fff;
+  -webkit-text-stroke: 2px var(--c);
+  text-shadow: 0 0 6px var(--c), 0 0 18px var(--c), 0 0 40px var(--c), 0 0 70px var(--c), 4px 5px 0 rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+#pinball-title[hidden] {
+  display: none;
+}
+
+#pinball-title .title-words,
+#pinball-title .title-by {
+  display: block;
+}
+
+/* The line over the words: a buyer's name in their colour, or a result's owner and coins. */
+#pinball-title .title-by {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-bottom: 6px;
+  transform: translateX(-50%);
+  font-size: 0.45em;
+  text-transform: uppercase;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 0 10px currentColor, 2px 3px 0 rgba(0, 0, 0, 0.65);
+}
+
+#pinball-title .title-by[hidden] {
+  display: none;
+}
+
+#pinball-title[data-title='multiball'] { --c: #ff2bd6; }
+#pinball-title[data-title='saver'] { --c: #39ff6a; }
+#pinball-title[data-title='saved'] { --c: #39ff6a; }
+#pinball-title[data-title='double'] { --c: #ffc23a; }
+#pinball-title[data-title='nudge'] { --c: #ff7a1a; }
+#pinball-title[data-title='result'] { --c: #22e6ff; }
+
+#pinball-title[data-run='a'] {
+  animation: pinball-pop-a 2.2s ease-out both;
+}
+
+#pinball-title[data-run='b'] {
+  animation: pinball-pop-b 2.2s ease-out both;
+}
+
+@keyframes pinball-pop-a {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.3); }
+  11% { opacity: 1; transform: translateX(-50%) scale(1.22); }
+  20% { transform: translateX(-50%) scale(1); }
+  78% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-36px) scale(1.12); }
+}
+
+@keyframes pinball-pop-b {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.3); }
+  11% { opacity: 1; transform: translateX(-50%) scale(1.22); }
+  20% { transform: translateX(-50%) scale(1); }
+  78% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-36px) scale(1.12); }
+}
