@@ -237,6 +237,40 @@ const checks: [string, () => void][] = [
     const gone = sim.items.get(id)?.body.translation();
     assert.ok(!gone || Math.hypot(gone.x - l.x, gone.z - l.z) > 1, 'the released ball left the lock');
   }],
+  ['a hit handler can take balls off mid-step: two drains together, cleared on the first', () => {
+    const hits: Hit[] = [];
+    const sim: PinballSim = new PinballSim(STAND_IN, (hit) => {
+      hits.push(hit);
+      if (hit.kind === 'drain') sim.clear();
+    });
+    // Two balls side by side between the flippers, falling into the drain in the same substep.
+    const a = place(sim, -0.7, 0.4, 0, -8);
+    const b = place(sim, -0.7 + 2.2 * R, 0.4, 0, -8);
+    assert.doesNotThrow(() => {
+      for (let i = 0; i < 30; i++) sim.step();
+    });
+    const drains = hits.filter((h) => h.kind === 'drain').map((h) => h.ball);
+    assert.ok(drains.length >= 1 && drains.every((id) => id === a || id === b), `drains: ${drains}`);
+    assert.equal(sim.items.size, 0);
+  }],
+  ['a hit handler can take balls off mid-step: a bumper hit clears the table', () => {
+    let bumped = 0;
+    const sim: PinballSim = new PinballSim(STAND_IN, (hit) => {
+      if (hit.kind === 'bumper') {
+        bumped++;
+        sim.clear();
+      }
+    });
+    const bp = STAND_IN.bumpers[0];
+    place(sim, bp.x - 1.5, bp.z + 0.1, 6, 0);
+    // Another ball on the table at the same time.
+    place(sim, -0.4, 6, 0, 0);
+    assert.doesNotThrow(() => {
+      for (let i = 0; i < 60; i++) sim.step();
+    });
+    assert.equal(bumped, 1);
+    assert.equal(sim.items.size, 0);
+  }],
   ['the snapshot', () => {
     const { sim } = make();
     const a = sim.launch(3);

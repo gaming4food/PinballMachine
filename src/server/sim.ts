@@ -150,6 +150,10 @@ export class PinballSim {
   private gateX = Infinity;
   private readonly gateSolidTo = new Set<number>();
   private readonly hooks: RAPIER.PhysicsHooks;
+  /** This substep's hits, passed on once it's done (flushHits), so a handler that takes balls off can't pull one out
+   * from under the step: it used to be called from inside the drain loop, and a drain handler's clear() had the loop
+   * touch a body already gone from the world (a panic in Rapier's WebAssembly). */
+  private readonly pending: Hit[] = [];
 
   constructor(private readonly table: Table, private readonly hits: (hit: Hit) => void) {
     const tilt = rad(TABLE.tiltDeg);
@@ -489,7 +493,7 @@ export class PinballSim {
     this.spinAngle += this.spinSpeed * H;
     if (Math.floor(this.spinAngle / (2 * Math.PI)) > spinTurns) {
       this.spinAngle %= 2 * Math.PI;
-      if (this.items.has(this.spinBall)) this.hits({ kind: 'spinner', id: 'spinner', ball: this.spinBall });
+      if (this.items.has(this.spinBall)) this.report({ kind: 'spinner', id: 'spinner', ball: this.spinBall });
     }
     for (const ball of [...this.items.values()]) {
       if (this.held.has(ball.id)) continue;
@@ -501,9 +505,24 @@ export class PinballSim {
       }
       if (ball.body.translation().z < this.table.drainZ) {
         this.remove(ball.id);
-        this.hits({ kind: 'drain', id: 'drain', ball: ball.id });
+        this.report({ kind: 'drain', id: 'drain', ball: ball.id });
       }
     }
+    this.flushHits();
+  }
+
+  private report(hit: Hit): void {
+    this.pending.push(hit);
+  }
+
+  /**
+   * Passes on this substep's hits, in the order they came. A handler may take balls off (or clear the table): a hit
+   * for a ball it has already taken off isn't passed on, except a drain (that ball's gone by then anyway).
+   */
+  private flushHits(): void {
+    if (this.pending.length === 0) return;
+    const hits = this.pending.splice(0);
+    for (const hit of hits) if (hit.kind === 'drain' || this.items.has(hit.ball)) this.hits(hit);
   }
 
   /**
@@ -565,16 +584,16 @@ export class PinballSim {
         // Whatever of it went into the part is taken out, and the kick added away from it.
         const add = part.kick - Math.min(vn, 0);
         ball.body.setLinvel({ x: v.x + nx * add, y: v.y, z: v.z + nz * add }, true);
-        this.hits({ kind: part.kind, id: part.id, ball: ball.id });
+        this.report({ kind: part.kind, id: part.id, ball: ball.id });
         return;
       }
       case 'target':
         if (this.targets[part.index].down || toDrop.includes(part.index)) return;
         toDrop.push(part.index);
-        this.hits({ kind: 'target', id: part.id, ball: ball.id });
+        this.report({ kind: 'target', id: part.id, ball: ball.id });
         return;
       case 'rollover':
-        this.hits({ kind: 'rollover', id: part.id, ball: ball.id });
+        this.report({ kind: 'rollover', id: part.id, ball: ball.id });
         return;
       case 'spinner': {
         const v = ball.body.linvel();
@@ -584,10 +603,10 @@ export class PinballSim {
       }
       case 'lock':
         if (this.held.has(ball.id) || now < (this.lockIgnoreUntil.get(ball.id) ?? -Infinity)) return;
-        this.hits({ kind: 'lock', id: 'lock', ball: ball.id });
+        this.report({ kind: 'lock', id: 'lock', ball: ball.id });
         return;
       case 'kickback':
-        this.hits({ kind: 'kickback', id: 'kickback', ball: ball.id });
+        this.report({ kind: 'kickback', id: 'kickback', ball: ball.id });
         return;
       case 'gate':
         return;
