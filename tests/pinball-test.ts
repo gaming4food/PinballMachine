@@ -261,7 +261,11 @@ step("a removed viewer's ball pays nobody", () => {
   economy.remove(hal.id);
   const before = [ivy, jon].map(balance);
   drain(ball);
-  assert.deepEqual([ivy, jon].map((u, i) => balance(u) - before[i]), [1, 1], 'the flippers still there are paid');
+  // Hal is gone, so his share goes nowhere: Ivy and Jon split what's left of the coins once the owner's share is taken.
+  const coins = game.state().lastResult!.coins;
+  const each = Math.floor((coins - Math.round(coins * RULES.ownerShare)) / 2);
+  assert.ok(each >= 1, 'a share worth having');
+  assert.deepEqual([ivy, jon].map((u, i) => balance(u) - before[i]), [each, each], 'the flippers still there are paid');
   assert.equal(economy.get(hal.id), undefined, 'Hal is not brought back');
 });
 

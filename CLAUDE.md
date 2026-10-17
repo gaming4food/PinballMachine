@@ -32,6 +32,8 @@ the stage and the control panel.
 - `npm run dev`: the stand-in host, the pinball on its own at http://localhost:7841/stage.html (the stage) and
   http://localhost:7841/panel.html (chat as a viewer, the fake audience, the card, the hype buttons and the Reset).
 - `npm test`: the contract test (the manifest is complete).
+- `npm run pinball-play`: plays unattended balls (auto-save only) and prints the average and median points, coins and
+  seconds a ball (`balls=N`, `seed=N`; the top of `tests/pinball-play.ts` says how). It's how `RULES.pointsPerCoin` was tuned.
 - `npm run typecheck`.
 
 Run `npm run typecheck` and `npm test` before every commit.

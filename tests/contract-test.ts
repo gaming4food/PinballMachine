@@ -102,6 +102,33 @@ const checks: [string, () => void][] = [
     assert.deepEqual(ready({ kind: 'pinball', state: idle }), [], 'a pinball state with no waits');
     assert.deepEqual(ready({ kind: 'pinball', state: { ...idle, waiting: ['saver'] } }), ['saver'], 'a waiting saver');
   }],
+  ["the card lists the line, with a Remove button each", () => {
+    let html = '';
+    let listener: ((e: unknown) => void) | undefined;
+    const root = {
+      get innerHTML() { return html; },
+      set innerHTML(v: string) { html = v; },
+      addEventListener(type: string, fn: (e: unknown) => void) { if (type === 'click') listener = fn; },
+    };
+    const acts: unknown[] = [];
+    const card = machinePanel.card(root as unknown as HTMLElement, (a) => acts.push(a));
+    assert.ok(html.includes('Nobody in line'));
+    card.message({ kind: 'pinball', state: { ...idle, line: [{ userId: 7, name: 'Ana' }, { userId: 9, name: '<b>Ben</b>' }] } });
+    assert.equal((html.match(/<button data-remove="/g) ?? []).length, 2);
+    assert.ok(html.includes('data-remove="7"') && html.includes('Ana'));
+    assert.ok(!html.includes('<b>Ben</b>'), "a viewer's name is escaped");
+    assert.ok(!html.includes('Nobody in line'));
+    const before = html;
+    card.message({ kind: 'claw', state: idle });
+    assert.equal(html, before, 'a claw message changes nothing');
+    assert.ok(listener, 'one click listener on the root');
+    listener!({ target: { closest() { return { dataset: { remove: '7' } }; } } });
+    assert.deepEqual(acts, [{ kind: 'remove', userId: 7 }]);
+    listener!({ target: { closest() { return null; } } });
+    assert.equal(acts.length, 1, 'a click elsewhere does nothing');
+    card.message({ kind: 'pinball', state: idle });
+    assert.ok(html.includes('Nobody in line'));
+  }],
 ];
 
 let failed = 0;

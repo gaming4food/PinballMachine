@@ -753,7 +753,7 @@ export class PinballGame implements Machine {
     if (this.economy.get(owner.id)) this.credit(owner, toOwner, b.x);
     for (const u of flippers) this.credit(u, each, b.x);
     this.lastResult = { name: owner.name, points: b.points, coins };
-    this.feed(`${owner.name}'s ball: ${points} points, ${coins} coins.`, coins > 0 ? 'win' : 'info', owner);
+    this.feed(`${owner.name}'s ball: ${points} points, ${coins} ${coins === 1 ? 'coin' : 'coins'}.`, coins > 0 ? 'win' : 'info', owner);
     if (b.points > 0) {
       this.scores.push({ name: owner.name, points: b.points });
       this.scores.sort((a, c) => c.points - a.points);
