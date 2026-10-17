@@ -143,8 +143,8 @@ export const STAND_IN: Table = {
     { id: 'bumper-3', x: -0.4, z: 10.6, radius: 0.55, kick: 9, points: 100 },
   ],
   slings: [
-    { id: 'sling-left', a: [-3.2, 4.8], b: [-2.2, 3.2], kick: 7, points: 10 },
-    { id: 'sling-right', a: [2.4, 4.8], b: [1.4, 3.2], kick: 7, points: 10 },
+    { id: 'sling-left', a: [-2.8, 4.8], b: [-2.2, 3.2], kick: 7, points: 10 },
+    { id: 'sling-right', a: [2.0, 4.8], b: [1.4, 3.2], kick: 7, points: 10 },
   ],
   targets: [
     { id: 'target-1', x: -4.8, z: 8, width: 0.7, points: 500 },

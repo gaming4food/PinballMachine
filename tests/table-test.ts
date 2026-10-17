@@ -48,6 +48,25 @@ const checks: [string, () => void][] = [
     assert.equal(r.upDeg, 150);
     assert.ok(l.pivot[0] < r.pivot[0] && l.pivot[1] === r.pivot[1]);
   }],
+  ['a ball fits past every sling end', () => {
+    // The gap between each sling's ends and any wall must be at least a ball across plus a margin, or a ball wedges.
+    const need = 2 * TABLE.ballRadius + 0.2;
+    const dist = (p: [number, number], a: [number, number], b: [number, number]) => {
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz)));
+      return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz);
+    };
+    for (const s of STAND_IN.slings) {
+      for (const end of [s.a, s.b]) {
+        for (const w of STAND_IN.walls) {
+          for (let i = 0; i + 1 < w.points.length; i++) {
+            const d = dist(end, w.points[i], w.points[i + 1]);
+            assert.ok(d >= need, );
+          }
+        }
+      }
+    }
+  }],
   ['ids are unique', () => {
     const t = STAND_IN;
     const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers].map((p) => p.id);
