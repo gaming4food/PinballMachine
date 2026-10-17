@@ -16,38 +16,56 @@ const test = (name: string, fn: () => void) => tests.push([name, fn]);
 /** The header as the stage is handed it (the kit's readSnapshot): the snapshot's bytes up to where the bodies start. */
 const headerOf = (sim: PinballSim, lit: number) => new DataView(new Uint8Array(sim.snapshot(lit)).buffer, 0, SNAP_PINBALL_HEADER);
 
-test('the stage reads the header as the server wrote it: the time, the count, both flippers, the lit inserts, the targets and the spinner', () => {
+test('the header round-trips 14 targets and three flippers', () => {
+  const sim = new PinballSim(TABLE_IN_USE, () => {});
+  sim.flip('right', true);
+  for (let i = 0; i < 10; i++) sim.step();
+  // Target 12 down; 9 and 13 turned; the spinners part way round, each number different.
+  const inner = sim as unknown as { targets: { down: boolean; turned: boolean }[]; spinAngle: number };
+  inner.targets[12].down = true;
+  inner.targets[9].turned = true;
+  inner.targets[13].turned = true;
+  inner.spinAngle = 1.25;
+  const h = readPinballHeader(headerOf(sim, LIT.centre2));
+  assert.equal(SNAP_PINBALL_HEADER, 43);
+  assert.equal(h.targetsDown & (1 << 12), 1 << 12);
+  assert.equal(h.targetsDown, 1 << 12);
+  assert.equal(h.targetsTurned, (1 << 9) | (1 << 13));
+  assert.equal(h.flippers.length, 3);
+  assert.equal(h.spinners.length, 2);
+  assert.equal(h.lit, LIT.centre2);
+  assert.deepEqual(h.flippers, sim.flipperAngles().map((a) => Math.fround(a)));
+  assert.equal(h.flippers[1], 150, 'the right flipper is up');
+  assert.deepEqual(h.spinners, sim.spinnerAngles().map((a) => Math.fround(a)));
+  assert.equal(h.spinners[0], 1.25);
+});
+
+test('the stage reads the header as the server wrote it: the time, the count, the flippers and the lit inserts', () => {
   const sim = new PinballSim(TABLE_IN_USE, () => {});
   sim.launch(3);
   sim.launch(null);
   sim.flip('left', true);
   for (let i = 0; i < 10; i++) sim.step();
-  // Two targets down and the spinner part way round: each number different, so one read from another's place shows.
-  const inner = sim as unknown as { targets: { down: boolean }[]; spinAngle: number };
-  inner.targets[1].down = true;
-  inner.targets[3].down = true;
-  inner.spinAngle = 1.25;
-  const lit = LIT.lock | LIT.rollover1 | LIT.saver;
+  const lit = LIT.lock | LIT.rollover1 | LIT.saver | LIT.centre0 | LIT.centre3;
   const h = readPinballHeader(headerOf(sim, lit));
-  assert.ok(Math.abs(h.simTime - sim.time) < 1e-9, `the time (${h.simTime} against ${sim.time})`);
-  assert.deepEqual({ ...h, simTime: 0 }, { simTime: 0, count: 2, left: 30, right: 210, lit, targets: 0b1010, spinner: 1.25 });
+  assert.ok(Math.abs(h.time - sim.time) < 1e-9, `the time (${h.time} against ${sim.time})`);
+  assert.equal(h.count, 2);
+  assert.equal(h.flippers[0], 30);
+  assert.equal(h.flippers[1], 210);
+  assert.equal(h.lit, lit);
 });
 
-test('a table at rest: no balls, both flippers down, nothing lit, every target up', () => {
+test('a table at rest: no balls, flippers down, nothing lit, every target up', () => {
   const sim = new PinballSim(TABLE_IN_USE, () => {});
   const h = readPinballHeader(headerOf(sim, 0));
-  assert.deepEqual(h, { simTime: 0, count: 0, left: -30, right: 210, lit: 0, targets: 0, spinner: 0 });
+  assert.deepEqual(h, { time: 0, count: 0, flippers: sim.flipperAngles().map((a) => Math.fround(a)), lit: 0, targetsDown: 0, targetsTurned: 0, spinners: [0, 0] });
 });
 
-test('the right flipper up and every lit bit on', () => {
+test('every lit bit on', () => {
   const sim = new PinballSim(TABLE_IN_USE, () => {});
-  sim.flip('right', true);
-  for (let i = 0; i < 10; i++) sim.step();
   const all = Object.values(LIT).reduce((a, b) => a | b, 0);
-  const h = readPinballHeader(headerOf(sim, all));
-  assert.equal(h.right, 150);
-  assert.equal(h.left, -30);
-  assert.equal(h.lit, all);
+  assert.equal(all, (1 << 11) - 1);
+  assert.equal(readPinballHeader(headerOf(sim, all)).lit, all);
 });
 
 let failed = 0;

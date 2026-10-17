@@ -295,23 +295,26 @@ export class PinballScene implements MachineScene {
   }
 
   /**
-   * The table at render time t, between its snapshots: the flippers' and the spinner's angles blended (the spinner the
+   * The table at render time t, between its snapshots: every flipper's and spinner's angle blended (the spinners the
    * short way round), the bits the earlier snapshot's. Null before the first.
    */
   private headerAt(t: number): PinballHeader | null {
     const s = this.samples;
     if (!s.length) return null;
-    if (t <= s[0].simTime) return s[0];
+    if (t <= s[0].time) return s[0];
     let i = s.length - 1;
-    while (i > 0 && s[i - 1].simTime > t) i--;
-    if (i === 0 || t >= s[s.length - 1].simTime) return s[s.length - 1];
+    while (i > 0 && s[i - 1].time > t) i--;
+    if (i === 0 || t >= s[s.length - 1].time) return s[s.length - 1];
     const a = s[i - 1];
     const b = s[i];
-    const k = (t - a.simTime) / Math.max(1e-6, b.simTime - a.simTime);
-    let spin = b.spinner - a.spinner;
-    if (spin > Math.PI) spin -= 2 * Math.PI;
-    else if (spin < -Math.PI) spin += 2 * Math.PI;
-    return { ...a, simTime: t, left: a.left + (b.left - a.left) * k, right: a.right + (b.right - a.right) * k, spinner: a.spinner + spin * k };
+    const k = (t - a.time) / Math.max(1e-6, b.time - a.time);
+    const spinners = a.spinners.map((sa, n) => {
+      let spin = (b.spinners[n] ?? sa) - sa;
+      if (spin > Math.PI) spin -= 2 * Math.PI;
+      else if (spin < -Math.PI) spin += 2 * Math.PI;
+      return sa + spin * k;
+    });
+    return { ...a, time: t, flippers: a.flippers.map((fa, n) => fa + ((b.flippers[n] ?? fa) - fa) * k), spinners };
   }
 
   /** A payout: a burst of coins where the ball drained (in update); the stage's own coin chime plays for it. */
@@ -397,13 +400,14 @@ export class PinballScene implements MachineScene {
     // The table's live parts, from the header at this time.
     const h = this.headerAt(t);
     if (h) {
-      this.parts.setFlipper('left', h.left);
-      this.parts.setFlipper('right', h.right);
-      this.parts.setSpinner(h.spinner);
-      this.parts.setTargets(h.targets);
+      // The third flipper and the second spinner are in h.flippers[2] and h.spinners[1], for the stage to draw (Task 6).
+      this.parts.setFlipper('left', h.flippers[0]);
+      this.parts.setFlipper('right', h.flippers[1]);
+      this.parts.setSpinner(h.spinners[0]);
+      this.parts.setTargets(h.targetsDown);
       this.parts.setLit(h.lit);
-      this.cues.flippers(t, h.left, h.right);
-      this.cues.targets(h.targets);
+      this.cues.flippers(t, h.flippers[0], h.flippers[1]);
+      this.cues.targets(h.targetsDown);
     }
     this.parts.update(dt);
 

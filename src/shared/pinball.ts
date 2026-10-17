@@ -112,11 +112,12 @@ export function parsePinballCommands(text: string): PinballCommands {
 
 /** The snapshot type byte for the pinball. */
 export const SNAP_TYPE_PINBALL = 4;
-/** The snapshot header's size in bytes: 1 + 8 + 2 + 4 + 4 + 4 + 1 + 4. */
-export const SNAP_PINBALL_HEADER = 28;
+/** The snapshot header's size in bytes: 1 + 8 + 2 + 3 * 4 + 4 + 4 + 4 + 2 * 4. */
+export const SNAP_PINBALL_HEADER = 43;
 /*
  * A pinball snapshot is a header, then `count` bodies as the coin pusher's (the balls, each with `owner`). The header:
- * [u8 type][f64 simTime][u16 count][f32 left flipper angle][f32 right flipper angle][u32 lit inserts][u8 targets down][f32 spinner angle]
+ * [u8 type][f64 simTime][u16 count][f32 x3 flipper angles, degrees, in table order][u32 lit inserts][u32 targets down]
+ * [u32 targets turned][f32 main spinner angle, radians][f32 right spinner angle, radians]
  */
 
 /** The bits of the header's lit inserts. */
@@ -128,4 +129,8 @@ export const LIT = {
   rollover2: 1 << 4,
   double: 1 << 5,
   saver: 1 << 6,
+  centre0: 1 << 7,
+  centre1: 1 << 8,
+  centre2: 1 << 9,
+  centre3: 1 << 10,
 } as const;

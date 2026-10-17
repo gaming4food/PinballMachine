@@ -850,8 +850,8 @@ export class PinballSim {
   // --- Snapshot ---
 
   /**
-   * The binary snapshot (shared/pinball.ts): the header, with the flippers' angles (degrees), the lit inserts the game
-   * passes, the targets down and the spinner's turn, then each ball in the kit's body format.
+   * The binary snapshot (shared/pinball.ts): the header, with the three flippers' angles (degrees), the lit inserts the
+   * game passes, the targets down and turned and the two spinners' turns, then each ball in the kit's body format.
    */
   snapshot(lit: number): Buffer {
     const count = this.items.size;
@@ -859,11 +859,14 @@ export class PinballSim {
     buf.writeUInt8(SNAP_TYPE_PINBALL, 0);
     buf.writeDoubleLE(this.time, 1);
     buf.writeUInt16LE(count, 9);
-    buf.writeFloatLE(this.flipperAngle('left'), 11);
-    buf.writeFloatLE(this.flipperAngle('right'), 15);
-    buf.writeUInt32LE(lit >>> 0, 19);
-    buf.writeUInt8(this.targetsDown() & 0xff, 23);
-    buf.writeFloatLE(this.spinAngle, 24);
+    const flippers = this.flipperAngles();
+    for (let i = 0; i < 3; i++) buf.writeFloatLE(flippers[i] ?? 0, 11 + i * 4);
+    buf.writeUInt32LE(lit >>> 0, 23);
+    buf.writeUInt32LE(this.targetsDown() >>> 0, 27);
+    buf.writeUInt32LE(this.targetsTurned() >>> 0, 31);
+    const spinners = this.spinnerAngles();
+    buf.writeFloatLE(spinners[0] ?? 0, 35);
+    buf.writeFloatLE(spinners[1] ?? 0, 39);
     let o = SNAP_PINBALL_HEADER;
     for (const ball of this.items.values()) {
       const p = ball.body.translation();

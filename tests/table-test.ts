@@ -115,8 +115,8 @@ const checks: [string, () => void][] = [
       pointsPerCoin: 150, ownerShare: 0.7, stuckSeconds: 4, launchDelay: 2,
     });
     assert.equal(SNAP_TYPE_PINBALL, 4);
-    // u8 + f64 + u16 + f32 + f32 + u32 + u8 + f32
-    assert.equal(SNAP_PINBALL_HEADER, 1 + 8 + 2 + 4 + 4 + 4 + 1 + 4);
+    // u8 + f64 + u16 + 3 f32 + u32 lit + u32 down + u32 turned + 2 f32
+    assert.equal(SNAP_PINBALL_HEADER, 1 + 8 + 2 + 12 + 4 + 4 + 4 + 8);
     const bits = Object.values(LIT);
     assert.equal(new Set(bits).size, bits.length);
     assert.ok(bits.every((b) => b > 0 && (b & (b - 1)) === 0), 'each lit insert is one bit');
