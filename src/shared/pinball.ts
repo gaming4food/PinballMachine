@@ -15,7 +15,7 @@ export interface PinballState {
   saverUntil: number | null;
   lockLit: boolean;
   lastResult: { name: string; points: number; coins: number } | null;
-  /** The ids of the hype buttons whose effect waits (the panel marks them Ready). Always [] for now. */
+  /** The ids of the hype buttons whose effect waits (the panel marks them Ready). Empty when none wait. */
   waiting: string[];
 }
 
@@ -31,6 +31,29 @@ export function pinballStateOf(msg: unknown): PinballState | null {
   const m = msg as { kind?: unknown; state?: unknown };
   if (m.kind !== 'pinball' || typeof m.state !== 'object' || m.state === null) return null;
   return m.state as PinballState;
+}
+
+/** How a hype moment names the viewer who bought it, or whose support set it off. */
+export interface HypeBuyer {
+  name: string;
+  color: number;
+}
+
+/**
+ * A hype button's moment, the pinball's other message to its stages: its title and flash, as it happens. Never part of
+ * hello. `by` names who bought it from chat, or whose support set it off; the streamer's own press has none.
+ */
+export interface PinballHypeMsg {
+  kind: 'pinballHype';
+  id: string;
+  at: number;
+  by?: HypeBuyer;
+}
+
+/** A hype moment from a machine's message, or null when it's anything else (a page older than its server ignores it). */
+export function pinballHypeOf(msg: unknown): PinballHypeMsg | null {
+  const m = msg as Partial<PinballHypeMsg> | null;
+  return m?.kind === 'pinballHype' && typeof m.id === 'string' && typeof m.at === 'number' ? (m as PinballHypeMsg) : null;
 }
 
 /** The rules of play. Times are in seconds. */

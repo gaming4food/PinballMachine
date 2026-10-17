@@ -100,6 +100,7 @@ const checks: [string, () => void][] = [
     assert.equal(ready({ kind: 'claw' }), null);
     assert.equal(ready(null), null);
     assert.deepEqual(ready({ kind: 'pinball', state: idle }), [], 'a pinball state with no waits');
+    assert.deepEqual(ready({ kind: 'pinball', state: { ...idle, waiting: ['saver'] } }), ['saver'], 'a waiting saver');
   }],
 ];
 

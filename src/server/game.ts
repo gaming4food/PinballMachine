@@ -10,8 +10,8 @@
 // its saver and the auto-save all wait with it.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
-import { type Economy, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
-import { LIT, parsePinballCommands, RULES, type PinballMsg, type PinballState } from '../shared/pinball';
+import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
+import { type HypeBuyer, LIT, parsePinballCommands, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
 import { STAND_IN, TABLE, type Table } from '../shared/table';
 import { PinballSim, type Hit } from './sim';
 
@@ -25,6 +25,47 @@ const AUTO_MISS = 6;
 const AUTO_REST = 0.15;
 /** Multiball's balls are launched this far apart (s), so two never sit in the plunger lane at once. */
 const MULTIBALL_GAP = 0.6;
+
+/** What a bought press's line says the viewer bought: "Ben bought a nudge!" (buyHype). */
+const BOUGHT: Record<string, string> = {
+  multiball: 'multiball',
+  saver: 'a ball saver',
+  double: 'double score',
+  nudge: 'a nudge',
+};
+/** A press's line for the streamer (its first), and what follows the buyer's name in a bought one (its second). */
+const NEWS: Record<string, readonly [string, string]> = {
+  multiball: ['Multiball!', '2 more balls are coming.'],
+  saver: ['Ball saver!', 'No ball can drain for 15 seconds.'],
+  double: ['Double score!', 'Every point counts twice for 30 seconds.'],
+  nudge: ['Nudge!', 'The table jolts.'],
+};
+/**
+ * What paid support presses (supported), by the size of a gift as the city sizes them (a sub as a gift up to $5), each
+ * then the hype it gives way to when it can't happen: no ball to nudge or start multiball with, a saver already waiting.
+ */
+const SUPPORT_HYPE: readonly (readonly string[])[] = [
+  ['nudge', 'saver', 'double', 'multiball'], // under $1
+  ['saver', 'double', 'nudge', 'multiball'], // a sub, or up to $5
+  ['double', 'saver', 'nudge', 'multiball'], // up to $20
+  ['multiball', 'double', 'saver', 'nudge'], // $20 and up
+];
+/** A gift's size, as coin-op-city's card sizes it (city-services.ts): 1 under $1 to 4 from $20. */
+const giftTier = (usdCents: number) => (usdCents >= 2000 ? 4 : usdCents >= 500 ? 3 : usdCents >= 100 ? 2 : 1);
+/** The card's effect line for what paid support set off (supportEffect). */
+const SUPPORT_EFFECT: Record<string, string> = {
+  multiball: 'MULTIBALL!',
+  saver: 'BALL SAVER!',
+  double: 'DOUBLE SCORE!',
+  nudge: 'NUDGE!',
+};
+/** A press set off by paid support (supported): free, so nothing ever goes back, and its line thanks the supporter. */
+interface SupportPress extends HypePurchase {
+  readonly thanks: string;
+}
+const thanksOf = (purchase: HypePurchase | undefined) => (purchase as Partial<SupportPress> | undefined)?.thanks;
+/** How a moment names the viewer who bought it (PinballHypeMsg.by). */
+const buyerOf = (purchase: HypePurchase): HypeBuyer => ({ name: purchase.user.name, color: purchase.user.color });
 
 /** The table's physics, with the snapshot the city asks for (no arguments) lit as the game has it. */
 class LitSim extends PinballSim {
@@ -77,7 +118,7 @@ export class PinballGame implements Machine {
   /** The drop targets down and the top rollovers lit since the lock or the kickback last lit, by id. */
   private readonly targetsHit = new Set<string>();
   private readonly rolloversLit = new Set<string>();
-  /** Double score and the bought ball saver run until these, on the table's clock (-Infinity: off). Task 5 sets them. */
+  /** Double score and the bought ball saver run until these, on the table's clock (-Infinity: off). */
   private doubleUntil = -Infinity;
   private saverUntil = -Infinity;
   /** When chat's last flip word came, and till when each flipper is held up for chat and for the auto-save. */
@@ -86,6 +127,10 @@ export class PinballGame implements Machine {
   private readonly autoUp = { left: -Infinity, right: -Infinity };
   /** The auto-save's next flip on each side waits till this (its rest after a flip, or after a miss). */
   private readonly autoNext = { left: -Infinity, right: -Infinity };
+  /** A ball saver pressed with no ball on the table: it starts with the next launch (null: none waits). */
+  private saverWaiting: { purchase?: HypePurchase } | null = null;
+  /** What the last paid support set off (supported), for the city's card, which it builds straight after the machines hear the event. */
+  private supportDid: string | null = null;
   private lastResult: PinballState['lastResult'] = null;
   private scores: { name: string; points: number }[] = [];
   private lastStepMs = 0;
@@ -189,7 +234,7 @@ export class PinballGame implements Machine {
       saverUntil: this.saverEnds(),
       lockLit: this.lockLit,
       lastResult: this.lastResult,
-      waiting: [],
+      waiting: this.saverWaiting ? ['saver'] : [],
     };
   }
 
@@ -280,9 +325,16 @@ export class PinballGame implements Machine {
 
   /**
    * From the control panel (a 'machine.action'). `{ kind: 'remove', userId }` takes that viewer's ball out of the line
-   * (not off the table). Anything can arrive, so anything else is ignored (the hype buttons come in Task 5).
+   * (not off the table); a hype button (hypeId; the buttons are listed in entry.ts) is pressed for free, as often as
+   * the streamer likes (press). Anything can arrive, so anything else, a hype button this table hasn't got among it, is
+   * ignored.
    */
   action(action: unknown): void {
+    const hype = hypeId(action);
+    if (hype !== null) {
+      this.press(hype);
+      return;
+    }
     const a = action as { kind?: unknown; userId?: unknown } | null;
     if (a?.kind !== 'remove' || typeof a.userId !== 'number') return;
     const user = this.line.find((u) => u.id === a.userId) ?? (this.upNext?.user.id === a.userId ? this.upNext.user : null);
@@ -307,6 +359,14 @@ export class PinballGame implements Machine {
     this.targetsHit.clear();
     this.rolloversLit.clear();
     this.sim.resetTargets();
+    // Bought hype must not outlive the reset: the saver and double score, and a saver still waiting, whose buyer gets
+    // their coins back (refund) when the city says so.
+    this.saverUntil = this.doubleUntil = -Infinity;
+    this.lastWord = -Infinity;
+    this.autoNext.left = this.autoNext.right = -Infinity;
+    const waiting = this.saverWaiting;
+    this.saverWaiting = null;
+    if (waiting?.purchase) this.refund(waiting.purchase, 'The machine was reset');
     this.chatUp.left = this.chatUp.right = -Infinity;
     this.autoUp.left = this.autoUp.right = -Infinity;
     this.setFlippers();
@@ -319,11 +379,121 @@ export class PinballGame implements Machine {
   handle(ev: StreamEvent): void {
     // Known to the wallet either way; the pusher gives newcomers their welcome bonus, since it sees them first.
     const { user } = this.economy.touch(ev.platform, ev.userId, ev.name);
+    if (ev.kind === 'sub' || ev.kind === 'gift') this.supported(user, ev);
     if (ev.kind !== 'chat') return;
     const cmd = parsePinballCommands(ev.text);
     if (cmd.join) this.join(user);
     if (cmd.left) this.chatFlip('left', user);
     if (cmd.right) this.chatFlip('right', user);
+  }
+
+  // --- The hype buttons ---
+
+  /**
+   * Chat buys a press of hype button `id` (coin-op-city's chat-hype.ts, which has taken the coins already). It does what
+   * the streamer's press does, for that viewer, and returns null. Or it does nothing and returns why not, in lowercase
+   * with no full stop: the city gives the coins straight back and tells the viewer. Where it differs: a press that
+   * would do nothing is refused with no line in the feed; its line leads with the buyer and its moment names them; a
+   * saver that waits keeps its purchase, and a reset gives the coins back (refund).
+   */
+  buyHype(id: string, purchase: HypePurchase): string | null {
+    return this.press(id, purchase);
+  }
+
+  /**
+   * Paid support presses a hype button for free, by its size (SUPPORT_HYPE): a gift under $1 nudges, a sub or a gift up
+   * to $5 is a ball saver, up to $20 double score, and from $20 multiball. One that can't happen gives way to the next
+   * that can, as a bought press is refused (press). Its line thanks the supporter and its moment names them. The city's
+   * card for it then names what it set off (supportEffect).
+   */
+  private supported(user: User, ev: Extract<StreamEvent, { kind: 'sub' | 'gift' }>): void {
+    const tier = ev.kind === 'sub' ? 2 : giftTier(ev.usdCents);
+    const thanks = ev.says || (ev.kind === 'sub' ? 'subscribed' : `sent ${ev.label}`);
+    const press: SupportPress = { user, paid: 0, thanks, refund: () => false };
+    this.supportDid = SUPPORT_HYPE[tier - 1].find((id) => this.press(id, press) === null) ?? null;
+  }
+
+  /** The effect line on paid support's card here: what it set off, once (supported), or null when it set nothing off. */
+  supportEffect(_support: { kind: 'sub' | 'gift'; tier: number }): string | null {
+    const did = this.supportDid;
+    this.supportDid = null;
+    return did ? SUPPORT_EFFECT[did] : null;
+  }
+
+  /**
+   * A hype button pressed: by the streamer (action), or bought by a viewer (`purchase`: buyHype). Returns why it does
+   * nothing, or null. The streamer's press that does nothing says why in the feed; a bought one is told instead.
+   */
+  private press(id: string, purchase?: HypePurchase): string | null {
+    const now = this.sim.time;
+    const onTable = this.sim.items.size > 0;
+    switch (id) {
+      case 'multiball': {
+        if (!onTable) return this.refuse(purchase, "there's no ball on the table", "There's no ball on the table.");
+        const ball = [...this.balls.keys()].find((k) => this.sim.items.has(k) && k !== this.heldBall);
+        if (this.heldBall !== null || ball === undefined) return this.refuse(purchase, 'multiball is already on', 'Multiball is already on.');
+        this.pressLine(purchase, id);
+        this.startMultiball(ball, false);
+        this.moment(id, purchase);
+        break;
+      }
+      case 'saver':
+        if (this.saverWaiting) return this.refuse(purchase, 'a ball saver is already waiting', 'A ball saver is already waiting.');
+        if (onTable) {
+          this.saverUntil = now + RULES.saverHype;
+          this.pressLine(purchase, id);
+          this.moment(id, purchase);
+        } else {
+          this.saverWaiting = { purchase };
+          this.pressLine(purchase, id, 'It starts with the next ball.');
+        }
+        break;
+      case 'double':
+        this.doubleUntil = Math.max(now, this.doubleUntil) + RULES.doubleHype;
+        this.pressLine(purchase, id);
+        this.moment(id, purchase);
+        break;
+      case 'nudge':
+        if (!onTable) return this.refuse(purchase, "there's no ball to nudge", "There's no ball to nudge.");
+        this.sim.nudge();
+        this.pressLine(purchase, id);
+        this.moment(id, purchase);
+        break;
+      default:
+        return "that hype isn't for sale";
+    }
+    this.stateDirty = true;
+    return null;
+  }
+
+  /** A press that does nothing, and why: the streamer's says so in the feed (`line`); a bought one is told `reason` instead. */
+  private refuse(purchase: HypePurchase | undefined, reason: string, line: string): string {
+    if (!purchase) this.feed(line, 'info');
+    return reason;
+  }
+
+  /**
+   * A press's line in the feed: the streamer's own, or one that leads with the buyer and what they bought (BOUGHT), in
+   * their colour: "Ben bought a nudge! The table jolts." A supporter's line thanks them instead. `news` replaces what follows.
+   */
+  private pressLine(purchase: HypePurchase | undefined, id: string, news = NEWS[id][1]): void {
+    const thanks = thanksOf(purchase);
+    if (purchase && thanks) this.feed(`${purchase.user.name} ${thanks}: ${BOUGHT[id]}! ${news}`, 'gift', purchase.user);
+    else if (purchase) this.feed(`${purchase.user.name} bought ${BOUGHT[id]}! ${news}`, 'milestone', purchase.user);
+    else this.feed(`${NEWS[id][0]} ${news}`, 'milestone');
+  }
+
+  /** A hype button's moment, to the stages (PinballHypeMsg). Bought, it names the buyer. Not to the panel's state. */
+  private moment(id: string, by?: HypePurchase): void {
+    const msg: PinballHypeMsg = { kind: 'pinballHype', id, at: this.sim.time, ...(by ? { by: buyerOf(by) } : {}) };
+    this.out.send({ t: 'machine', msg });
+  }
+
+  /** Gives a buyer their coins back for a hype that can't happen after all; the line only when the city says they went back. */
+  private refund(purchase: HypePurchase, why: string): boolean {
+    if (!purchase.refund()) return false;
+    this.feed(`${why}: ${purchase.user.name} gets their ${purchase.paid} coins back.`, 'info', purchase.user);
+    return true;
   }
 
   /** `ball`: into the line, unless they have a ball in it, up next, or on the table already. */
@@ -400,6 +570,13 @@ export class PinballGame implements Machine {
   private launch(owner: User | null, carry?: BallPlay): number {
     const id = this.sim.launch(owner?.id ?? null);
     const now = this.sim.time;
+    if (this.saverWaiting && !carry) {
+      // A saver bought with no ball on the table starts with this launch.
+      const { purchase } = this.saverWaiting;
+      this.saverWaiting = null;
+      this.saverUntil = now + RULES.saverHype;
+      this.moment('saver', purchase);
+    }
     const p = this.sim.items.get(id)!.body.translation();
     this.balls.set(id, {
       owner,
@@ -521,7 +698,7 @@ export class PinballGame implements Machine {
   }
 
   /** The lit lock holds this ball, and multiball begins: maxExtraBalls more, from the line and then the house. */
-  private startMultiball(id: number): void {
+  private startMultiball(id: number, announce = true): void {
     this.lockLit = false;
     this.heldBall = id;
     this.multiball = true;
@@ -529,7 +706,7 @@ export class PinballGame implements Machine {
     for (let i = 0; i < RULES.maxExtraBalls; i++) this.extraBalls.push(this.nextInLine() ?? null);
     this.nextExtraAt = this.sim.time;
     const owner = this.balls.get(id)?.owner;
-    this.feed(`${owner ? `${owner.name}'s ball` : 'The ball'} is locked: MULTIBALL!`, 'milestone', owner ?? undefined);
+    if (announce) this.feed(`${owner ? `${owner.name}'s ball` : 'The ball'} is locked: MULTIBALL!`, 'milestone', owner ?? undefined);
   }
 
   /** A ball went down the drain (it's already off the table): saved, or paid. */
