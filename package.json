@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "tsx --disable-warning=ExperimentalWarning kit/src/kit/host/host.ts --dir src --port 7841",
     "contract-test": "tsx --disable-warning=ExperimentalWarning tests/contract-test.ts",
+    "table-test": "tsx --disable-warning=ExperimentalWarning tests/table-test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run -s contract-test"
+    "test": "npm run -s contract-test && npm run -s table-test"
   },
   "engines": {
     "node": ">=22.5"
