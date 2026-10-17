@@ -144,6 +144,7 @@ body.no-commands #pinball-hud[data-phase='idle']:not(:has(.pinball-result:not([h
 #pinball-title[data-title='double'] { --c: #ffc23a; }
 #pinball-title[data-title='nudge'] { --c: #ff7a1a; }
 #pinball-title[data-title='result'] { --c: #22e6ff; }
+#pinball-title[data-title^='bank-'] { --c: #ffd24a; }
 
 #pinball-title[data-run='a'] {
   animation: pinball-pop-a 2.2s ease-out both;

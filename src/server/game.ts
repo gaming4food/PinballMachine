@@ -27,6 +27,10 @@ const AUTO_MISS = 6;
 const AUTO_REST = 0.15;
 /** Multiball's balls are launched this far apart (s), so two never sit in the plunger lane at once. */
 const MULTIBALL_GAP = 0.6;
+/** The centre lane's four rollovers, in order, and the insert each lights (LIT). All four lit pay CENTRE_BONUS. */
+const CENTRE_LAMPS = ['centre-1', 'centre-2', 'centre-3', 'centre-4'] as const;
+const CENTRE_LIT = [LIT.centre0, LIT.centre1, LIT.centre2, LIT.centre3] as const;
+const CENTRE_BONUS = 1000;
 /** A stuck ball is nudged this many times; stuck still after them, it goes back to the plunger lane (watchStuck). */
 const STUCK_NUDGES = 3;
 /**
@@ -130,6 +134,8 @@ export class PinballGame implements Machine {
   /** The drop targets down and the top rollovers lit since the lock or the kickback last lit, by id. */
   private readonly targetsHit = new Set<string>();
   private readonly rolloversLit = new Set<string>();
+  /** The centre lane's lamps lit, by rollover id (centre-1 to centre-4). */
+  private readonly centreLit = new Set<string>();
   /** Double score and the bought ball saver run until these, on the table's clock (-Infinity: off). */
   private doubleUntil = -Infinity;
   private saverUntil = -Infinity;
@@ -268,6 +274,9 @@ export class PinballGame implements Machine {
     this.table.rollovers.forEach((r, i) => {
       if (i < rollovers.length && this.rolloversLit.has(r.id)) bits |= rollovers[i];
     });
+    CENTRE_LAMPS.forEach((id, i) => {
+      if (this.centreLit.has(id)) bits |= CENTRE_LIT[i];
+    });
     if (this.doubleUntil > this.sim.time) bits |= LIT.double;
     if (this.saverEnds() !== null) bits |= LIT.saver;
     return bits;
@@ -372,6 +381,7 @@ export class PinballGame implements Machine {
     this.kickbackLit = false;
     this.targetsHit.clear();
     this.rolloversLit.clear();
+    this.centreLit.clear();
     this.sim.resetTargets();
     // Bought hype must not outlive the reset: the saver and double score, and a saver still waiting, whose buyer gets
     // their coins back (refund) when the city says so.
@@ -645,7 +655,7 @@ export class PinballGame implements Machine {
       if (!ball) continue;
       const p = ball.body.translation();
       b.x = p.x;
-      if (id === this.heldBall || Math.hypot(p.x - b.anchor.x, p.z - b.anchor.z) > TABLE.ballRadius) {
+      if (id === this.heldBall || this.sim.heldBy(id) === 'saucer' || Math.hypot(p.x - b.anchor.x, p.z - b.anchor.z) > TABLE.ballRadius) {
         b.anchor = { x: p.x, z: p.z, at: now };
         b.nudges = 0;
       } else if (now - b.anchor.at >= RULES.stuckSeconds) {
@@ -689,21 +699,36 @@ export class PinballGame implements Machine {
     if (!b) return;
     this.score(b, this.pointsFor(hit));
     switch (hit.kind) {
-      case 'target':
+      case 'target': {
+        // Only the drop targets count toward the lock; the flip plaques have their banks.
+        const drops = this.table.targets.filter((t) => !t.flip);
+        if (!drops.some((t) => t.id === hit.id)) break;
         this.targetsHit.add(hit.id);
-        if (this.table.targets.every((t) => this.targetsHit.has(t.id))) {
-          // The bank comes back up for the next time round; the lock stays lit till a ball goes in.
+        if (drops.every((t) => this.targetsHit.has(t.id))) {
+          // The drop targets come back up for the next time round; the lock stays lit till a ball goes in.
           this.targetsHit.clear();
-          this.sim.resetTargets();
+          this.sim.resetDropTargets();
           if (!this.lockLit) {
             this.lockLit = true;
             this.feed('Lock lit!', 'milestone');
           }
         }
         break;
+      }
+      case 'bank':
+        this.bankMatched(b, hit.id);
+        break;
       case 'rollover':
+        if (CENTRE_LAMPS.some((id) => id === hit.id)) {
+          this.centreLit.add(hit.id);
+          if (CENTRE_LAMPS.every((id) => this.centreLit.has(id))) {
+            this.centreLit.clear();
+            this.score(b, this.doubled(CENTRE_BONUS));
+          }
+          break;
+        }
         this.rolloversLit.add(hit.id);
-        if (this.table.rollovers.every((r) => this.rolloversLit.has(r.id))) {
+        if (this.table.rollovers.filter((r) => !CENTRE_LAMPS.some((id) => id === r.id)).every((r) => this.rolloversLit.has(r.id))) {
           this.rolloversLit.clear();
           if (!this.kickbackLit) {
             this.kickbackLit = true;
@@ -725,6 +750,20 @@ export class PinballGame implements Machine {
     this.stateDirty = true;
   }
 
+  /** A bank's plaques all show their backs: its title to the stages, and a line in the feed with the bonus scored. */
+  private bankMatched(b: BallPlay, id: string): void {
+    const name = id.replace(/^bank-/, '');
+    this.moment(id);
+    const bonus = this.table.banks.find((k) => k.id === id)?.bonus ?? 0;
+    const paid = this.doubled(bonus);
+    const who = b.owner ? b.owner.name : 'The house ball';
+    this.feed(`${who} matched the ${name.charAt(0).toUpperCase()}${name.slice(1)} bank! +${paid.toLocaleString('en-US')}`, 'win', b.owner ?? undefined);
+  }
+
+  private doubled(points: number): number {
+    return this.doubleUntil > this.sim.time ? points * 2 : points;
+  }
+
   /** What a hit scores, from the table (doubled under double score). */
   private pointsFor(hit: Hit): number {
     const t = this.table;
@@ -733,8 +772,10 @@ export class PinballGame implements Machine {
     else if (hit.kind === 'sling') points = t.slings.find((p) => p.id === hit.id)?.points ?? 0;
     else if (hit.kind === 'target') points = t.targets.find((p) => p.id === hit.id)?.points ?? 0;
     else if (hit.kind === 'rollover') points = t.rollovers.find((p) => p.id === hit.id)?.points ?? 0;
-    else if (hit.kind === 'spinner') points = t.spinner.pointsPerTurn;
-    return this.doubleUntil > this.sim.time ? points * 2 : points;
+    else if (hit.kind === 'spinner') points = hit.id === 'spinner' ? t.spinner.pointsPerTurn : (t.spinners.find((p) => p.id === hit.id)?.pointsPerTurn ?? 0);
+    else if (hit.kind === 'saucer') points = t.saucers.find((p) => p.id === hit.id)?.points ?? 0;
+    else if (hit.kind === 'bank') points = t.banks.find((p) => p.id === hit.id)?.bonus ?? 0;
+    return this.doubled(points);
   }
 
   private score(b: BallPlay, points: number): void {
@@ -849,7 +890,7 @@ export class PinballGame implements Machine {
 
   /** Test hook: every drop target hit by this ball, through the hits' own path (so the lock lights). */
   knockAllTargets(ball: number): void {
-    for (const t of this.table.targets) this.hit({ kind: 'target', id: t.id, ball });
+    for (const t of this.table.targets) if (!t.flip) this.hit({ kind: 'target', id: t.id, ball });
   }
 
   /** How many viewers have flipped this ball (each once). */

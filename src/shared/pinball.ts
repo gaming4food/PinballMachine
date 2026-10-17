@@ -74,8 +74,10 @@ export const RULES = {
    * Points that make one coin, for a ball's result. Tuned with `npm run pinball-play` (300 unattended balls, seed 1,
    * only the auto-save playing) on 2026-10-17: at 1000 a ball averaged 1490 points (median 1350, max 6910), about 1.0
    * coin, under the 3 to 30 aim, over 14.8 s (median 12 s). So 150 points a coin, for about 10 coins a ball.
+   * Retuned on the pyramid table (2026-10-17) to keep that pay: the stand-in at 150 a coin paid 8.8 coins a ball (300 balls,
+   * seed 1, average 1384 points); the pyramid's balls average 8,670 points (median 7,825), so 900 a coin pays 9.1 coins.
    */
-  pointsPerCoin: 150,
+  pointsPerCoin: 900,
   /** The share of a result's coins that goes to the machine's owner. */
   ownerShare: 0.7,
   /**

@@ -151,6 +151,17 @@ test('a pinballHype moment for multiball shows MULTIBALL! at its time, for its t
   assert.equal(shown(), null, 'gone');
 });
 
+test("a bank's moment shows its title: HORUS, RA, ANKH and EYE MATCHED", () => {
+  const { hud, shown } = board();
+  let at = 10;
+  for (const name of ['HORUS', 'RA', 'ANKH', 'EYE']) {
+    hud.message(moment(`bank-${name.toLowerCase()}`, at));
+    hud.tick(at);
+    assert.equal(shown(), `${name} MATCHED`);
+    at += TITLE_SECONDS + 1;
+  }
+});
+
 test("a bought moment names its buyer over the title, in their colour; the streamer's has no name line", () => {
   const { hud, shown, by } = board();
   hud.message(moment('double', 10, { by: { name: 'Alex', color: 0x22ff88 } }));

@@ -27,6 +27,10 @@ const HYPE_TITLES: Record<string, string> = {
   saver: 'BALL SAVER!',
   double: 'DOUBLE SCORE!',
   nudge: 'NUDGE!',
+  'bank-horus': 'HORUS MATCHED',
+  'bank-ra': 'RA MATCHED',
+  'bank-ankh': 'ANKH MATCHED',
+  'bank-eye': 'EYE MATCHED',
 };
 
 /** A title waiting for its time (null: the next frame), its look (data-title), and the line over it, if any. */

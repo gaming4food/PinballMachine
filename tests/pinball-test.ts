@@ -12,7 +12,7 @@ import type { ServerMsg } from '@kit/shared';
 import { entry } from '../src/entry';
 import { PinballGame } from '../src/server/game';
 import { DT } from '../src/server/sim';
-import { RULES } from '../src/shared/pinball';
+import { LIT, RULES } from '../src/shared/pinball';
 import { TABLE_IN_USE, TABLE } from '../src/shared/table';
 
 await initPhysics();
@@ -250,13 +250,15 @@ step('a house ball pays nobody', () => {
   const house = ballOf(null)!;
   // Past its ball saver, so the drain counts.
   hold(house, -0.4, 8, RULES.ballSaverStart + 0.1);
+  // Whatever the ball scored on its way up (a top lane) counts too.
+  const onTheWay = game.state().balls.find((b) => b.owner === null)!.score;
   game.addPoints(house, 5 * RULES.pointsPerCoin);
   const before = [ana, ben, cal, dan, fay, gus, hal].map(balance);
   const scores = msgs.filter((m) => m.t === 'score').length;
   drain(house);
   assert.deepEqual([ana, ben, cal, dan, fay, gus, hal].map(balance), before);
   assert.equal(msgs.filter((m) => m.t === 'score').length, scores, 'no score popups');
-  assert.ok(feed().includes(`The house ball: ${(5 * RULES.pointsPerCoin).toLocaleString('en-US')} points.`));
+  assert.ok(feed().includes(`The house ball: ${(onTheWay + 5 * RULES.pointsPerCoin).toLocaleString('en-US')} points.`));
   // That was the multiball's last ball but one (or Hal's went first): Gus's ball is let go.
   run(0.5);
   const p = game.sim.items.get(held)?.body.translation();
@@ -419,6 +421,142 @@ step("the panel's remove takes a ball out of the line", () => {
 });
 
 let failed = 0;
+// --- The pyramid's parts (banks, drop targets, saucers, centre lamps) ---
+
+/** A fresh table with one ball for this viewer; returns its id. */
+function freshBall(user: User): number {
+  game.resetMachine();
+  say(user, 'ball');
+  run(RULES.launchDelay + 0.2);
+  return ballOf(user)!;
+}
+/** Reports a hit the way the sim does, and steps once so the game sees it. */
+function hitPart(h: { kind: string; id: string; ball: number }): void {
+  (game.sim as any).report(h);
+  run(DT);
+}
+const scoreOf = (user: User) => game.state().balls.find((b) => b.owner === user.id)!.score;
+const litBits = () => (game as any).lit() as number;
+const pointsOf = (id: string) => TABLE_IN_USE.targets.find((t) => t.id === id)!.points;
+
+step("a matched bank pays its bonus to the ball's owner", () => {
+  const lou = viewer('lou', 'Lou');
+  const ball = freshBall(lou);
+  const bank = TABLE_IN_USE.banks.find((b) => b.id === 'bank-horus')!;
+  const before = scoreOf(lou);
+  for (const t of bank.targets) hitPart({ kind: 'target', id: t, ball });
+  assert.equal(scoreOf(lou) - before, 3 * pointsOf(bank.targets[0]), 'three plaques score their points');
+  hitPart({ kind: 'bank', id: bank.id, ball });
+  assert.equal(scoreOf(lou) - before, 3 * 300 + 5000);
+  assert.equal(lastFeed(), 'Lou matched the Horus bank! +5,000');
+  const titles = msgs.filter((m) => m.t === 'machine').map((m) => (m as any).msg).filter((m) => m.kind === 'pinballHype');
+  assert.equal(titles.at(-1)?.id, 'bank-horus', "the bank's title went to the stages");
+  // Under DOUBLE SCORE the bonus doubles, and so does the feed's number.
+  (game as any).doubleUntil = game.sim.time + 30;
+  const mid = scoreOf(lou);
+  hitPart({ kind: 'bank', id: 'bank-ra', ball });
+  assert.equal(scoreOf(lou) - mid, 10000);
+  assert.equal(lastFeed(), 'Lou matched the Ra bank! +10,000');
+});
+
+step('both drop targets light the lock and raise only the drop targets', () => {
+  const mo = viewer('mo', 'Mo');
+  const ball = freshBall(mo);
+  const turned = game.sim.targetsTurned();
+  let drops = 0;
+  let resets = 0;
+  const sim = game.sim as any;
+  const raise = sim.resetDropTargets.bind(sim);
+  const all = sim.resetTargets.bind(sim);
+  sim.resetDropTargets = () => (drops++, raise());
+  sim.resetTargets = () => (resets++, all());
+  hitPart({ kind: 'target', id: 'target-scarab', ball });
+  assert.equal(game.state().lockLit, false, 'one drop target is not enough');
+  // Plaques are not drop targets: they do not count.
+  hitPart({ kind: 'target', id: 'target-ra-1', ball });
+  assert.equal(game.state().lockLit, false);
+  hitPart({ kind: 'target', id: 'target-eye', ball });
+  assert.equal(game.state().lockLit, true, 'both drop targets down light the lock');
+  assert.equal(drops, 1, 'the drop targets were raised');
+  assert.equal(resets, 0, 'the plaques were left as they were');
+  assert.equal(game.sim.targetsTurned(), turned);
+  delete sim.resetDropTargets;
+  delete sim.resetTargets;
+});
+
+step('the saucer and the magnet score', () => {
+  const ned = viewer('ned', 'Ned');
+  const ball = freshBall(ned);
+  const before = scoreOf(ned);
+  hitPart({ kind: 'saucer', id: 'saucer-scarab', ball });
+  assert.equal(scoreOf(ned) - before, 750);
+  hitPart({ kind: 'saucer', id: 'magnet-ra', ball });
+  assert.equal(scoreOf(ned) - before, 1000);
+  hitPart({ kind: 'spinner', id: 'spinner-right', ball });
+  assert.equal(scoreOf(ned) - before, 1010, 'the right spinner pays per turn');
+});
+
+step('all four centre lamps pay 1,000 and go out', () => {
+  const oli = viewer('oli', 'Oli');
+  const ball = freshBall(oli);
+  const centre = LIT.centre0 | LIT.centre1 | LIT.centre2 | LIT.centre3;
+  const before = scoreOf(oli);
+  hitPart({ kind: 'rollover', id: 'centre-1', ball });
+  hitPart({ kind: 'rollover', id: 'centre-3', ball });
+  assert.equal(litBits() & centre, LIT.centre0 | LIT.centre2);
+  hitPart({ kind: 'rollover', id: 'centre-1', ball });
+  assert.equal(scoreOf(oli) - before, 75, 'each pays 25');
+  hitPart({ kind: 'rollover', id: 'centre-2', ball });
+  assert.equal(litBits() & centre, LIT.centre0 | LIT.centre1 | LIT.centre2);
+  hitPart({ kind: 'rollover', id: 'centre-4', ball });
+  assert.equal(scoreOf(oli) - before, 100 + 25 + 1000);
+  assert.equal(litBits() & centre, 0, 'the lamps went out');
+});
+
+step('a ball held in the saucer is never kicked as stuck', () => {
+  const pam = viewer('pam', 'Pam');
+  const ball = freshBall(pam);
+  const sc = TABLE_IN_USE.saucers.find((s) => s.id === 'saucer-scarab')!;
+  const nudges = () => feed().filter((t) => t === 'The table gets a nudge.').length;
+  const before = nudges();
+  put(ball, sc.x, sc.z);
+  (game.sim as any).held.add(ball);
+  (game.sim as any).saucerHold.set(ball, { index: TABLE_IN_USE.saucers.indexOf(sc), until: Infinity });
+  hold(ball, sc.x, sc.z, RULES.stuckSeconds + 1);
+  assert.equal(game.sim.heldBy(ball), 'saucer');
+  assert.equal(nudges(), before, 'no nudge for a ball the saucer holds');
+  (game.sim as any).saucerHold.delete(ball);
+  (game.sim as any).held.delete(ball);
+});
+
+step('multiball with a ball in the saucer: it is let go, and none is lost', () => {
+  const quin = viewer('quin', 'Quin');
+  const rex = viewer('rex', 'Rex');
+  const ball = freshBall(quin);
+  say(rex, 'ball');
+  game.knockAllTargets(ball);
+  put(ball, TABLE_IN_USE.lock.x, TABLE_IN_USE.lock.z);
+  run(2.5);
+  assert.equal(game.state().multiball, true);
+  assert.equal(game.sim.items.size, 3, 'three balls');
+  const [x, y] = [...game.sim.items.keys()].filter((k) => k !== ball);
+  // Past every ball saver, the other two parked apart.
+  run(RULES.ballSaverStart + 0.2, () => {
+    put(x, -0.4, 8);
+    put(y, 0.5, 12);
+  });
+  const sc = TABLE_IN_USE.saucers.find((s) => s.id === 'saucer-scarab')!;
+  put(x, sc.x, sc.z + 1.3, 0, -1.5);
+  for (let i = 0; i < 2 / DT && game.sim.heldBy(x) !== 'saucer'; i++) run(DT);
+  assert.equal(game.sim.heldBy(x), 'saucer', 'a ball sits in the saucer');
+  assert.equal(game.sim.heldBy(ball), 'lock');
+  drain(y);
+  assert.notEqual(game.sim.heldBy(ball), 'lock', 'the lock let its ball go');
+  assert.equal(game.sim.items.size, 2, 'the two balls left are on the table');
+  run(1.5);
+  assert.equal(game.sim.items.size, 2, 'none lost after the saucer let go');
+});
+
 for (const [name, fn] of steps) {
   try {
     fn();
