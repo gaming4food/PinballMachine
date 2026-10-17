@@ -31,6 +31,8 @@ const MULTIBALL_GAP = 0.6;
 const CENTRE_LAMPS = ['centre-1', 'centre-2', 'centre-3', 'centre-4'] as const;
 const CENTRE_LIT = [LIT.centre0, LIT.centre1, LIT.centre2, LIT.centre3] as const;
 const CENTRE_BONUS = 1000;
+/** The three top lanes: lighting all of them lights the kickback. The inlane and outlane rollovers only score. */
+const TOP_LANES = ['rollover-1', 'rollover-2', 'rollover-3'] as const;
 /** A stuck ball is nudged this many times; stuck still after them, it goes back to the plunger lane (watchStuck). */
 const STUCK_NUDGES = 3;
 /**
@@ -697,7 +699,8 @@ export class PinballGame implements Machine {
     }
     const b = this.balls.get(hit.ball);
     if (!b) return;
-    this.score(b, this.pointsFor(hit));
+    const points = this.pointsFor(hit);
+    this.score(b, points);
     switch (hit.kind) {
       case 'target': {
         // Only the drop targets count toward the lock; the flip plaques have their banks.
@@ -716,7 +719,7 @@ export class PinballGame implements Machine {
         break;
       }
       case 'bank':
-        this.bankMatched(b, hit.id);
+        this.bankMatched(b, hit.id, points);
         break;
       case 'rollover':
         if (CENTRE_LAMPS.some((id) => id === hit.id)) {
@@ -727,8 +730,9 @@ export class PinballGame implements Machine {
           }
           break;
         }
+        if (!TOP_LANES.some((id) => id === hit.id)) break;
         this.rolloversLit.add(hit.id);
-        if (this.table.rollovers.filter((r) => !CENTRE_LAMPS.some((id) => id === r.id)).every((r) => this.rolloversLit.has(r.id))) {
+        if (TOP_LANES.every((id) => this.rolloversLit.has(id))) {
           this.rolloversLit.clear();
           if (!this.kickbackLit) {
             this.kickbackLit = true;
@@ -751,11 +755,9 @@ export class PinballGame implements Machine {
   }
 
   /** A bank's plaques all show their backs: its title to the stages, and a line in the feed with the bonus scored. */
-  private bankMatched(b: BallPlay, id: string): void {
+  private bankMatched(b: BallPlay, id: string, paid: number): void {
     const name = id.replace(/^bank-/, '');
     this.moment(id);
-    const bonus = this.table.banks.find((k) => k.id === id)?.bonus ?? 0;
-    const paid = this.doubled(bonus);
     const who = b.owner ? b.owner.name : 'The house ball';
     this.feed(`${who} matched the ${name.charAt(0).toUpperCase()}${name.slice(1)} bank! +${paid.toLocaleString('en-US')}`, 'win', b.owner ?? undefined);
   }

@@ -513,6 +513,23 @@ step('all four centre lamps pay 1,000 and go out', () => {
   assert.equal(litBits() & centre, 0, 'the lamps went out');
 });
 
+step('the three top lanes light the kickback; the inlanes and outlane only score', () => {
+  const sal = viewer('sal', 'Sal');
+  const ball = freshBall(sal);
+  const lit = () => (litBits() & LIT.kickback) !== 0;
+  const before = scoreOf(sal);
+  for (const id of ['inlane-left', 'inlane-right', 'outlane-right']) hitPart({ kind: 'rollover', id, ball });
+  assert.equal(scoreOf(sal) - before, 100 + 100 + 250, 'they score');
+  for (const id of ['rollover-1', 'rollover-2']) hitPart({ kind: 'rollover', id, ball });
+  assert.equal(lit(), false, 'two top lanes and the side lanes are not enough');
+  hitPart({ kind: 'rollover', id: 'rollover-3', ball });
+  assert.equal(lit(), true, 'the three top lanes light the kickback');
+  const other = viewer('tay', 'Tay');
+  const ball2 = freshBall(other);
+  for (const id of ['inlane-left', 'inlane-right', 'outlane-right', 'centre-1']) hitPart({ kind: 'rollover', id, ball: ball2 });
+  assert.equal(lit(), false, 'only side lanes: no kickback');
+});
+
 step('a ball held in the saucer is never kicked as stuck', () => {
   const pam = viewer('pam', 'Pam');
   const ball = freshBall(pam);
