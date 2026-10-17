@@ -152,6 +152,29 @@ test('multiball from the lock (the state alone) plays; the other hype buttons ha
   assert.deepEqual(heard, ['multiball']);
 });
 
+test("the table's clock starting again (the server restarted) doesn't silence the lock's multiball", () => {
+  for (const how of ['frame', 'reset'] as const) {
+    const { c, heard } = cues();
+    c.state(state(false));
+    c.frame(600);
+    c.state(state(true));
+    assert.deepEqual(heard, ['multiball'], `${how}: on the old clock`);
+    c.state(state(false));
+    c.hype({ kind: 'pinballHype', id: 'multiball', at: 900 });
+    if (how === 'reset') {
+      // A fresh hello, then the new clock.
+      c.reset();
+      c.state(state(false));
+    }
+    c.frame(1);
+    c.frame(2);
+    c.state(state(true));
+    assert.deepEqual(heard, ['multiball', 'multiball'], `${how}: the lock's multiball on the new clock plays`);
+    c.frame(901);
+    assert.deepEqual(heard, ['multiball', 'multiball'], `${how}: the old clock's press is let go`);
+  }
+});
+
 test("hello's state with multiball already on is silent", () => {
   const { c, heard } = cues();
   c.state(state(true));

@@ -13,6 +13,11 @@ export const TITLE_SECONDS = 2.2;
 const STALE_SECONDS = 2;
 /** The state turning multiball on within this long of a press's moment is that press, already titled. */
 const SAME_MULTIBALL = 3;
+/**
+ * The simulation time drawn going back by more than this is the table's clock starting again (the server restarted:
+ * the overlay is made once per page and the page carries on), so everything kept by the old clock is let go.
+ */
+const CLOCK_BACK = 1;
 /** How many of the line the scoreboard names. */
 const NEXT_SHOWN = 3;
 
@@ -182,6 +187,7 @@ export class PinballHud {
 
   /** Each frame, at the simulation time the stage draws: the titles as their times come, one after another. */
   tick(simTime: number): void {
+    if (simTime < this.simTime - CLOCK_BACK) this.clockRestarted(simTime);
     this.simTime = simTime;
     if (this.until !== null && simTime >= this.until) {
       this.lastUntil = this.until;
@@ -202,6 +208,21 @@ export class PinballHud {
       this.show(next, at);
       return;
     }
+  }
+
+  /**
+   * The table's clock started again: the title up now goes, and so do the times kept by the old clock (when the last
+   * title went, the last multiball's) and its titles still waiting. Titles already on the new clock (at most a second
+   * ahead, as a moment just sent is) and those for the next frame stay.
+   */
+  private clockRestarted(simTime: number): void {
+    this.until = null;
+    this.lastUntil = -Infinity;
+    this.lastMultiball = -Infinity;
+    this.title.hidden = true;
+    const kept = this.waiting.filter((t) => t.at === null || t.at <= simTime + CLOCK_BACK);
+    this.waiting.splice(0, this.waiting.length, ...kept);
+    this.multiballMoments = kept.filter((t) => t.kind === 'multiball' && t.at !== null).length;
   }
 
   private show(t: Title, at: number): void {

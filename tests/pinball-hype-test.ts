@@ -119,12 +119,20 @@ test('an unknown id does nothing', () => {
 test('multiball with a ball on the table starts at once, naming the buyer', () => {
   const { game, run, feed, moments, ballOn, bought, done } = aGame();
   try {
-    ballOn('ana');
+    const first = ballOn('ana');
     const p = bought('ben', 200);
     assert.equal(game.buyHype('multiball', p), null);
     assert.equal(game.state().multiball, true);
+    assert.equal(game.buyHype('multiball', bought('cal', 200)), 'multiball is already on');
     run(RULES.maxExtraBalls * 0.6 + 0.5);
     assert.equal(game.sim.items.size, 1 + RULES.maxExtraBalls, 'the house balls come');
+    // "2 more balls in now": the ball in play stays in play, not held in the lock.
+    const ball = game.sim.items.get(first);
+    assert.ok(ball, 'the ball in play is still on the table');
+    assert.ok(ball.body.isDynamic(), 'and free, not held');
+    const v = ball.body.linvel();
+    assert.ok(Math.hypot(v.x, v.z) > 0.01, 'and moving');
+    assert.equal([...game.sim.items.values()].filter((b) => b.body.isDynamic()).length, 3, '3 balls free on the table');
     assert.equal(moments().length, 1);
     assert.deepEqual(moments()[0], { kind: 'pinballHype', id: 'multiball', at: moments()[0].at, by: { name: 'ben', color: p.user.color } });
     assert.match(feed().find((f) => f.text.includes('bought'))?.text ?? '', /^ben bought multiball! /);

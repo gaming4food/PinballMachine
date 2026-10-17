@@ -184,6 +184,33 @@ test('multiball started by the lock (no moment) shows MULTIBALL! from the state;
   assert.equal(shown(), null, 'once, not twice');
 });
 
+test("the table's clock starting again (the server restarted) leaves no title stuck, and the next ones show", () => {
+  const { hud, shown } = board();
+  hud.message(msgOf(state({ phase: 'playing' })));
+  hud.tick(600);
+  hud.message(msgOf(state({ phase: 'playing', multiball: true })));
+  hud.tick(600.1);
+  assert.equal(shown(), 'MULTIBALL!', 'from the lock, on the old clock');
+  hud.message(moment('double', 600.5));
+  hud.message(moment('saver', 900));
+  // The server restarts mid-title: its clock starts again from 0, and the page carries on.
+  hud.tick(0.5);
+  assert.equal(shown(), null, "the old clock's title goes");
+  hud.message(moment('nudge', 1));
+  hud.tick(1);
+  assert.equal(shown(), 'NUDGE!', 'a new title shows at its time');
+  hud.tick(1 + TITLE_SECONDS);
+  assert.equal(shown(), null, 'and goes after its own 2.2 s');
+  hud.message(msgOf(state({ phase: 'playing', multiball: false })));
+  hud.tick(5);
+  hud.message(msgOf(state({ phase: 'playing', multiball: true })));
+  hud.tick(5.1);
+  assert.equal(shown(), 'MULTIBALL!', "the lock's multiball, not taken for the old clock's");
+  hud.tick(5.1 + TITLE_SECONDS);
+  hud.tick(901);
+  assert.equal(shown(), null, "the old clock's waiting titles were let go");
+});
+
 test('a saved ball shows BALL SAVED! (the stage saw it drain and come straight back)', () => {
   const { hud, shown } = board();
   hud.tick(30);

@@ -2,12 +2,14 @@
 // launches when the table is free; all of chat flips with `left` and `right`, and when chat goes quiet the auto-save
 // flips for it (missing now and then). The table's parts score, all 4 drop targets light the lock, a ball in the lit
 // lock starts multiball (more balls from the line, then the house's), all 3 top rollovers light the kickback, the ball
-// saver gives a quick drain back, and a stuck ball gets a nudge. A drained ball pays: its points make coins, 70% to its
-// owner and the rest shared by everyone else who flipped it.
+// saver gives a quick drain back, a stuck ball gets a nudge, and one no nudge frees goes back to the plunger lane. A
+// drained ball pays: its points make coins, 70% to its owner and the rest shared by everyone who flipped it (the owner
+// too, if they flipped).
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
-// its saver and the auto-save all wait with it.
+// its saver and the auto-save all wait with it. The one wall-clock check is whether the table is running at all, for
+// chat's flip words (chatFlip).
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
 import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
@@ -25,6 +27,14 @@ const AUTO_MISS = 6;
 const AUTO_REST = 0.15;
 /** Multiball's balls are launched this far apart (s), so two never sit in the plunger lane at once. */
 const MULTIBALL_GAP = 0.6;
+/** A stuck ball is nudged this many times; stuck still after them, it goes back to the plunger lane (watchStuck). */
+const STUCK_NUDGES = 3;
+/**
+ * A flip word counts only within this long (wall-clock ms) of the table's last step. Every machine the city has made
+ * hears every chat line, and the claw's and the Speedway's players say left and right too: while the pinball is
+ * paused (no stage shows it), their words aren't flips here.
+ */
+const FLIPS_AFTER_STEP_MS = 1000;
 
 /** What a bought press's line says the viewer bought: "Ben bought a nudge!" (buyHype). */
 const BOUGHT: Record<string, string> = {
@@ -83,12 +93,14 @@ interface BallPlay {
   /** Its owner (null for a house ball). */
   owner: User | null;
   points: number;
-  /** Everyone who flipped while it was on the table, each once (its owner too, though the owner isn't paid as one). */
+  /** Everyone who flipped while it was on the table, each once (its owner too, who then shares the 30% as one). */
   flippers: Map<number, User>;
   /** When it was first launched: the ball saver's start (a save keeps it, so a save doesn't start a new one). */
   launchedAt: number;
   /** Where it last was more than a ball's radius from, and when: a ball that stays put for stuckSeconds is nudged. */
   anchor: { x: number; z: number; at: number };
+  /** The nudges it has had since it last moved (watchStuck). */
+  nudges: number;
   /** Where it last was across the table, for the score popups when it drains. */
   x: number;
 }
@@ -134,6 +146,8 @@ export class PinballGame implements Machine {
   private lastResult: PinballState['lastResult'] = null;
   private scores: { name: string; points: number }[] = [];
   private lastStepMs = 0;
+  /** When the table last stepped, by the wall clock (Date.now()): the one wall-clock time here (FLIPS_AFTER_STEP_MS). */
+  private lastStepWall = -Infinity;
 
   private readonly feedLog: FeedItem[] = [];
   private feedId = 1;
@@ -430,10 +444,10 @@ export class PinballGame implements Machine {
     switch (id) {
       case 'multiball': {
         if (!onTable) return this.refuse(purchase, "there's no ball on the table", "There's no ball on the table.");
-        const ball = [...this.balls.keys()].find((k) => this.sim.items.has(k) && k !== this.heldBall);
-        if (this.heldBall !== null || ball === undefined) return this.refuse(purchase, 'multiball is already on', 'Multiball is already on.');
+        if (this.multiball) return this.refuse(purchase, 'multiball is already on', 'Multiball is already on.');
         this.pressLine(purchase, id);
-        this.startMultiball(ball, false);
+        // "2 more balls in now": the ball in play stays in play; only a shot into the lit lock holds one.
+        this.startMultiball(null);
         this.moment(id, purchase);
         break;
       }
@@ -512,8 +526,15 @@ export class PinballGame implements Machine {
     this.stateDirty = true;
   }
 
-  /** `left` or `right`: that flipper up for flipHold from now, and the viewer counted once on every ball in play. */
+  /**
+   * `left` or `right`: that flipper up for flipHold from now, and the viewer counted once on every ball in play. Unless
+   * the table hasn't stepped for FLIPS_AFTER_STEP_MS: paused, the word is another machine's chat (the claw's and the
+   * Speedway's players say left and right too), so it flips nothing, counts nobody and isn't chat's last word. This
+   * one check is by the wall clock because the table's own clock stands still while it's paused; every timer of the
+   * game's stays on sim.time.
+   */
   private chatFlip(side: 'left' | 'right', user: User): void {
+    if (Date.now() - this.lastStepWall > FLIPS_AFTER_STEP_MS) return;
     const now = this.sim.time;
     this.lastWord = now;
     this.chatUp[side] = now + RULES.flipHold;
@@ -527,6 +548,7 @@ export class PinballGame implements Machine {
 
   step(): void {
     const t0 = performance.now();
+    this.lastStepWall = Date.now();
     this.launches();
     this.autoSave();
     this.setFlippers();
@@ -584,6 +606,7 @@ export class PinballGame implements Machine {
       flippers: carry?.flippers ?? new Map(),
       launchedAt: carry?.launchedAt ?? now,
       anchor: { x: p.x, z: p.z, at: now },
+      nudges: 0,
       x: p.x,
     });
     this.out.send({ t: 'spawn', at: now, body: this.body(id), ...(owner ? { label: owner.name } : {}) });
@@ -610,10 +633,13 @@ export class PinballGame implements Machine {
     for (const side of ['left', 'right'] as const) this.sim.flip(side, now < this.chatUp[side] || now < this.autoUp[side]);
   }
 
-  /** A ball that has stayed within a ball's radius of one spot for stuckSeconds gets the table nudged. */
+  /**
+   * A ball that has stayed within a ball's radius of one spot for stuckSeconds gets the table nudged. One still stuck
+   * after STUCK_NUDGES nudges is never left there: it's taken off and launched again up the plunger lane (unstick).
+   */
   private watchStuck(): void {
     const now = this.sim.time;
-    let stuck = false;
+    const stuck: number[] = [];
     for (const [id, b] of this.balls) {
       const ball = this.sim.items.get(id);
       if (!ball) continue;
@@ -621,14 +647,34 @@ export class PinballGame implements Machine {
       b.x = p.x;
       if (id === this.heldBall || Math.hypot(p.x - b.anchor.x, p.z - b.anchor.z) > TABLE.ballRadius) {
         b.anchor = { x: p.x, z: p.z, at: now };
+        b.nudges = 0;
       } else if (now - b.anchor.at >= RULES.stuckSeconds) {
-        stuck = true;
+        stuck.push(id);
       }
     }
-    if (!stuck) return;
-    this.sim.nudge();
+    if (!stuck.length) return;
+    const nudged = stuck.filter((id) => this.balls.get(id)!.nudges < STUCK_NUDGES);
+    for (const id of stuck) if (!nudged.includes(id)) this.unstick(id);
     for (const b of this.balls.values()) b.anchor.at = now;
+    if (!nudged.length) return;
+    this.sim.nudge();
+    for (const id of nudged) this.balls.get(id)!.nudges++;
     this.feed('The table gets a nudge.', 'info');
+  }
+
+  /**
+   * A stuck ball no nudge freed: off the table and launched again for the same owner, with its points, its flippers
+   * and its ball saver's start, as a save carries them. Launched again rather than drained and paid, since the table
+   * lost it, not the player: their turn goes on. Not a drain to the stages ('cleared'), so they neither play one nor
+   * take it for a saved ball.
+   */
+  private unstick(id: number): void {
+    const b = this.balls.get(id)!;
+    this.sim.remove(id);
+    this.balls.delete(id);
+    this.out.send({ t: 'despawn', at: this.sim.time, id, reason: 'cleared' });
+    this.launch(b.owner, b);
+    this.feed(`${b.owner ? `${b.owner.name}'s ball` : 'The house ball'} is stuck: back to the plunger.`, 'info', b.owner ?? undefined);
   }
 
   // --- The table's hits ---
@@ -666,7 +712,7 @@ export class PinballGame implements Machine {
         }
         break;
       case 'lock':
-        if (this.lockLit && this.heldBall === null) this.startMultiball(hit.ball);
+        if (this.lockLit && !this.multiball) this.startMultiball(hit.ball);
         break;
       case 'kickback':
         if (this.kickbackLit) {
@@ -697,16 +743,21 @@ export class PinballGame implements Machine {
     this.stateDirty = true;
   }
 
-  /** The lit lock holds this ball, and multiball begins: maxExtraBalls more, from the line and then the house. */
-  private startMultiball(id: number, announce = true): void {
-    this.lockLit = false;
-    this.heldBall = id;
+  /**
+   * Multiball begins: maxExtraBalls more, from the line and then the house. From the lit lock (`id`: the ball that went
+   * in), the lock holds that ball till the others are down to one; from a press (null), no ball is held, and multiball
+   * ends when one ball is left (drained).
+   */
+  private startMultiball(id: number | null): void {
     this.multiball = true;
-    this.sim.holdInLock(id);
     for (let i = 0; i < RULES.maxExtraBalls; i++) this.extraBalls.push(this.nextInLine() ?? null);
     this.nextExtraAt = this.sim.time;
+    if (id === null) return;
+    this.lockLit = false;
+    this.heldBall = id;
+    this.sim.holdInLock(id);
     const owner = this.balls.get(id)?.owner;
-    if (announce) this.feed(`${owner ? `${owner.name}'s ball` : 'The ball'} is locked: MULTIBALL!`, 'milestone', owner ?? undefined);
+    this.feed(`${owner ? `${owner.name}'s ball` : 'The ball'} is locked: MULTIBALL!`, 'milestone', owner ?? undefined);
   }
 
   /** A ball went down the drain (it's already off the table): saved, or paid. */
@@ -733,9 +784,9 @@ export class PinballGame implements Machine {
   }
 
   /**
-   * A drained ball's points make coins: round(ownerShare) of them to its owner, the rest shared equally by the others
-   * who flipped it (floor), and what's left over to the owner. Anyone the wallet no longer has is skipped, and a house
-   * ball pays nobody.
+   * A drained ball's points make coins: round(ownerShare) of them to its owner, the rest shared equally (floor) by
+   * everyone who flipped it, the owner included if they flipped, and what's left over to the owner. Anyone the wallet
+   * no longer has is skipped, and a house ball pays nobody.
    */
   private pay(b: BallPlay): void {
     const points = b.points.toLocaleString('en-US');
@@ -745,13 +796,14 @@ export class PinballGame implements Machine {
     }
     const owner = b.owner;
     const coins = Math.floor(b.points / RULES.pointsPerCoin);
-    const flippers = [...b.flippers.values()].filter((u) => u.id !== owner.id && this.economy.get(u.id));
+    const flippers = [...b.flippers.values()].filter((u) => this.economy.get(u.id));
+    const ownerFlipped = flippers.some((u) => u.id === owner.id);
     const ownerShare = Math.round(coins * RULES.ownerShare);
     const rest = coins - ownerShare;
     const each = flippers.length ? Math.floor(rest / flippers.length) : 0;
-    const toOwner = ownerShare + (rest - each * flippers.length);
+    const toOwner = ownerShare + (ownerFlipped ? each : 0) + (rest - each * flippers.length);
     if (this.economy.get(owner.id)) this.credit(owner, toOwner, b.x);
-    for (const u of flippers) this.credit(u, each, b.x);
+    for (const u of flippers) if (u.id !== owner.id) this.credit(u, each, b.x);
     this.lastResult = { name: owner.name, points: b.points, coins };
     this.feed(`${owner.name}'s ball: ${points} points, ${coins} ${coins === 1 ? 'coin' : 'coins'}.`, coins > 0 ? 'win' : 'info', owner);
     if (b.points > 0) {

@@ -1,6 +1,7 @@
 // Tests the pinball game (server/game.ts) headlessly, with the real physics and wallet: the line of viewers' balls, the
-// flippers and the auto-save, paying a drained ball, multiball, the ball saver, the table's clock, a stuck ball, the
-// high scores and the reset. Each step builds on the last, as the claw's claw-test does.
+// flippers and the auto-save, paying a drained ball (the owner sharing the 30% when they flipped), multiball, the ball
+// saver, the table's clock, a stuck ball (nudged, then launched again), flip words only while the table runs, the high
+// scores and the reset. Each step builds on the last, as the claw's claw-test does.
 // Usage: npm run pinball-test (or npx tsx tests/pinball-test.ts)
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -203,6 +204,25 @@ step('a drained ball pays 70/30', () => {
   assert.equal(game.state().phase, 'idle', 'nobody else in line');
 });
 
+step('an owner who flipped shares the 30% too', () => {
+  const pat = viewer('pat', 'Pat');
+  say(pat, 'ball');
+  run(RULES.launchDelay + 0.2);
+  const ball = ballOf(pat)!;
+  assert.ok(ball !== undefined, "Pat's ball launched");
+  hold(ball, -0.4, 8, RULES.ballSaverStart + 0.1);
+  say(pat, 'left');
+  say(ben, 'left');
+  say(cal, 'right');
+  assert.equal(game.flipperCount(ball), 3, 'Pat counted with the others');
+  game.addPoints(ball, 20 * RULES.pointsPerCoin);
+  const before = [pat, ben, cal].map(balance);
+  drain(ball);
+  // 20 coins: 14 to Pat as the owner, and the 6 left split by the 3 who flipped, Pat among them: 2 each.
+  assert.deepEqual([pat, ben, cal].map((u, i) => balance(u) - before[i]), [16, 2, 2], 'Pat 14 and an equal share, the others 2 each');
+  assert.equal(game.state().phase, 'idle');
+});
+
 let gus: User, hal: User;
 let held: number;
 step('multiball pulls from the line, then the house', () => {
@@ -309,6 +329,49 @@ step('a stuck ball is kicked loose', () => {
   assert.equal(nudges(), before, 'not yet');
   hold(ball, -0.4, 8, 1);
   assert.equal(nudges(), before + 1, 'nudged');
+});
+
+step('a ball no nudge frees goes back to the plunger lane, with its points and flippers', () => {
+  const ball = ballOf(kim)!;
+  const nudges = () => feed().filter((t) => t === 'The table gets a nudge.').length;
+  const before = nudges();
+  const score = game.state().balls.find((b) => b.owner === kim.id)!.score;
+  const flippers = game.flipperCount(ball);
+  assert.ok(flippers >= 1, 'Kim flipped it');
+  const at = msgs.length;
+  // Its first nudge was the last step's; two more, then it's taken off and launched again.
+  hold(ball, -0.4, 8, 2 * RULES.stuckSeconds - 0.25);
+  assert.equal(nudges(), before + 2, 'nudged twice more');
+  assert.ok(game.sim.items.has(ball), 'still there');
+  hold(ball, -0.4, 8, RULES.stuckSeconds + 0.5);
+  assert.equal(nudges(), before + 2, 'no fourth nudge');
+  assert.ok(!game.sim.items.has(ball), 'taken off the table');
+  const again = ballOf(kim);
+  assert.ok(again !== undefined && again !== ball, "Kim's ball launched again");
+  assert.equal(game.state().balls.length, 1);
+  assert.equal(game.state().balls[0].score, score, 'with its points');
+  assert.equal(game.flipperCount(again), flippers, 'and its flippers');
+  assert.ok(feed().includes("Kim's ball is stuck: back to the plunger."), 'the feed says so');
+  assert.ok(msgs.slice(at).some((m) => m.t === 'despawn' && m.id === ball && m.reason === 'cleared'), 'not a drain');
+  assert.ok(!msgs.slice(at).some((m) => m.t === 'score'), 'nothing paid');
+});
+
+step("flip words count only while the table runs (another machine's chat isn't the pinball's)", () => {
+  const ball = ballOf(kim)!;
+  const flippers = game.flipperCount(ball);
+  assert.equal(game.autoSaving, true, 'chat quiet for a while');
+  // No stage shows the table: the city stops stepping it, while chat goes on (the claw's players say left and right).
+  now += 2000;
+  const pip = viewer('pip', 'Pip');
+  say(pip, 'left');
+  assert.equal(game.flipperCount(ball), flippers, 'not counted on the ball');
+  assert.equal(game.autoSaving, true, "chat's last word untouched");
+  say(pip, 'ball');
+  assert.equal(lastFeed(), 'Pip is in line (1st).', '`ball` still lines up while it waits');
+  game.step();
+  say(pip, 'left');
+  assert.equal(game.flipperCount(ball), flippers + 1, 'stepping again, a flip counts');
+  assert.equal(game.autoSaving, false);
 });
 
 step('the high scores are kept', () => {

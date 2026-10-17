@@ -1,6 +1,8 @@
 // The control panel's Pinball card: the line of viewers waiting for a ball, each with a Remove button (the streamer's way
 // to take someone out). It hears the pinball's own messages ({ kind: 'pinball', state }). One click listener on the
-// root reads data-remove, so drawing the list again piles up nothing.
+// root reads data-remove, so drawing the list again piles up nothing. The pinball sends its state about 4 times a second
+// in play, so the list is drawn again only when the line changed: a Remove button replaced between its press and its
+// release would lose the click.
 import type { CardFactory } from '@kit/panel';
 import { pinballStateOf, type PinballState } from '../shared/pinball';
 
@@ -15,7 +17,9 @@ function lineHtml(line: PinballState['line']): string {
 }
 
 export const pinballCard: CardFactory = (root, act) => {
-  root.innerHTML = lineHtml([]);
+  /** The line drawn now, as its HTML (built from the ids and the names alone). */
+  let drawn = lineHtml([]);
+  root.innerHTML = drawn;
   root.addEventListener('click', (e) => {
     const target = e.target as HTMLElement | null;
     const button = target?.closest?.('[data-remove]') as HTMLElement | null;
@@ -25,7 +29,11 @@ export const pinballCard: CardFactory = (root, act) => {
   return {
     message(msg) {
       const state = pinballStateOf(msg);
-      if (state) root.innerHTML = lineHtml(state.line);
+      if (!state) return;
+      const html = lineHtml(state.line);
+      if (html === drawn) return;
+      drawn = html;
+      root.innerHTML = html;
     },
   };
 };

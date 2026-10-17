@@ -41,6 +41,8 @@ const LEAVE = 0.25;
 const STALE = 2;
 /** The state turning multiball on within this long of a press's moment is that press, already heard. */
 const SAME_MULTIBALL = 3;
+/** The simulation time drawn going back by more than this is the table's clock starting again (the server restarted). */
+const CLOCK_BACK = 1;
 
 /** How far (x, z) is from the segment a to b. */
 function segmentDistance(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number {
@@ -120,13 +122,18 @@ export class PinballSoundCues {
     for (const id of this.meeting.keys()) if (!seen.has(id)) this.meeting.delete(id);
   }
 
-  /** A fresh hello: everything looked at is forgotten, so the new connection's first looks are only looks. */
+  /**
+   * A fresh hello: everything looked at is forgotten, so the new connection's first looks are only looks, and so are
+   * the times kept (the new server's clock may have started again from 0).
+   */
   reset(): void {
     this.last.clear();
     this.lastTargets = null;
     this.meeting.clear();
     this.multiballOn = null;
     this.pending.length = 0;
+    this.lastMoment = -Infinity;
+    this.t = -Infinity;
   }
 
   launched(): void {
@@ -160,6 +167,13 @@ export class PinballSoundCues {
 
   /** Each frame, at the simulation time drawn: a press's multiball when its time comes (one long past goes unheard). */
   frame(t: number): void {
+    if (t < this.t - CLOCK_BACK) {
+      // The table's clock started again with no hello between (the page carried on): the old clock's times go, and so
+      // do its presses still waiting; those already on the new clock (at most a second ahead) stay.
+      this.lastMoment = -Infinity;
+      const kept = this.pending.filter((at) => at <= t + CLOCK_BACK);
+      this.pending.splice(0, this.pending.length, ...kept);
+    }
     this.t = t;
     while (this.pending.length && this.pending[0] <= t) {
       const at = this.pending.shift()!;

@@ -1,5 +1,5 @@
-// What the pinball's server, stage and panel all read (so far, only the state the server sends; the table and the rules
-// come in later tasks).
+// What the pinball's server, stage and panel all read: the state the server sends and its hype moments, the rules of
+// play (RULES), chat's words, and the snapshot's layout. The table itself is table.ts.
 
 /** The pinball's state as its server sends it, in hello's `machine` and each 'machine' message. */
 export interface PinballState {
@@ -58,17 +58,17 @@ export function pinballHypeOf(msg: unknown): PinballHypeMsg | null {
 
 /** The rules of play. Times are in seconds. */
 export const RULES = {
-  /** A ball that drains within this many seconds of launch is given back (the ball saver). */
+  /** With no flip word from chat for this many seconds, the auto-save takes the flippers (till chat's next flip). */
   autoSaveAfter: 3,
   /** How long a flip from chat is held, in seconds. */
   flipHold: 0.25,
-  /** How long the ball saver stays on after a launch, in seconds. */
+  /** How long the ball saver stays on after a ball's first launch, in seconds: a ball that drains sooner is given back. */
   ballSaverStart: 5,
   /** How long the Ball Saver hype button's saver lasts, in seconds. */
   saverHype: 15,
   /** How long the Double Score hype button's double lasts, in seconds. */
   doubleHype: 30,
-  /** The most extra balls a player can hold. */
+  /** How many more balls multiball brings onto the table (from the line, then the house's). */
   maxExtraBalls: 2,
   /**
    * Points that make one coin, for a ball's result. Tuned with `npm run pinball-play` (300 unattended balls, seed 1,
@@ -78,9 +78,12 @@ export const RULES = {
   pointsPerCoin: 150,
   /** The share of a result's coins that goes to the machine's owner. */
   ownerShare: 0.7,
-  /** A ball that has not moved this many seconds is stuck, and is nudged free. */
+  /**
+   * A ball that has not moved this many seconds is stuck, and the table is nudged; one still stuck after 3 nudges goes
+   * back to the plunger lane and is launched again.
+   */
   stuckSeconds: 4,
-  /** The pause between a ball joining and its launch, in seconds. */
+  /** The pause between the line's next ball being up ("Ana is up!") and its launch, in seconds. */
   launchDelay: 2,
 } as const;
 

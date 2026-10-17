@@ -104,10 +104,11 @@ const checks: [string, () => void][] = [
   }],
   ["the card lists the line, with a Remove button each", () => {
     let html = '';
+    let draws = 0;
     let listener: ((e: unknown) => void) | undefined;
     const root = {
       get innerHTML() { return html; },
-      set innerHTML(v: string) { html = v; },
+      set innerHTML(v: string) { html = v; draws++; },
       addEventListener(type: string, fn: (e: unknown) => void) { if (type === 'click') listener = fn; },
     };
     const acts: unknown[] = [];
@@ -119,8 +120,17 @@ const checks: [string, () => void][] = [
     assert.ok(!html.includes('<b>Ben</b>'), "a viewer's name is escaped");
     assert.ok(!html.includes('Nobody in line'));
     const before = html;
+    const drawn = draws;
     card.message({ kind: 'claw', state: idle });
     assert.equal(html, before, 'a claw message changes nothing');
+    // The same line again (the pinball sends its state about 4 times a second in play): not drawn again, so a click on
+    // Remove whose press and release straddle a message isn't lost to the button being replaced under it.
+    card.message({ kind: 'pinball', state: { ...idle, phase: 'playing', balls: [{ owner: 1, name: 'Cy', score: 50 }], line: [{ userId: 7, name: 'Ana' }, { userId: 9, name: '<b>Ben</b>' }] } });
+    assert.equal(draws, drawn, 'the same line is not drawn again');
+    assert.equal(html, before);
+    card.message({ kind: 'pinball', state: { ...idle, line: [{ userId: 7, name: 'Ana' }, { userId: 9, name: 'Ben' }] } });
+    assert.equal(draws, drawn + 1, 'a renamed viewer is');
+    card.message({ kind: 'pinball', state: { ...idle, line: [{ userId: 7, name: 'Ana' }, { userId: 9, name: '<b>Ben</b>' }] } });
     assert.ok(listener, 'one click listener on the root');
     listener!({ target: { closest() { return { dataset: { remove: '7' } }; } } });
     assert.deepEqual(acts, [{ kind: 'remove', userId: 7 }]);
