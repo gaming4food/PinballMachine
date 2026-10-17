@@ -8,8 +8,9 @@
     "dev": "tsx --disable-warning=ExperimentalWarning kit/src/kit/host/host.ts --dir src --port 7841",
     "contract-test": "tsx --disable-warning=ExperimentalWarning tests/contract-test.ts",
     "table-test": "tsx --disable-warning=ExperimentalWarning tests/table-test.ts",
+    "pinball-sim-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sim-test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run -s contract-test && npm run -s table-test"
+    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test"
   },
   "engines": {
     "node": ">=22.5"

@@ -71,7 +71,10 @@ export interface Kickback {
   z: number;
 }
 
-/** The plunger: it sits in the shooter lane at x and fires a ball from zFrom up toward zTo at `speed`. */
+/**
+ * The plunger: it sits in the shooter lane at x and fires a ball from zFrom up toward zTo at `speed`, in scene units per
+ * second (the physics varies each launch by a few percent).
+ */
 export interface Plunger {
   x: number;
   zFrom: number;
@@ -126,8 +129,10 @@ export const STAND_IN: Table = {
       restitution: 0.4,
     },
     // The shooter lane's floor and its inner wall, which stops short of the top so a launched ball comes out over the arch.
+    // It stops at 15.2, a ball and more below where the arch stops a ball in the lane (about 16.1 at x 4.6): ending at
+    // 16.4, it left a pocket under the arch narrower than a ball, and every launch stuck there (Task 3).
     { points: [[4.2, 0.3], [5, 0.3]], restitution: 0.1 },
-    { points: [[4.2, 0.3], [4.2, 16.4]], restitution: 0.4 },
+    { points: [[4.2, 0.3], [4.2, 15.2]], restitution: 0.4 },
     // The inlane guides, from the top of each inlane down to the flipper's pivot.
     { points: [[-3.7, 5.6], [-3.7, 3.6], [-2.1, 2]], restitution: 0.3 },
     { points: [[2.9, 5.6], [2.9, 3.6], [1.3, 2]], restitution: 0.3 },
@@ -160,7 +165,9 @@ export const STAND_IN: Table = {
   spinner: { x: 3.7, z: 13.5, width: 0.9, pointsPerTurn: 10 },
   lock: { x: -3.2, z: 15, radius: 0.5 },
   kickback: { side: 'left', x: -4.35, z: 1.8 },
-  plunger: { x: 4.6, zFrom: 0.7, zTo: 2, speed: 20 },
+  // 34 units/s (1.7 m/s): a launch, already rolling, gets round the arch from 28 up (measured, Task 3); 34 is room to
+  // spare for the launch's spread. At 20 a launch got only to z 7: tilted gravity takes 21.7 units/s² off it.
+  plunger: { x: 4.6, zFrom: 0.7, zTo: 2, speed: 34 },
   drainZ: 0.1,
   flippers: [
     { side: 'left', pivot: [-2.1, 2], length: 1.6, restDeg: -30, upDeg: 30 },
