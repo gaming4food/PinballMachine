@@ -233,7 +233,7 @@ step('multiball pulls from the line, then the house', () => {
   say(hal, 'ball');
   held = ballOf(gus)!;
   game.knockAllTargets(held);
-  assert.equal(game.state().lockLit, true, 'all 4 targets down light the lock');
+  assert.equal(game.state().lockLit, true, 'both drop targets down light the lock');
   put(held, TABLE_IN_USE.lock.x, TABLE_IN_USE.lock.z);
   run(DT);
   assert.equal(game.state().lockLit, false, 'the lock took the ball');

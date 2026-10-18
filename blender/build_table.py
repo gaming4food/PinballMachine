@@ -7,7 +7,7 @@
 #   hero:  the promotional picture, the whole cabinet from the front at HERO_ELEV, with the live parts: <out dir>/hero.png
 # The only environment setting is TURNED (a demo for the hero): the ids of flip plaques shown turned, comma-separated.
 # Usage:
-#   blender -b --factory-startup --python build_table.py -- <scene.json> <out dir> <samples> stage|hero
+#   blender -b --factory-startup --python-exit-code 1 --python build_table.py -- <scene.json> <out dir> <samples> stage|hero
 import bpy, bmesh, json, math, sys, os, random
 import numpy as np
 from mathutils import Matrix, Vector
@@ -332,7 +332,7 @@ me = bpy.data.meshes.new('playfield'); bm.to_mesh(me); bm.free()
 pf = bpy.data.objects.new('playfield', me); pf.data.materials.append(playfield_material(mask_img)); link(pf)
 prism('playfield base', [(X0, Y0), (X1, Y0), (X1, Y1), (X0, Y1)], -0.4, -0.001, BLACK)
 
-H = 0.42  # wall height: below the glass (TABLE.glassY 0.8)
+H = 0.42  # wall height: below the glass (TABLE.glassY 2.4)
 walls = T['walls']
 ACRYLIC = mat('clear acrylic', (0.92, 0.94, 1.0), rough=0.04, trans=1, ior=1.49)
 def along(pts, step):
@@ -778,7 +778,7 @@ for sc in T.get('saucers', []):
 lk = T['lock']
 cylinder('lock ring', lk['x'], lk['z'], lk['radius'] * 1.2, 0, 0.03, GOLD, 64, 0.01)
 cylinder('lock hole', lk['x'], lk['z'], lk['radius'] * 0.8, -0.2, 0.035, DARK_HOLE, 64)
-# The kickback: a chrome plunger in the left outlane.
+# The kickback: a chrome plunger in the right outlane (x 3.72).
 kb = T['kickback']
 cylinder('kickback', kb['x'], kb['z'] - 0.5, 0.12, 0, 0.18, CHROME, 24)
 # The plunger: chrome rod, spring and a brass knob out through the front rail.
@@ -801,7 +801,8 @@ for p_, t_ in zip(sp_.points, ts_):
     p_.co = (pl['x'] + 0.13 * math.cos(t_), FY0 - 1.5 + t_ / (16 * math.pi) * 0.82, 0.38 + 0.13 * math.sin(t_), 1)
 cu_.bevel_depth = 0.022; ob_ = bpy.data.objects.new('outer spring', cu_); ob_.data.materials.append(STEEL); link(ob_)
 # Lit inserts: ladders up both sides of the pyramid, arrows up both orbits, a column under the pyramid, and the ankh,
-# scarab and falcon plaques under the bumpers (they light as their targets go down).
+# scarab and falcon plaques under the bumpers (decoration: printed pictures set in the playfield, no targets, and
+# nothing lights them in play).
 def arrow(x, y, s, m):
     prism('insert ring', [(x - s * 1.45, y - s * 1.15), (x + s * 1.45, y - s * 1.15), (x, y + s * 1.35)], 0, 0.002, GOLD)
     prism('insert bezel', [(x - s * 1.25, y - s), (x + s * 1.25, y - s), (x, y + s * 1.15)], 0, 0.004, BEZEL)

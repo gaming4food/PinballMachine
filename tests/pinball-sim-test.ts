@@ -269,7 +269,7 @@ const checks: [string, () => void][] = [
   ['the kickback fires a ball back up, when the game says', () => {
     const { sim, hits } = make();
     const k = TABLE_IN_USE.kickback;
-    // Down the left outlane onto the kickback.
+    // Down the right outlane (x 3.72) onto the kickback.
     const id = place(sim, k.x, k.z + 2, 0, -3);
     for (let i = 0; i < 1 / DT && !hits.some((h) => h.kind === 'kickback'); i++) sim.step();
     assert.deepEqual(hits.find((h) => h.kind === 'kickback'), { kind: 'kickback', id: 'kickback', ball: id });

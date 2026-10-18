@@ -86,8 +86,9 @@ export function tiltTable<T extends THREE.Object3D>(group: T): T {
 
 /**
  * The stage's camera, for a frame `width` × `height`: at the player's end, looking down the table at CAMERA_PITCH, as
- * far back as it must be for the whole table (its rails, the apron and the arch's walls, by the table's size, TABLE) to
- * fit between FRAME_TOP and FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put it there.
+ * far back as it must be for the whole table (its side rails, the front rail and the arch's walls, by the table's size,
+ * TABLE) to fit between FRAME_TOP and FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put it
+ * there.
  * `matrix` is the camera's world matrix (column-major, three's Y-up world, with the table tilted in it as the stage
  * tilts it) and `fovY` its vertical field of view in degrees. The stage (fitCamera) and the Blender picture
  * (tools/export-scene.ts) both use it, so the picture lines up with the live parts drawn over it.

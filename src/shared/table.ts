@@ -125,9 +125,12 @@ export interface Lock {
   radius: number;
 }
 
-/** The kickback: a kicker in the left outlane that, when lit, shoots a draining ball back up. */
+/**
+ * The kickback: a kicker in an outlane that, when lit, shoots a draining ball back up. `side` is which outlane (the
+ * pyramid table's is in the right one, x 3.72).
+ */
 export interface Kickback {
-  side: 'left';
+  side: 'left' | 'right';
   x: number;
   z: number;
 }

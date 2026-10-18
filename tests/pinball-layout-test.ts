@@ -199,6 +199,9 @@ const checks: [string, () => string][] = [
     const atTop = shots.filter((s) => s.seen).length, onTheDish = count(shots);
     const each = shots.map((s) => (s.ok ? 'D' : s.seen ? 'T' : '-')).join('');
     // The table's real rate on this fixed spread is 7/10 (13-14 of 25 on a 5x5 grid across ±5%); the plan's 9/10 was the spike's lucky draws.
+    // The bar sits exactly at that measured 7/10 on purpose: it is a tripwire. The shots have no random in them, so the
+    // rate moves only when the physics or the table does. A failure here means one of them changed: investigate what
+    // did (the ramp, the flippers, the pyramid, the sim), don't lower the bar.
     assert.ok(atTop >= 7, `only ${atTop}/10 reached the left ramp's top end (per shot, D dish, T top only, - neither: ${each})`);
     assert.ok(onTheDish >= 7, `only ${onTheDish}/10 reached the dish (per shot: ${each})`);
     return `${atTop}/10 reached its top end, ${onTheDish}/10 the dish (per shot: ${each})`;

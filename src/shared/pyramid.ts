@@ -91,7 +91,7 @@ export const PYRAMID: Table = {
     { id: 'rollover-1', x: -1.4, z: 14.05, points: 50 },
     { id: 'rollover-2', x: -0.4, z: 14.05, points: 50 },
     { id: 'rollover-3', x: 0.6, z: 14.05, points: 50 },
-    // The inlanes' and the right outlane's switches: lighting the kickback, spelling bonuses.
+    // The inlanes' and the right outlane's switches: they only score (the three top lanes light the kickback).
     { id: 'inlane-left', x: -3.65, z: 4.4, points: 100 },
     { id: 'inlane-right', x: 2.75, z: 4.4, points: 100 },
     { id: 'outlane-right', x: 3.72, z: 3.1, points: 250 },
@@ -105,7 +105,8 @@ export const PYRAMID: Table = {
   spinner: { x: -4.5, z: 9.3, width: 0.9, pointsPerTurn: 10 },
   // The lock sits right of the left ramp's foot, clear of it.
   lock: { x: -2.4, z: 12.95, radius: 0.5 },
-  kickback: { side: 'left', x: 3.72, z: 1.8 },
+  // The kickback sits in the right outlane (x 3.72, between the guide at 3.25 and the shooter lane's wall at 4.2).
+  kickback: { side: 'right', x: 3.72, z: 1.8 },
   // 34 units/s (1.7 m/s): a launch, already rolling, gets round the arch; at 20 a launch got only to z 7: tilted gravity
   // takes 21.7 units/s² off it.
   plunger: { x: 4.6, zFrom: 0.7, zTo: 2, speed: 34 },

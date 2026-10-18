@@ -1,10 +1,10 @@
 // The pinball game on the server (Task 4 of the pinball plan): viewers line their balls up with `ball`, and each
 // launches when the table is free; all of chat flips with `left` and `right`, and when chat goes quiet the auto-save
-// flips for it (missing now and then). The table's parts score, all 4 drop targets light the lock, a ball in the lit
-// lock starts multiball (more balls from the line, then the house's), all 3 top rollovers light the kickback, the ball
-// saver gives a quick drain back, a stuck ball gets a nudge, and one no nudge frees goes back to the plunger lane. A
-// drained ball pays: its points make coins, 70% to its owner and the rest shared by everyone who flipped it (the owner
-// too, if they flipped).
+// flips for it (missing now and then). The table's parts score, a bank of plaques all turned to their backs pays its
+// bonus, both drop targets (the scarab and the eye) light the lock, a ball in the lit lock starts multiball (more balls
+// from the line, then the house's), all 3 top rollovers light the kickback, the ball saver gives a quick drain back, a
+// stuck ball gets a nudge, and one no nudge frees goes back to the plunger lane. A drained ball pays: its points make
+// coins, 70% to its owner and the rest shared by everyone who flipped it (the owner too, if they flipped).
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,

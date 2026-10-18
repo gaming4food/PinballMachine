@@ -262,8 +262,11 @@ export class PinballSim {
       this.fixed(this.post(b.x, b.z, b.radius, b.y0 ?? 0).setFriction(0).setRestitution(BUMPER_RESTITUTION), { kind: 'bumper', id: b.id, x: b.x, z: b.z, kick: b.kick });
     }
 
-    // A sling kicks out from its face, the side toward the table's middle (halfway between the flippers' pivots).
-    const middle = t.flippers.reduce((sum, f) => sum + f.pivot[0], 0) / Math.max(1, t.flippers.length);
+    // A sling kicks out from its face, the side toward the table's middle: halfway between the pivots of the two main
+    // flippers, the first two in the table's order (stage/pinball-parts.ts takes its `mid` the same way). Not the upper
+    // flipper's too: its pivot, out at the right orbit, would move the middle from -0.4 to 0.68.
+    const mains = t.flippers.slice(0, 2);
+    const middle = mains.reduce((sum, f) => sum + f.pivot[0], 0) / Math.max(1, mains.length);
     for (const s of t.slings) {
       const dx = s.b[0] - s.a[0], dz = s.b[1] - s.a[1];
       const len = Math.hypot(dx, dz);

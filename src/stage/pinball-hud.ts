@@ -1,9 +1,10 @@
 // The pinball's scoreboard over the stage (PinballHud, an OverlayFactory's; pinball.css), as the claw's turn box is:
 // the balls on the table with their owners and scores, what's lit (multiball, double score, the ball saver), the next
 // 3 in line, the words to type (hidden by the layout's Play commands switch, as the claw's are), and the last ball's
-// result. Over the table, big titles: each hype button's (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!, NUDGE!) at its
-// moment's time, MULTIBALL! when the lock starts it, BALL SAVED! when the stage sees a ball drain and come straight
-// back (ballSaved, from the scene), and a ball's result. Tested in Node: npm run pinball-hud-test.
+// result. Over the table, big titles: each hype button's (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!, NUDGE!) and each
+// bank's when its plaques match (HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED) at its moment's time, MULTIBALL!
+// when the lock starts it, BALL SAVED! when the stage sees a ball drain and come straight back (ballSaved, from the
+// scene), and a ball's result. Tested in Node: npm run pinball-hud-test.
 import { cssColor } from '@kit/stage';
 import { pinballHypeOf, type PinballHypeMsg, type PinballState, pinballStateOf } from '../shared/pinball';
 

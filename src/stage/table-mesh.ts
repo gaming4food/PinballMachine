@@ -1,11 +1,14 @@
-// The pyramid table drawn in three.js, plainly: the stand-in, drawn only when the Blender picture (src/assets/pinball.png)
-// fails to load: the playfield, the walls with some height and a neon edge, the bumpers' bodies, the slings' plastics,
-// the plunger lane and its plunger, the side rails and the apron. Only what stays put is here; what moves or lights up
-// (the flippers, the bumper caps, the targets, the spinners, the inserts) is the scene's live parts (pinball-parts.ts).
+// The pyramid table in three.js, in two parts. standInTable is the fallback look, drawn only when the Blender picture
+// (src/assets/pinball.png) fails to load: the playfield, the walls with some height and a neon edge, the bumpers' bodies,
+// the slings' plastics and the plunger lane with its plunger, in a plain frame of side rails and an apron before the
+// drain (the fallback's own: the picture's cabinet has no apron, its playfield runs to the front rail). Only what stays
+// put is here; what moves or lights up (the flippers, the bumper caps, the targets, the spinners, the inserts) is the
+// scene's live parts (pinball-parts.ts).
 //
-// Over the picture, pictureDepth stands in for the picture's own solid shapes, unseen: the playfield, the pyramid, the
-// bumpers, the right ramp's floor and the dish's, so a ball behind or under one is hidden by it as the picture shows
-// it, and a drop target sinks into the playfield; and a shadow catcher takes the live parts' and the balls' shadows.
+// The other part is pictureDepth, the occluders, drawn only with the picture. They stand in for the picture's own solid
+// shapes, unseen: the playfield, the pyramid, the bumpers, the right ramp's floor and the dish's, so a ball behind or
+// under one is hidden by it as the picture shows it, and a drop target sinks into the playfield; and a shadow catcher
+// takes the live parts' and the balls' shadows.
 //
 // Everything is in the table's own coordinates (shared/table.ts): x across, y up off the playfield, z up the table. The
 // scene puts the whole table in a group that turns those into the world's (see PinballScene).
@@ -24,7 +27,10 @@ const WALL_HEIGHT = 0.55;
 const WALL_THICK = 0.16;
 /** The rails each side of the cabinet, outside the outer wall. */
 const RAIL_WIDTH = 0.7;
-/** The apron below the flippers, toward the player. */
+/**
+ * The stand-in's apron below the flippers, toward the player (the picture's cabinet has none). The occluders' playfield
+ * and shadow catcher reach out over it too, to the front.
+ */
 const APRON = 1.6;
 
 /** A wall's piece from a to b on the playfield: a box `thick` wide and `height` tall, its bottom on the playfield. */

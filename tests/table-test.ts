@@ -1,5 +1,6 @@
 // The pinball's pyramid table and its rules, as data: the table is on the playfield, the flippers leave a gap a ball
-// can't stop in, every piece has its own id, and chat commands are read the way the rules say.
+// can't stop in, every piece has its own id, it fits the snapshot header's room, and chat commands are read the way the
+// rules say.
 // Usage: npm run table-test (or npx tsx tests/table-test.ts)
 import assert from 'node:assert/strict';
 import { TABLE, TABLE_IN_USE, flipperTip } from '../src/shared/table';
@@ -120,6 +121,15 @@ const checks: [string, () => void][] = [
     const bits = Object.values(LIT);
     assert.equal(new Set(bits).size, bits.length);
     assert.ok(bits.every((b) => b > 0 && (b & (b - 1)) === 0), 'each lit insert is one bit');
+  }],
+  ["the table fits the snapshot header's room", () => {
+    // The snapshot header (SNAP_PINBALL_HEADER, written by sim.ts's snapshot and read by the stage) has a fixed room: 3
+    // flipper angles, 2 spinner angles (the table's spinner and one more) and 32 target bits (down, and turned). A table
+    // with more would be cut off there without a word, so the header has to grow first.
+    const t = TABLE_IN_USE;
+    assert.ok(t.flippers.length <= 3, `${t.flippers.length} flippers, but the snapshot header carries 3 flipper angles`);
+    assert.ok(t.spinners.length <= 1, `${t.spinners.length} extra spinners, but the snapshot header carries 2 spinner angles (the table's spinner and 1 more)`);
+    assert.ok(t.targets.length <= 32, `${t.targets.length} targets, but the snapshot header carries 32 target bits (down, and turned)`);
   }],
   ['parsePinballCommands: joining', () => {
     assert.equal(parsePinballCommands('ball').join, true);
