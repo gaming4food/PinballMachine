@@ -2,8 +2,9 @@
 // table, no shot gets out through a wall, a ball left alone drains, the right flipper shoots to the upper table (up the
 // left ramp and round the left orbit) and the left flipper into the pyramid's Eye bank and the sun bumper, a bumper
 // kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
-// is held and let go cleanly, and the snapshot has the Task 2 layout. (The pathways round the table are
-// pinball-layout-test's.)
+// is held and let go cleanly, and the snapshot is the 43-byte header (type, time, ball count, the three flippers'
+// angles, the lit bits, the targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in
+// its state, not the snapshot. (The pathways round the table are pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';

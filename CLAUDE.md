@@ -12,8 +12,7 @@ the stage and the control panel.
   owner's calls about the table. How machines live in their own repos is coin-op-city's `docs/MACHINE_REPOS.md`; the
   claw (gaming4food/ClawMachine) is the model.
 - It plays on the pyramid table, whose picture is built in Blender: the physics, the game, the hype buttons, the stage
-  and the panel's card are done. What's left is the import into Coin-Op City (the table plan's Task 7, below), which the
-  owner runs.
+  and the panel's card are done. The table plan's last step imports it into Coin-Op City (below).
 
 ## Folder map
 
