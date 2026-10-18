@@ -5,17 +5,20 @@
 // is held and let go cleanly, the quest's rising targets (the three pop-ups and the mummy) start down, rise when the
 // game raises them, never rise into a ball, and the pop-ups drop when hit while the mummy stays up and reports every
 // hit, the quest's tomb is a wall while shut and, open, catches a ball at its mouth at any speed, holds it just in
-// front of its door and kicks it out to a flipper, never shuts on a ball and never holds one the lock or a saucer has
-// (nor they its), and the snapshot is the 43-byte header (type, time, ball count, the three flippers' angles, the lit
-// bits, the targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in its state, not
-// the snapshot. (The pathways round the table are pinball-layout-test's.)
+// front of its door and kicks it out to a flipper, one ball at a time and not one it has just kicked out, never shuts
+// on a ball and never holds one the lock or a saucer has (nor they its), the quest's diverter (a gate on the right
+// ramp, over a gap in its rail) at rest leaves the ramp running as before and swung over sends balls from the dish
+// into the lock, swinging at its own slow speed and never into a ball, the toys' bits say what's open and over, and
+// the snapshot is the 43-byte header (type, time, ball count, the three flippers' angles, the lit bits, the targets
+// down and turned, both spinners' angles) then each ball's body; a ball's owner is in its state, not the snapshot.
+// (The pathways round the table are pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { initPhysics } from '@kit/server';
 import { SNAP_STRIDE } from '@kit/shared';
-import { DT, PinballSim, type Hit } from '../src/server/sim';
-import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../src/shared/pinball';
+import { DT, LOCK_IGNORE, PinballSim, WALL_HALF, type Hit } from '../src/server/sim';
+import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../src/shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget, type Table, type Target } from '../src/shared/table';
 
 await initPhysics();
@@ -84,8 +87,6 @@ const TOMB = TABLE_IN_USE.tomb!;
  * faces cross that line).
  */
 const MOUTH: [number, number][] = [[TOMB.x - TOMB.width / 2, TOMB.z], [TOMB.x + TOMB.width / 2, TOMB.z]];
-/** Half the tomb's door's thickness: it's a wall, as thick as the rest (sim.ts's WALL_HALF). */
-const DOOR_HALF = 0.08;
 
 /**
  * A ball rolled up the centre lane at the tomb's mouth from below at `speed`, already rolling (so none of its speed
@@ -112,6 +113,33 @@ function offBy(sim: PinballSim, id: number, [dx, dz]: [number, number]): number 
   const v = sim.items.get(id)!.body.linvel();
   const cos = (v.x * dx + v.z * dz) / (Math.hypot(v.x, v.z) * Math.hypot(dx, dz));
   return (Math.acos(Math.min(1, cos)) * 180) / Math.PI;
+}
+
+const GATE = TABLE_IN_USE.diverter!;
+const RIGHT_RAMP = TABLE_IN_USE.ramps.find((r) => r.id === GATE.ramp)!;
+/** Where the gap in the gate's ramp's rail ends: the x of its last path point. */
+const GAP_END_X = RIGHT_RAMP.path[RIGHT_RAMP.opening!.to][0];
+/** Which way round the gate swings over: 1 is the table's way round (x toward z), -1 the other. */
+const WAY = Math.sign(GATE.overDeg - GATE.restDeg);
+/** The unit vector at a table angle (degrees, x toward z). */
+const dirOf = (deg: number): [number, number] => [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
+/** The sim's gate: its angle now (degrees) and the height it stands at (its ramp's floor at its pivot). */
+const gateOf = (sim: PinballSim): { angle: number; y: number } => (sim as any).diverter;
+
+/** A ball let go at (x, y, z), up off the playfield (in the dish, or on a ramp), moving at (vx, vz). */
+function dropAt(sim: PinballSim, x: number, y: number, z: number, vx = 0, vz = 0): number {
+  const id = place(sim, x, z, vx, vz);
+  sim.items.get(id)!.body.setTranslation({ x, y, z }, true);
+  return id;
+}
+
+/**
+ * Ball n of `count` let go in the dish by its east gap, where pinball-layout-test's 'the dish and the right ramp' lets
+ * its balls go, heading east at 6 to 10 units/s and up to 0.5 across: evenly spread rather than random, so the check
+ * runs the same whatever the checks before it drew. Returns its id.
+ */
+function fromTheDish(sim: PinballSim, n: number, count: number): number {
+  return dropAt(sim, -2.75, 1.1, 14.35, 6 + (4 * n) / (count - 1), ((7 * n) % count) / (count - 1) - 0.5);
 }
 
 const targetIndex = (id: string) => TABLE_IN_USE.targets.findIndex((t) => t.id === id);
@@ -741,10 +769,10 @@ const checks: [string, () => void][] = [
       if (z > top) [top, back] = [z, z];
       back = Math.min(back, z);
     }
-    // The door stands across the mouth, its face a wall's half-thickness in front of the mouth's line: the ball met it
-    // there, a ball's radius out (measured 5.68, as the step ends; the pyramid's uncut corner met it at 5.36, and with
-    // no door it got in between the jambs' ends, to 5.83), and came back.
-    const face = TOMB.z - DOOR_HALF;
+    // The door stands across the mouth, a wall as thick as the rest, its face a wall's half-thickness in front of the
+    // mouth's line: the ball met it there, a ball's radius out (measured 5.68, as the step ends; the pyramid's uncut
+    // corner met it at 5.36, and with no door it got in between the jambs' ends, to 5.83), and came back.
+    const face = TOMB.z - WALL_HALF;
     assert.ok(top > face - R - 0.06 && top < face - R + 0.01, `the ball got to z ${top.toFixed(3)}, where the door's face is at ${face}`);
     assert.ok(back < top - 0.3, `it bounced back down the table (to z ${back.toFixed(2)})`);
     assert.deepEqual(hits.filter((h) => h.kind === 'tomb'), [], 'and nothing caught it');
@@ -784,11 +812,13 @@ const checks: [string, () => void][] = [
       // While it holds a ball it stays open, every step of the hold; with the ball out and clear, it shuts.
       const { sim, hits } = make();
       const id = intoTomb(sim);
-      while (sim.heldBy(id) === 'tomb') {
+      // (Capped, as every wait here is: a hold that never let go would fail the check, not hang the suite.)
+      for (let i = 0; i < 2 / DT && sim.heldBy(id) === 'tomb'; i++) {
         assert.equal(sim.closeTomb(), false, 'not on the ball it holds');
         assert.equal(sim.tombOpen, true, 'it stays open');
         sim.step();
       }
+      assert.equal(sim.heldBy(id), null, 'the tomb let the ball go');
       for (let i = 0; i < 0.5 / DT; i++) sim.step();
       assert.equal(sim.closeTomb(), true, 'it shuts once the ball is out and clear');
       assert.equal(sim.tombOpen, false);
@@ -801,11 +831,11 @@ const checks: [string, () => void][] = [
         sim.step();
         top = Math.max(top, sim.items.get(next)?.body.translation().z ?? -Infinity);
       }
-      assert.ok(top < TOMB.z - DOOR_HALF - R + 0.01, `shut again, the door stopped the next ball (it got to z ${top.toFixed(3)})`);
+      assert.ok(top < TOMB.z - WALL_HALF - R + 0.01, `shut again, the door stopped the next ball (it got to z ${top.toFixed(3)})`);
       assert.equal(hits.filter((h) => h.kind === 'tomb').length, 1, 'and the mouth caught only the first');
     }
     // Nor on a ball standing at its mouth: within a ball's radius and 0.05 of the door's face, anywhere along it.
-    const reach = R + DOOR_HALF + 0.05;
+    const reach = R + WALL_HALF + 0.05;
     for (const x of [MOUTH[0][0], TOMB.x, MOUTH[1][0]]) {
       const shutWithBallAt = (out: number) => {
         const { sim } = make();
@@ -833,7 +863,9 @@ const checks: [string, () => void][] = [
   }],
   ['the tomb holds its ball just in front of its door, centred on the mouth and clear of everything', () => {
     // The doorway is narrower than a ball (its jambs' ends are walls, so 0.44 is open between them, for a ball 0.54
-    // across): a ball is caught at the mouth and held in front of the door's line, never inside.
+    // across): a ball is caught at the mouth and held in front of the door's line, never inside, and none can get in
+    // between the jambs.
+    assert.ok(TOMB.width - 2 * WALL_HALF < 2 * R, `the doorway, ${(TOMB.width - 2 * WALL_HALF).toFixed(2)} between its jambs' walls, is narrower than a ball`);
     assert.ok(Math.abs(TOMB.held[0] - (MOUTH[0][0] + MOUTH[1][0]) / 2) < 1e-9, 'centred on the mouth');
     assert.ok(TOMB.held[1] < TOMB.z, 'in front of the mouth');
     // Every solid (no sensor) within a gap of a ball standing there, at the height a ball meets the walls. The tomb
@@ -898,6 +930,70 @@ const checks: [string, () => void][] = [
       assert.equal(sim.closeTomb(), true, 'the tomb shuts: it holds nothing');
     }
   }],
+  ['the tomb catches one ball at a time, never into another ball, and not one it has just kicked out', () => {
+    const mouth = (p: any) => p.kind === 'tomb';
+    {
+      // One at a time (a held ball fills the mouth): while it holds a ball, a second touching the mouth isn't caught,
+      // and once the first is gone, it is.
+      const { sim, hits } = make();
+      const first = intoTomb(sim);
+      const second = place(sim, -0.4, 3);
+      touchWhere(sim, second, mouth, "tomb's mouth");
+      assert.equal(sim.heldBy(second), null, 'not while it holds another');
+      assert.equal(sim.heldBy(first), 'tomb', 'and it keeps the first');
+      sim.remove(first);
+      touchWhere(sim, second, mouth, "tomb's mouth");
+      assert.equal(sim.heldBy(second), 'tomb', 'with the first gone, it catches the second');
+      sim.step(); // (A hit is passed on as its substep ends.)
+      assert.deepEqual(hits.filter((h) => h.kind === 'tomb').map((h) => h.ball), [first, second], 'one catch each');
+    }
+    // Never into another: a ball standing within two balls' radii of the held spot, where the caught ball would be put,
+    // keeps the next from being caught there; one just further off does not. (Down the table, to the right and down to
+    // the left of the spot.)
+    for (const [dx, dz] of [[0, -1], [1, 0], [-0.6, -0.8]]) {
+      const caughtWithBallAt = (d: number) => {
+        const { sim } = make();
+        sim.openTomb();
+        place(sim, TOMB.held[0] + d * dx, TOMB.held[1] + d * dz);
+        const id = place(sim, -0.4, 3);
+        touchWhere(sim, id, mouth, "tomb's mouth");
+        return sim.heldBy(id) === 'tomb';
+      };
+      assert.equal(caughtWithBallAt(2 * R - 0.02), false, `a ball just inside 2R of the held spot (toward ${dx}, ${dz}) keeps it from catching`);
+      assert.equal(caughtWithBallAt(2 * R + 0.02), true, `a ball just outside it (toward ${dx}, ${dz}) does not`);
+    }
+    {
+      // Not one it has just kicked out: it ignores that ball for LOCK_IGNORE from the kick, then catches it again. The
+      // ball is kept still well away from the tomb meanwhile (put back each step), so only the clock moves.
+      const { sim } = make();
+      const id = intoTomb(sim);
+      for (let i = 0; i < 2 / DT && sim.heldBy(id) === 'tomb'; i++) sim.step();
+      assert.equal(sim.heldBy(id), null, 'kicked out');
+      // The kick came in the step just taken, on its start's clock.
+      const until = sim.time - DT + LOCK_IGNORE;
+      const park = () => {
+        const body = sim.items.get(id)!.body;
+        body.setTranslation({ x: -0.4, y: R, z: 9.5 }, true);
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      };
+      park();
+      touchWhere(sim, id, mouth, "tomb's mouth");
+      assert.equal(sim.heldBy(id), null, 'not caught again right after the kick');
+      for (let i = 0; i < 2 / DT && sim.time < until - 1.5 * DT; i++) {
+        sim.step();
+        park();
+      }
+      touchWhere(sim, id, mouth, "tomb's mouth");
+      assert.equal(sim.heldBy(id), null, `nor a step before LOCK_IGNORE (${LOCK_IGNORE} s) is up`);
+      sim.step();
+      park();
+      sim.step();
+      park();
+      touchWhere(sim, id, mouth, "tomb's mouth");
+      assert.equal(sim.heldBy(id), 'tomb', 'once it is up, it is caught again');
+    }
+  }],
   ['remove() and clear() while the tomb holds a ball', () => {
     for (const how of ['remove', 'clear'] as const) {
       const { sim, hits } = make();
@@ -917,6 +1013,149 @@ const checks: [string, () => void][] = [
       assert.equal(sim.heldBy(next), 'tomb', `${how}: the tomb catches the next ball`);
       assert.equal(hits.filter((h) => h.kind === 'tomb').length, 2);
     }
+  }],
+  ['with the gate at rest the right ramp runs as before', () => {
+    // Balls let go in the dish by its east gap ride the right ramp across the top and down the right side, and drop off
+    // its end, as pinball-layout-test's 'the dish and the right ramp' measures them: at rest the gate stands along the
+    // gap in the ramp's rail, in the rail's place, so none leaves the ramp there.
+    const { sim } = make();
+    assert.equal(sim.diverterOver, false, 'the gate starts at rest');
+    const lost: string[] = [];
+    for (let n = 0; n < 20; n++) {
+      sim.clear();
+      const id = fromTheDish(sim, n, 20);
+      let high = false, down = false;
+      for (let i = 0; i < 12 / DT; i++) {
+        sim.step();
+        const p = sim.items.get(id)?.body.translation();
+        if (!p) {
+          down = true;
+          break;
+        }
+        if (p.y > 0.95 && p.x > 3.2 && p.z < 12) high = true;
+        if (high && p.y < 0.35 && p.z < 7.5) {
+          down = true;
+          break;
+        }
+      }
+      if (!(high && down)) {
+        const p = sim.items.get(id)?.body.translation();
+        lost.push(`ball ${n}: ${high ? 'never dropped off its end' : 'never got round it'}${p ? `, at (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})` : ''}`);
+      }
+    }
+    assert.deepEqual(lost, [], `${lost.length} of 20 didn't ride the right ramp down`);
+  }],
+  ['with the gate over, balls leaving the dish drop off the ramp into the lock', () => {
+    // Swung over, the gate stands across the ramp by the dish and turns a ball leaving the dish out through the gap in
+    // the ramp's rail, down onto the playfield and into the lock below it.
+    const { sim, hits } = make();
+    assert.equal(sim.setDiverter(true), true, 'with no ball near it, the gate swings over');
+    for (let i = 0; i < 0.25 / DT; i++) sim.step();
+    assert.equal(gateOf(sim).angle, GATE.overDeg, 'and gets there');
+    const each: string[] = [];
+    for (let n = 0; n < 10; n++) {
+      sim.clear();
+      hits.length = 0;
+      const id = fromTheDish(sim, n, 10);
+      let past = false, locked = false;
+      for (let i = 0; i < 3 / DT && sim.items.has(id) && !locked; i++) {
+        sim.step();
+        const p = sim.items.get(id)?.body.translation();
+        // Up on the ramp beyond the gap: the gate let it by.
+        if (p && p.y > 0.95 && p.x > GAP_END_X) past = true;
+        locked = hits.some((h) => h.kind === 'lock' && h.ball === id);
+      }
+      each.push(locked ? 'L' : past ? 'R' : '-');
+    }
+    const locked = each.filter((e) => e === 'L').length;
+    assert.ok(locked >= 9, `only ${locked} of 10 reached the lock within 3 s (per ball, L the lock, R rode on past the gate, - neither: ${each.join('')})`);
+  }],
+  ['the gate never swings into a ball', () => {
+    const y = gateOf(make().sim).y;
+    /** A point `along` the gate's length out from its pivot at an angle, then `out` to one side: [x, z]. */
+    const at = (deg: number, along: number, side: [number, number] = [0, 0], out = 0): [number, number] => {
+      const [ux, uz] = dirOf(deg);
+      return [GATE.pivot[0] + along * ux + out * side[0], GATE.pivot[1] + along * uz + out * side[1]];
+    };
+    /** The side the gate's face moves toward as it swings over, at an angle. */
+    const ahead = (deg: number): [number, number] => {
+      const [ux, uz] = dirOf(deg);
+      return [-WAY * uz, WAY * ux];
+    };
+    const behind = (deg: number): [number, number] => {
+      const [ax, az] = ahead(deg);
+      return [-ax, -az];
+    };
+    {
+      // A ball held still on the ramp against the gate at rest, halfway along it: asked to swing over, the gate says
+      // no, every step it's asked, and stays at rest. With the ball gone it swings; over, a ball against the face it
+      // turns balls out with keeps it over.
+      const { sim } = make();
+      const [sx, sz] = at(GATE.restDeg, GATE.length / 2, ahead(GATE.restDeg), R + WALL_HALF);
+      const id = dropAt(sim, sx, y + R, sz);
+      for (let k = 0; k < 10; k++) {
+        assert.equal(sim.setDiverter(true), false, 'not into the ball');
+        assert.equal(sim.diverterOver, false, 'its goal stays at rest');
+        sim.step();
+        const body = sim.items.get(id)!.body;
+        body.setTranslation({ x: sx, y: y + R, z: sz }, true);
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        assert.equal(gateOf(sim).angle, GATE.restDeg, 'and it stays at rest');
+      }
+      sim.remove(id);
+      assert.equal(sim.setDiverter(true), true, 'with the ball gone, it swings over');
+      assert.equal(sim.setDiverter(true), true, 'over already, it stays over');
+      for (let i = 0; i < 0.25 / DT; i++) sim.step();
+      const [bx, bz] = at(GATE.overDeg, GATE.length / 2, behind(GATE.overDeg), R + WALL_HALF);
+      const back = dropAt(sim, bx, y + R, bz);
+      assert.equal(sim.setDiverter(false), false, 'nor back into a ball');
+      assert.equal(sim.diverterOver, true, 'its goal stays over');
+      sim.remove(back);
+      assert.equal(sim.setDiverter(false), true, 'with that ball gone, it swings back');
+      assert.equal(sim.setDiverter(false), true, 'at rest already, it stays at rest');
+    }
+    // Its reach: a ball's radius and 0.05 from where the gate sweeps (the sector between its two angles out to its
+    // length, with a wall's half-thickness either side, from its ramp's floor up as high as the rails), so a ball
+    // touching a face it sweeps through is well inside it.
+    const reach = R + WALL_HALF + 0.05;
+    const swingsWithBallAt = ([x, z]: [number, number], by = y + R) => {
+      const { sim } = make();
+      dropAt(sim, x, by, z);
+      return sim.setDiverter(true);
+    };
+    const end = (out: number) => at(GATE.restDeg, GATE.length + out);
+    assert.equal(swingsWithBallAt(end(reach - 0.02)), false, 'a ball on its line just inside its reach of its free end at rest stops it');
+    assert.equal(swingsWithBallAt(end(reach + 0.02)), true, 'one just outside does not');
+    const beside = (out: number) => at(GATE.overDeg, GATE.length / 2, ahead(GATE.overDeg), out);
+    assert.equal(swingsWithBallAt(beside(reach - 0.02)), false, 'a ball just inside its reach beyond where it swings to stops it');
+    assert.equal(swingsWithBallAt(beside(reach + 0.02)), true, 'one just outside does not');
+    // At its height: a ball on the playfield under it (balls pass under the ramp) is no matter, nor one just over its
+    // reach above its top; one just inside that is.
+    const middle = at((GATE.restDeg + GATE.overDeg) / 2, GATE.length / 2);
+    assert.equal(swingsWithBallAt(middle, R), true, 'a ball on the playfield under it does not stop it');
+    const top = y + RIGHT_RAMP.rail;
+    assert.equal(swingsWithBallAt(middle, top + R + 0.05 - 0.02), false, 'a ball just inside its reach above its top stops it');
+    assert.equal(swingsWithBallAt(middle, top + R + 0.05 + 0.02), true, 'one just outside does not');
+  }],
+  ["the gate swings at 400 degrees a second; toys() has the tomb open and the gate's goal over", () => {
+    const { sim } = make();
+    assert.equal(sim.toys(), 0, 'a fresh table: the tomb shut and the gate at rest');
+    sim.openTomb();
+    assert.equal(sim.toys(), TOY.tombOpen);
+    assert.equal(sim.setDiverter(true), true);
+    assert.equal(sim.toys(), TOY.tombOpen | TOY.diverterOver, "the gate's bit is its goal: it's set at once");
+    // A step at a time toward over, at 400 degrees a second (slow: a flipper swings at 1,800), and it stops there.
+    const swing = Math.abs(GATE.overDeg - GATE.restDeg);
+    for (let k = 1; k <= Math.ceil(swing / (400 * DT)) + 2; k++) {
+      sim.step();
+      const expect = GATE.restDeg + WAY * Math.min(400 * DT * k, swing);
+      assert.ok(Math.abs(gateOf(sim).angle - expect) < 1e-6, `step ${k}: at ${gateOf(sim).angle.toFixed(3)} degrees, not ${expect.toFixed(3)}`);
+    }
+    assert.equal(sim.closeTomb(), true);
+    assert.equal(sim.toys(), TOY.diverterOver);
+    assert.equal(sim.setDiverter(false), true);
+    assert.equal(sim.toys(), 0, 'and it clears at once, as the gate starts back');
+    assert.deepEqual(TOY, { tombOpen: 1, diverterOver: 2 });
   }],
   ['every flipper and spinner has its angle', () => {
     const { sim } = make();

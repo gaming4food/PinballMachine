@@ -171,9 +171,10 @@ export const PYRAMID: Table = {
     // ball on it always leaves it. (An S-hump in the orbit lane itself trapped balls: a pocket against the shooter's gate,
     // and a valley at the hump's foot.) It goes east from the dish and gently down the table from there on: its first run
     // went up the table, and a ball leaving the dish ran out of speed on it and rolled back.
-    // Its right rail is left out between its 2nd and 4th points (the diverter's gap, diverter below).
+    // Its right (south) rail is left out between its first and third points, from the dish to x -1.8: the diverter's
+    // gap, where the diverter's gate stands (diverter, below).
     {
-      id: 'ramp-right', width: 0.6, rail: 0.45, skirt: false, opening: { side: 'right', from: 1, to: 3 },
+      id: 'ramp-right', width: 0.6, rail: 0.45, skirt: false, opening: { side: 'right', from: 0, to: 2 },
       path: [
         [-2.55, 14.35, 0.8], [-2.172, 14.345, 0.799], [-1.794, 14.34, 0.799],
         [-1.415, 14.335, 0.798], [-1.037, 14.33, 0.798], [-0.659, 14.32, 0.797],
@@ -227,7 +228,19 @@ export const PYRAMID: Table = {
   // Ankh bank into the left ramp's shot. wallsWithTomb cuts the pyramid's wall open there and closes a pocket behind
   // it. (Provisional, as the toys' spots are.)
   tomb: { id: 'tomb', x: -0.4, z: 6.05, width: 0.6, held: [-0.4, 5.68], hold: 1.0, eject: [-0.45, -1], speed: 11, points: 1000 },
-  // The diverter: a 0.6 gate hinged by the right S-ramp's start (the dish's east gap), at rest along the ramp's upper
-  // rail and swinging 45 degrees across the ramp to the gap in its other rail. (Provisional, as the toys' spots are.)
-  diverter: { id: 'diverter', ramp: 'ramp-right', pivot: [-2.45, 14.62], length: 0.6, restDeg: 0, overDeg: -45 },
+  // The diverter: a gold gate that is the right S-ramp's south rail across its gap, where the ramp leaves the dish. The
+  // ramp's first run is level across the table's slope, so a ball on it leans on that rail, and the ramp is only 0.06
+  // wider than a ball: a gap left open dropped balls (5 of 20 from the dish fell out through the first gap tried, x
+  // -2.17 to -1.42), and a gate standing inside the rail's line left a ball no room (the first one, at rest along the
+  // upper rail, stopped all 20). So the gate is hinged at the gap's far end, a wall's half-thickness out from the edge,
+  // and at rest it lies back along the gap to the dish, the gap's length (0.756), its face on the rail's own line (the
+  // edge runs 0.76 degrees south of east): at rest the ramp runs as before (of a 140-ball grid from the dish, the 81
+  // that ride it today ride it, 2 more that entered against the rail's start, and they take 2.41 s to its end against
+  // 2.39). Swung over 60 degrees, its free end 0.07 short of the upper rail, it stands across the ramp: a ball leaving
+  // the dish meets its face and is turned out through the gap (72 of the 81; the rest roll off through the gap before
+  // they get to it), and drops above the lock (off that edge anywhere from x -2.5 to -1.9 a ball reaches it), all 81
+  // within 1 s. At 45 degrees its free end reached up into the dish's mouth and balls bounced back in off it (none of
+  // 10 reached the lock); swung less than 60, a ball along the upper rail meets the corner of its end rather than its
+  // face. (Provisional, as the toys' spots are.)
+  diverter: { id: 'diverter', ramp: 'ramp-right', pivot: [-1.799, 13.96], length: 0.756, restDeg: 179.24, overDeg: 119.24 },
 };

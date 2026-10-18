@@ -6,17 +6,19 @@
 // no wall at all, until the game raises it, and then a pop-up drops when hit and the mummy stays up and reports every
 // hit; the rollovers, the spinners, the lock and the kickback are sensors that report; a saucer holds a slow ball a
 // moment and kicks it out; the tomb's door, in the doorway cut into the pyramid's front corner, is a wall until the
-// game opens it, and then the doorway's mouth catches any ball that touches it, holds it a moment and kicks it out; a
-// ball past the drain is taken off and reported. What the hits are worth, whose balls they are and what's lit is the
-// game's (game.ts): this is only the physics. (The ramps, the dish, the flip targets, the saucers and the second
-// spinner were built and proven in the Blender spike, spike/blender/sim-features.mts.)
+// game opens it, and then the doorway's mouth catches any ball that touches it, holds it a moment and kicks it out; the
+// diverter's gate, a kinematic body as the flippers are, stands in a gap in the right ramp's rail until the game swings
+// it over, slowly, across the ramp, where it turns balls leaving the dish out through the gap; a ball past the drain is
+// taken off and reported. What the hits are worth, whose balls they are and what's lit is the game's (game.ts): this is
+// only the physics. (The ramps, the dish, the flip targets, the saucers and the second spinner were built and proven in
+// the Blender spike, spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { DT } from '@kit/server';
 import { SNAP_STRIDE, type BodyState } from '@kit/shared';
-import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../shared/pinball';
-import { FLIPPER_SHAPE, flipperHull, isLockTarget, TABLE, tombMouth, wallsWithTomb, type Dish, type Flipper, type Ramp, type Table, type Target, type Tomb, type Wall } from '../shared/table';
+import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../shared/pinball';
+import { FLIPPER_SHAPE, flipperHull, isLockTarget, TABLE, tombMouth, wallsWithTomb, type Diverter, type Dish, type Flipper, type Ramp, type Table, type Target, type Tomb, type Wall } from '../shared/table';
 
 // Passed on for the game and the tests, which import it from here; it's every machine's (@kit/server).
 export { DT } from '@kit/server';
@@ -28,8 +30,9 @@ export const SUBSTEPS = 4;
 const H = DT / SUBSTEPS;
 
 /** Half a wall's thickness (walls are boxes along each segment, rounded at the joints, from the playfield up to
- * TABLE.wallTop: well over the ball, and under the ramps, the dish and the wireform, which pass over them). */
-const WALL_HALF = 0.08;
+ * TABLE.wallTop: well over the ball, and under the ramps, the dish and the wireform, which pass over them). The tomb's
+ * door and the diverter's gate are as thick; the tests measure their reach with it. */
+export const WALL_HALF = 0.08;
 /** Half a sling's thickness. */
 const SLING_HALF = 0.08;
 /** How thick a target is across its face when its table says nothing (Target.depth). */
@@ -89,11 +92,18 @@ const KICKBACK_SPEED = 30;
 const LOCK_EJECT = { speed: 8, dir: [0.6, -0.8] as const };
 /**
  * After it's let go, a ball doesn't set the lock off again for this long (s); and one kicked out of a saucer or the
- * tomb isn't caught again that soon.
+ * tomb isn't caught again that soon. (Exported for the tests, which time the tomb's ignore by it.)
  */
-const LOCK_IGNORE = 0.75;
+export const LOCK_IGNORE = 0.75;
 /** The tomb's door won't shut while a ball's surface is within this of where the door's face would be (closeTomb). */
 const TOMB_CLEAR = 0.05;
+/**
+ * How fast the diverter's gate swings, degrees per second: slowly, as a gate does, where a flipper swings at
+ * FLIPPER_SPEED. A ball it meets on its way is pushed aside at the gate's own speed, never batted.
+ */
+const DIVERTER_SPEED = 400;
+/** The gate won't swing while a ball's surface is within this of anywhere it sweeps through (setDiverter). */
+const GATE_CLEAR = 0.05;
 /** A matched bank shows all its backs this long (s) before its plaques turn back to the front. */
 const BANK_SHOW = 1.0;
 /** An extra spinner's sensor is this tall (half of it each side of its middle), only as tall as a ball: so a ball on a
@@ -193,6 +203,12 @@ export class PinballSim {
   private tombHold: { id: number; until: number } | null = null;
   /** Balls just kicked out of the tomb, and until when it ignores them. */
   private readonly tombIgnore = new Map<number, number>();
+  /**
+   * The diverter, on a table with one: its gate, a kinematic box hinged at its pivot and standing on its ramp's floor
+   * (`y`, the floor's height at the pivot) as high as the ramp's rails (`rail`); its angle now, and its goal (`over`,
+   * or at rest), which it swings toward at DIVERTER_SPEED. It starts at rest.
+   */
+  private diverter: { spec: Diverter; body: RAPIER.RigidBody; y: number; rail: number; angle: number; over: boolean } | null = null;
   /** How many balls the saucers have kicked out (an alternating one mirrors every other). */
   private saucerKicks = 0;
   private nextId = 1;
@@ -371,6 +387,26 @@ export class PinballSim {
     }
     for (const d of t.dishes) for (const m of this.dishMeshes(d)) this.fixed(m.setFriction(PLAYFIELD.friction).setRestitution(PLAYFIELD.restitution));
 
+    // The diverter's gate: a box out from its pivot, as thick as a wall and as tall as its ramp's rails, standing on
+    // the ramp's floor and turning about its pivot in the floor's plane, slick as the rails are. At rest it stands
+    // along the gap in the ramp's rail (the ramp's opening), in the rail's place.
+    const dv = t.diverter;
+    const gateRamp = dv && t.ramps.find((r) => r.id === dv.ramp);
+    if (dv && gateRamp) {
+      const y = floorHeight(gateRamp, dv.pivot);
+      const body = this.world.createRigidBody(
+        RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(dv.pivot[0], y, dv.pivot[1]).setRotation(turnTo(dv.restDeg)),
+      );
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(dv.length / 2, gateRamp.rail / 2, WALL_HALF)
+          .setTranslation(dv.length / 2, gateRamp.rail / 2, 0)
+          .setFriction(RAIL.friction)
+          .setRestitution(RAIL.restitution),
+        body,
+      );
+      this.diverter = { spec: dv, body, y, rail: gateRamp.rail, angle: dv.restDeg, over: false };
+    }
+
     for (const f of t.flippers) {
       const body = this.world.createRigidBody(
         RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(f.pivot[0], 0, f.pivot[1]).setRotation(turnTo(f.restDeg)),
@@ -387,7 +423,9 @@ export class PinballSim {
    * A ramp as two triangle meshes. Its floor shares its vertices and has Rapier fix its internal edges (with a vertex per
    * triangle, the ball hit every edge between triangles as a step and a 29 units/s shot stopped halfway up). Its rails, a
    * skirt down each side to the playfield and a cap across each raised end are the other, so the ramp is a solid wedge
-   * (skirted only at its low end, balls rolled in under its high end and wedged where it got low).
+   * (skirted only at its low end, balls rolled in under its high end and wedged where it got low). A ramp with an
+   * opening has that side's rail left out between the opening's two path points, for the diverter's gate to stand in
+   * (the floor runs on whole beside it, so a ball the gate turns out rolls off its edge).
    */
   private rampMeshes(r: Ramp): [RAPIER.ColliderDesc, RAPIER.ColliderDesc] {
     const edges = r.path.map(([x, z, y], i) => {
@@ -409,11 +447,14 @@ export class PinballSim {
     const sv: number[] = [], si: number[] = [];
     const at = (x: number, y: number, z: number) => (sv.push(x, y, z), sv.length / 3 - 1);
     const quad = (a: number, b: number, c: number, d: number) => si.push(a, b, c, a, c, d);
+    const gap = r.opening;
+    const gapSide = gap?.side === 'left' ? 'l' : 'r';
     for (let i = 0; i + 1 < edges.length; i++) {
       const a = edges[i], b = edges[i + 1];
       for (const side of ['l', 'r'] as const) {
         const p = a[side], q = b[side];
-        quad(at(p[0], a.y, p[1]), at(q[0], b.y, q[1]), at(q[0], b.y + r.rail, q[1]), at(p[0], a.y + r.rail, p[1]));
+        const open = gap !== undefined && side === gapSide && i >= gap.from && i < gap.to;
+        if (!open) quad(at(p[0], a.y, p[1]), at(q[0], b.y, q[1]), at(q[0], b.y + r.rail, q[1]), at(p[0], a.y + r.rail, p[1]));
         if (r.skirt !== false) quad(at(p[0], 0, p[1]), at(q[0], 0, q[1]), at(q[0], b.y, q[1]), at(p[0], a.y, p[1]));
       }
     }
@@ -609,6 +650,52 @@ export class PinballSim {
     return false;
   }
 
+  // --- The diverter ---
+
+  /**
+   * Whether the diverter's gate is set over (its goal, which it swings to at DIVERTER_SPEED): never, on a table
+   * without one.
+   */
+  get diverterOver(): boolean {
+    return this.diverter?.over ?? false;
+  }
+
+  /**
+   * Sets the diverter's gate swinging over (true) or back to rest (false) and returns true: or, while any ball's centre
+   * is within a ball's radius and GATE_CLEAR of where the gate sweeps between the two, returns false and changes
+   * nothing (a gate swung into a ball would shove it or wedge it), so the game tries again next step. Set so already,
+   * it stays: true. A table without a diverter has none to swing over (false), and none away from rest (true).
+   */
+  setDiverter(over: boolean): boolean {
+    const gate = this.diverter;
+    if (!gate) return !over;
+    if (gate.over === over) return true;
+    if (this.ballInSweep()) return false;
+    gate.over = over;
+    return true;
+  }
+
+  /**
+   * Whether a ball's centre is within a ball's radius and GATE_CLEAR of where the gate sweeps: the sector between its
+   * two angles out to its length (where its middle line goes), a wall's half-thickness wider either side (where its
+   * faces go), from its ramp's floor up as high as the rails. So a ball on the playfield under the ramp is no matter.
+   */
+  private ballInSweep(): boolean {
+    const { spec, y, rail } = this.diverter!;
+    for (const ball of this.items.values()) {
+      const p = ball.body.translation();
+      const across = Math.max(0, sectorDistance([p.x, p.z], spec.pivot, spec.length, spec.restDeg, spec.overDeg) - WALL_HALF);
+      const up = Math.max(0, y - p.y, p.y - (y + rail));
+      if (Math.hypot(across, up) < TABLE.ballRadius + GATE_CLEAR) return true;
+    }
+    return false;
+  }
+
+  /** The toys' bits (shared/pinball.ts's TOY): the tomb open, and the diverter's gate set over (its goal). */
+  toys(): number {
+    return (this.tombOpen ? TOY.tombOpen : 0) | (this.diverterOver ? TOY.diverterOver : 0);
+  }
+
   /** Fires a ball back up the table from the kickback (the game calls this when the kickback is lit). */
   kickback(id: number): void {
     const ball = this.items.get(id);
@@ -772,6 +859,16 @@ export class PinballSim {
       if (next !== s.angle) this.bat(s, rad(next - s.angle) / H);
       s.angle = next;
       s.body.setNextKinematicRotation(turnTo(s.angle));
+    }
+    // The diverter's gate swings toward its goal as a flipper does, but slowly and with no bat: a ball in its way is
+    // pushed at the gate's own speed.
+    const gate = this.diverter;
+    if (gate) {
+      const target = gate.over ? gate.spec.overDeg : gate.spec.restDeg;
+      const d = target - gate.angle;
+      const most = DIVERTER_SPEED * H;
+      gate.angle = Math.abs(d) <= most ? target : gate.angle + Math.sign(d) * most;
+      gate.body.setNextKinematicRotation(turnTo(gate.angle));
     }
     this.gateSolidTo.clear();
     for (const ball of this.items.values()) if (ball.body.translation().x < this.gateX) this.gateSolidTo.add(ball.body.handle);
@@ -1082,6 +1179,38 @@ export class PinballSim {
 /** Half a target's thickness across its face: its wall stands this far out each side of its segment. */
 function halfDepth(g: Target): number {
   return (g.depth ?? TARGET_DEPTH) / 2;
+}
+
+/** A ramp's floor height at p, in (x, z): its centre line's height at the point on it nearest p. */
+function floorHeight(r: Ramp, p: [number, number]): number {
+  let best = Infinity, y = r.path[0][2];
+  for (let i = 0; i + 1 < r.path.length; i++) {
+    const [ax, az, ay] = r.path[i], [bx, bz, by] = r.path[i + 1];
+    const dx = bx - ax, dz = bz - az;
+    const u = Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - az) * dz) / (dx * dx + dz * dz)));
+    const d = Math.hypot(p[0] - ax - u * dx, p[1] - az - u * dz);
+    if (d < best) {
+      best = d;
+      y = ay + u * (by - ay);
+    }
+  }
+  return y;
+}
+
+/**
+ * The distance from p to the sector round c of radius r between the angles a0 and a1 (degrees, the table's way round,
+ * x toward z), in (x, z): 0 inside it. The sector is the one a line turning from the lesser angle to the greater
+ * sweeps, as the gate turns between its two.
+ */
+function sectorDistance(p: [number, number], c: [number, number], r: number, a0: number, a1: number): number {
+  const lo = Math.min(a0, a1), hi = Math.max(a0, a1);
+  const dx = p[0] - c[0], dz = p[1] - c[1];
+  // How far round from lo the point lies, 0 to 360: within the sector's angles, its nearest point is along its own
+  // radius; outside them, on one of the two edges.
+  const round = ((((Math.atan2(dz, dx) * 180) / Math.PI - lo) % 360) + 360) % 360;
+  if (round <= hi - lo) return Math.max(0, Math.hypot(dx, dz) - r);
+  const edge = (deg: number): [number, number] => [c[0] + r * Math.cos(rad(deg)), c[1] + r * Math.sin(rad(deg))];
+  return Math.min(segmentDistance(p, c, edge(lo)), segmentDistance(p, c, edge(hi)));
 }
 
 /** The distance from p to the segment a-b, in (x, z). */

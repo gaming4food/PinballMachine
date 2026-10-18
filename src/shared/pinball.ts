@@ -122,6 +122,12 @@ export const SNAP_PINBALL_HEADER = 43;
  * [u32 targets turned][f32 main spinner angle, radians][f32 right spinner angle, radians]
  */
 
+/**
+ * The toys' bits, as the physics gives them (PinballSim.toys()): the tomb open, and the diverter's gate set over (its
+ * goal: it swings there, and back, at 400 degrees a second, so a stage can swing it as the physics does).
+ */
+export const TOY = { tombOpen: 1 << 0, diverterOver: 1 << 1 } as const;
+
 /** The bits of the header's lit inserts. */
 export const LIT = {
   lock: 1 << 0,

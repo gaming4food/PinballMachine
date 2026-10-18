@@ -204,9 +204,9 @@ export interface Tomb {
 }
 
 /**
- * The diverter: a gate on a ramp, hinged at `pivot` and `length` long, that swings between `restDeg` (its rest) and
- * `overDeg` (over the ramp, toward the gap in its rail: the ramp's `opening`) to send a ball out of the ramp there.
- * The angles are in degrees from the +x axis toward +z, as a flipper's.
+ * The diverter: a gate on a ramp, `length` long and hinged at `pivot`, that swings between `restDeg`, its rest (along
+ * the gap in the ramp's rail, the ramp's `opening`, in the rail's place), and `overDeg`, over (across the ramp, where
+ * it turns a ball out through the gap). The angles are in degrees from the +x axis toward +z, as a flipper's.
  */
 export interface Diverter {
   id: string;
