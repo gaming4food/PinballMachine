@@ -5,16 +5,18 @@
 // turn to their backs (a bank of them all turned reports a match); a rising target (a pop-up or the mummy) stands down,
 // no wall at all, until the game raises it, and then a pop-up drops when hit and the mummy stays up and reports every
 // hit; the rollovers, the spinners, the lock and the kickback are sensors that report; a saucer holds a slow ball a
-// moment and kicks it out; a ball past the drain is taken off and reported. What the hits are worth, whose balls they
-// are and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish, the flip targets, the
-// saucers and the second spinner were built and proven in the Blender spike, spike/blender/sim-features.mts.)
+// moment and kicks it out; the tomb's door, in the doorway cut into the pyramid's front corner, is a wall until the
+// game opens it, and then the doorway's mouth catches any ball that touches it, holds it a moment and kicks it out; a
+// ball past the drain is taken off and reported. What the hits are worth, whose balls they are and what's lit is the
+// game's (game.ts): this is only the physics. (The ramps, the dish, the flip targets, the saucers and the second
+// spinner were built and proven in the Blender spike, spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { DT } from '@kit/server';
 import { SNAP_STRIDE, type BodyState } from '@kit/shared';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../shared/pinball';
-import { FLIPPER_SHAPE, flipperHull, isLockTarget, TABLE, type Dish, type Flipper, type Ramp, type Table, type Target } from '../shared/table';
+import { FLIPPER_SHAPE, flipperHull, isLockTarget, TABLE, tombMouth, wallsWithTomb, type Dish, type Flipper, type Ramp, type Table, type Target, type Tomb, type Wall } from '../shared/table';
 
 // Passed on for the game and the tests, which import it from here; it's every machine's (@kit/server).
 export { DT } from '@kit/server';
@@ -85,8 +87,13 @@ const KICKBACK_R = 0.6;
 const KICKBACK_SPEED = 30;
 /** How fast a ball let go from the lock leaves it (units/s), and which way: down and in, toward the flippers. */
 const LOCK_EJECT = { speed: 8, dir: [0.6, -0.8] as const };
-/** After it's let go, a ball doesn't set the lock off again for this long (s). */
+/**
+ * After it's let go, a ball doesn't set the lock off again for this long (s); and one kicked out of a saucer or the
+ * tomb isn't caught again that soon.
+ */
 const LOCK_IGNORE = 0.75;
+/** The tomb's door won't shut while a ball's surface is within this of where the door's face would be (closeTomb). */
+const TOMB_CLEAR = 0.05;
 /** A matched bank shows all its backs this long (s) before its plaques turn back to the front. */
 const BANK_SHOW = 1.0;
 /** An extra spinner's sensor is this tall (half of it each side of its middle), only as tall as a ball: so a ball on a
@@ -107,7 +114,7 @@ const NEAR = { reach: 0.3, deg: 15 };
 const GATE_RESTITUTION = 0.2;
 
 export interface Hit {
-  kind: 'bumper' | 'sling' | 'target' | 'rollover' | 'spinner' | 'lock' | 'drain' | 'kickback' | 'saucer' | 'bank';
+  kind: 'bumper' | 'sling' | 'target' | 'rollover' | 'spinner' | 'lock' | 'drain' | 'kickback' | 'saucer' | 'bank' | 'tomb';
   id: string;
   ball: number;
 }
@@ -132,7 +139,8 @@ type Part =
   | { kind: 'saucer'; index: number }
   | { kind: 'spinner2'; index: number }
   | { kind: 'kickback' }
-  | { kind: 'gate' };
+  | { kind: 'gate' }
+  | { kind: 'tomb' };
 
 interface FlipperState {
   f: Flipper;
@@ -165,14 +173,26 @@ export class PinballSim {
   private readonly bankResets = new Map<string, number>();
   private readonly lastKick = new Map<string, number>();
   private readonly lockIgnoreUntil = new Map<number, number>();
-  /** Every ball held still: the lock's, and the saucers' (those also in saucerHold). */
+  /** Every ball held still: the lock's, the saucers' (those also in saucerHold) and the tomb's (tombHold's). */
   private readonly held = new Set<number>();
   /** The extra spinners' turns (table.spinners, in order). */
   private readonly spin2: { angle: number; speed: number; ball: number }[] = [];
   /** The balls a saucer holds: which saucer, and when it kicks the ball out. */
   private readonly saucerHold = new Map<number, { index: number; until: number }>();
-  /** Balls just kicked out of a saucer, and until when the saucers ignore them. */
+  /**
+   * Balls just kicked out of a saucer or the tomb, and until when the saucers ignore them: so a kicked ball gets away,
+   * and the tomb's, kicked down the centre lane, goes past the magnet just below it, which would hold a ball that slow.
+   */
   private readonly saucerIgnore = new Map<number, number>();
+  /**
+   * The tomb, on a table with one: its door, a wall across the doorway's mouth (`a` to `b`, tombMouth) while it's shut,
+   * and its catch, a sensor in the same place, on while it's open. It starts shut.
+   */
+  private tomb: { spec: Tomb; a: [number, number]; b: [number, number]; door: RAPIER.Collider; catcher: RAPIER.Collider; open: boolean } | null = null;
+  /** The ball the tomb holds, and when it kicks it out: one at a time, as a held ball fills the mouth. */
+  private tombHold: { id: number; until: number } | null = null;
+  /** Balls just kicked out of the tomb, and until when it ignores them. */
+  private readonly tombIgnore = new Map<number, number>();
   /** How many balls the saucers have kicked out (an alternating one mirrors every other). */
   private saucerKicks = 0;
   private nextId = 1;
@@ -258,11 +278,24 @@ export class PinballSim {
     for (const side of [-1, 1]) this.fixed(RAPIER.ColliderDesc.cuboid(BACKSTOP / 2, hy, 11).setTranslation(side * (half + BACKSTOP / 2), hy, 10));
     this.fixed(RAPIER.ColliderDesc.cuboid(half + BACKSTOP, hy, BACKSTOP / 2).setTranslation(0, hy, TABLE.length + BACKSTOP / 2));
 
-    for (const w of t.walls) {
+    // The walls with the tomb's doorway cut into the pyramid, and its jambs.
+    const walls = wallsWithTomb(t);
+    for (const w of walls) {
       for (let i = 0; i + 1 < w.points.length; i++) {
         this.fixed(this.segment(w.points[i], w.points[i + 1], WALL_HALF).setFriction(WALL_FRICTION).setRestitution(w.restitution));
       }
       for (const [x, z] of w.points) this.fixed(this.post(x, z, WALL_HALF).setFriction(WALL_FRICTION).setRestitution(w.restitution));
+    }
+
+    // The tomb's door, a wall as the pyramid's are, across the doorway's mouth between the jambs' ends (their posts
+    // round its ends off), and its catch: a sensor just as big, so a ball is caught where it would have met the door.
+    const mouth = tombMouth(t);
+    if (t.tomb && mouth) {
+      const { restitution } = walls.find((w) => w.kind === 'pyramid')!;
+      const door = this.fixed(this.segment(mouth.a, mouth.b, WALL_HALF).setFriction(WALL_FRICTION).setRestitution(restitution));
+      const catcher = this.fixed(this.segment(mouth.a, mouth.b, WALL_HALF).setSensor(true), { kind: 'tomb' });
+      catcher.setEnabled(false);
+      this.tomb = { spec: t.tomb, ...mouth, door, catcher, open: false };
     }
 
     for (const b of t.bumpers) {
@@ -293,7 +326,7 @@ export class PinballSim {
     t.targets.forEach((g, index) => {
       const [a, b] = g.angle !== undefined
         ? ([[g.x, g.z], [g.x + Math.cos(rad(g.angle)), g.z + Math.sin(rad(g.angle))]] as [[number, number], [number, number]])
-        : nearestSegment(t, [g.x, g.z]);
+        : nearestSegment(walls, [g.x, g.z]);
       const ux = b[0] - a[0], uz = b[1] - a[1];
       const len = Math.hypot(ux, uz);
       const ex = ((ux / len) * g.width) / 2, ez = ((uz / len) * g.width) / 2;
@@ -319,7 +352,7 @@ export class PinballSim {
 
     // The shooter lane's one-way gate: from the top of the lane's inner wall (the straight up-and-down wall just left of
     // the plunger) up to the arch over it.
-    const inner = t.walls.find((w) => w.points.length === 2 && w.points[0][0] === w.points[1][0] && w.points[0][0] < t.plunger.x && w.points[0][0] > t.plunger.x - 1);
+    const inner = walls.find((w) => w.points.length === 2 && w.points[0][0] === w.points[1][0] && w.points[0][0] < t.plunger.x && w.points[0][0] > t.plunger.x - 1);
     if (inner) {
       const x = inner.points[0][0];
       const top = Math.max(inner.points[0][1], inner.points[1][1]);
@@ -482,6 +515,8 @@ export class PinballSim {
     this.lockIgnoreUntil.delete(id);
     this.saucerHold.delete(id);
     this.saucerIgnore.delete(id);
+    if (this.tombHold?.id === id) this.tombHold = null;
+    this.tombIgnore.delete(id);
     for (const key of this.lastKick.keys()) if (key.endsWith(`:${id}`)) this.lastKick.delete(key);
   }
 
@@ -497,8 +532,9 @@ export class PinballSim {
     const ball = this.items.get(id);
     if (!ball) return;
     const { x, z } = this.table.lock;
-    // Out of a saucer, if one had it: the lock has it now.
+    // Out of a saucer or the tomb, if one had it: the lock has it now, and nothing else kicks it out.
     this.saucerHold.delete(id);
+    if (this.tombHold?.id === id) this.tombHold = null;
     ball.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -507,7 +543,10 @@ export class PinballSim {
     this.held.add(id);
   }
 
-  /** Lets a ball the lock holds go: out of the lock, toward the flippers. (A saucer's ball goes when its hold ends.) */
+  /**
+   * Lets a ball the lock holds go: out of the lock, toward the flippers. (A saucer's ball, or the tomb's, goes when its
+   * hold ends.)
+   */
   release(id: number): void {
     const ball = this.items.get(id);
     if (!ball || this.heldBy(id) !== 'lock') return;
@@ -517,10 +556,57 @@ export class PinballSim {
     this.lockIgnoreUntil.set(id, this.time + LOCK_IGNORE);
   }
 
-  /** What holds a ball still: the lock (holdInLock), a saucer or the magnet, or nothing. */
-  heldBy(id: number): 'lock' | 'saucer' | null {
+  /** What holds a ball still: the lock (holdInLock), a saucer or the magnet, the tomb, or nothing. */
+  heldBy(id: number): 'lock' | 'saucer' | 'tomb' | null {
     if (this.saucerHold.has(id)) return 'saucer';
+    if (this.tombHold?.id === id) return 'tomb';
     return this.held.has(id) ? 'lock' : null;
+  }
+
+  // --- The tomb ---
+
+  /** Whether the tomb is open (its door gone and its mouth catching): never, on a table without one. */
+  get tombOpen(): boolean {
+    return this.tomb?.open ?? false;
+  }
+
+  /** Opens the tomb: its door goes from across the mouth, and the mouth catches. Open already, it stays open. */
+  openTomb(): void {
+    const tomb = this.tomb;
+    if (!tomb || tomb.open) return;
+    tomb.open = true;
+    tomb.door.setEnabled(false);
+    tomb.catcher.setEnabled(true);
+  }
+
+  /**
+   * Shuts the tomb (its door back across the mouth, and the mouth no longer catching) and returns true: or, while it
+   * holds a ball or any ball stands within a ball's radius and TOMB_CLEAR of the door's face, returns false and
+   * changes nothing (a door shut on a ball would wedge it), so the game tries again next step. Shut already, or on a
+   * table without a tomb, it is shut: true.
+   */
+  closeTomb(): boolean {
+    const tomb = this.tomb;
+    if (!tomb || !tomb.open) return true;
+    if (this.tombHold || this.ballAtMouth()) return false;
+    tomb.open = false;
+    tomb.door.setEnabled(true);
+    tomb.catcher.setEnabled(false);
+    return true;
+  }
+
+  /**
+   * Whether a ball's centre is within a ball's radius, WALL_HALF and TOMB_CLEAR of the tomb's mouth: so within
+   * TOMB_CLEAR of touching the door (its face is WALL_HALF out from the mouth's line), shut or not.
+   */
+  private ballAtMouth(): boolean {
+    const { a, b } = this.tomb!;
+    const reach = TABLE.ballRadius + WALL_HALF + TOMB_CLEAR;
+    for (const ball of this.items.values()) {
+      const p = ball.body.translation();
+      if (segmentDistance([p.x, p.z], a, b) < reach) return true;
+    }
+    return false;
   }
 
   /** Fires a ball back up the table from the kickback (the game calls this when the kickback is lit). */
@@ -558,7 +644,10 @@ export class PinballSim {
     return this.flippers.map((s) => s.angle);
   }
 
-  /** Which drop targets are down: bit i for target i. */
+  /**
+   * Which targets are down, bit i for target i: the lock's drop targets and the pop-ups knocked down, and every rising
+   * target at rest (a pop-up or the mummy stands down until the game raises it).
+   */
   targetsDown(): number {
     let bits = 0;
     this.targets.forEach((g, i) => {
@@ -634,11 +723,9 @@ export class PinballSim {
   private ballAtTarget(i: number): boolean {
     const g = this.targets[i];
     const reach = TABLE.ballRadius + halfDepth(this.table.targets[i]) + 0.05;
-    const dx = g.b[0] - g.a[0], dz = g.b[1] - g.a[1];
     for (const ball of this.items.values()) {
       const p = ball.body.translation();
-      const t = Math.max(0, Math.min(1, ((p.x - g.a[0]) * dx + (p.z - g.a[1]) * dz) / (dx * dx + dz * dz)));
-      if (Math.hypot(p.x - g.a[0] - t * dx, p.z - g.a[1] - t * dz) < reach) return true;
+      if (segmentDistance([p.x, p.z], g.a, g.b) < reach) return true;
     }
     return false;
   }
@@ -742,6 +829,22 @@ export class PinballSim {
       ball.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
       ball.body.setLinvel({ x: (mirror * sc.speed * sc.eject[0]) / len, y: 0, z: (sc.speed * sc.eject[1]) / len }, true);
       this.saucerIgnore.set(id, now + LOCK_IGNORE);
+    }
+    // The tomb's hold over: its ball goes out along its eject, and neither the tomb nor a saucer (the magnet just below
+    // the tomb would) catches it while it gets away.
+    if (this.tombHold && now >= this.tombHold.until) {
+      const { id } = this.tombHold;
+      this.tombHold = null;
+      const ball = this.items.get(id);
+      if (ball) {
+        this.held.delete(id);
+        const { eject, speed } = this.tomb!.spec;
+        const len = Math.hypot(eject[0], eject[1]) || 1;
+        ball.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+        ball.body.setLinvel({ x: (speed * eject[0]) / len, y: 0, z: (speed * eject[1]) / len }, true);
+        this.tombIgnore.set(id, now + LOCK_IGNORE);
+        this.saucerIgnore.set(id, now + LOCK_IGNORE);
+      }
     }
     for (const ball of [...this.items.values()]) {
       if (this.held.has(ball.id)) continue;
@@ -904,7 +1007,34 @@ export class PinballSim {
         return;
       case 'gate':
         return;
+      case 'tomb':
+        this.catchInTomb(ball, now);
+        return;
     }
+  }
+
+  /**
+   * The open tomb's mouth touched: the ball is caught, at any speed (unlike a saucer's), and held still at the tomb's
+   * `held` spot for its hold (the substep kicks it out). Not a ball the lock or a saucer holds, nor one just kicked out
+   * of the tomb, nor while the tomb holds another (a held ball fills the mouth); nor while another ball stands where
+   * the caught one would be held, as one moved there would be moved into it.
+   */
+  private catchInTomb(ball: Ball, now: number): void {
+    const tomb = this.tomb;
+    if (!tomb?.open || this.tombHold || this.held.has(ball.id) || now < (this.tombIgnore.get(ball.id) ?? -Infinity)) return;
+    const [x, z] = tomb.spec.held;
+    for (const other of this.items.values()) {
+      const p = other.body.translation();
+      if (other !== ball && Math.hypot(p.x - x, p.z - z) < 2 * TABLE.ballRadius) return;
+    }
+    ball.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    ball.body.setTranslation({ x, y: TABLE.ballRadius, z }, true);
+    ball.body.setNextKinematicTranslation({ x, y: TABLE.ballRadius, z });
+    this.held.add(ball.id);
+    this.tombHold = { id: ball.id, until: now + tomb.spec.hold };
+    this.report({ kind: 'tomb', id: tomb.spec.id, ball: ball.id });
   }
 
   private targetIndex(id: string): number {
@@ -954,16 +1084,21 @@ function halfDepth(g: Target): number {
   return (g.depth ?? TARGET_DEPTH) / 2;
 }
 
+/** The distance from p to the segment a-b, in (x, z). */
+function segmentDistance(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dz);
+}
+
 /** The wall segment nearest p. */
-function nearestSegment(t: Table, p: [number, number]): [[number, number], [number, number]] {
+function nearestSegment(walls: Wall[], p: [number, number]): [[number, number], [number, number]] {
   let best: [[number, number], [number, number]] = [[0, 0], [0, 1]];
   let bestD = Infinity;
-  for (const w of t.walls) {
+  for (const w of walls) {
     for (let i = 0; i + 1 < w.points.length; i++) {
       const a = w.points[i], b = w.points[i + 1];
-      const dx = b[0] - a[0], dz = b[1] - a[1];
-      const u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz)));
-      const d = Math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dz);
+      const d = segmentDistance(p, a, b);
       if (d < bestD) {
         bestD = d;
         best = [a, b];

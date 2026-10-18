@@ -4,11 +4,14 @@
 // kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
 // is held and let go cleanly, the quest's rising targets (the three pop-ups and the mummy) start down, rise when the
 // game raises them, never rise into a ball, and the pop-ups drop when hit while the mummy stays up and reports every
-// hit, and the snapshot is the 43-byte header (type, time, ball count, the three flippers' angles, the lit bits, the
-// targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in its state, not the
-// snapshot. (The pathways round the table are pinball-layout-test's.)
+// hit, the quest's tomb is a wall while shut and, open, catches a ball at its mouth at any speed, holds it just in
+// front of its door and kicks it out to a flipper, never shuts on a ball and never holds one the lock or a saucer has
+// (nor they its), and the snapshot is the 43-byte header (type, time, ball count, the three flippers' angles, the lit
+// bits, the targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in its state, not
+// the snapshot. (The pathways round the table are pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
+import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { initPhysics } from '@kit/server';
 import { SNAP_STRIDE } from '@kit/shared';
 import { DT, PinballSim, type Hit } from '../src/server/sim';
@@ -50,11 +53,19 @@ function place(sim: PinballSim, x: number, z: number, vx = 0, vz = 0): number {
  * reads, so a drop target touched this way reports but never drops.
  */
 function touch(sim: PinballSim, id: number, partId: string): void {
-  const S = sim as any;
-  const part = [...S.parts.values()].find((p: any) => p.id === partId);
-  assert.ok(part, `no part ${partId}`);
-  const spec = part.kind === 'target' ? TABLE_IN_USE.targets[part.index] : null;
+  const spec = TABLE_IN_USE.targets.find((t) => t.id === partId);
   assert.ok(!spec || spec.flip || spec.rise === 'hold', `touch() is for flip targets and the mummy, not the drop target ${partId}`);
+  touchWhere(sim, id, (p) => p.id === partId, partId);
+}
+
+/**
+ * Has ball `id` touch the first part `which` picks (`what`, to say so if there's none), now, through the sim's own
+ * touch path, as touch() does: for the parts with no id (the lock, the saucers, the tomb's mouth).
+ */
+function touchWhere(sim: PinballSim, id: number, which: (part: any) => boolean, what = 'such'): void {
+  const S = sim as any;
+  const part = [...S.parts.values()].find(which);
+  assert.ok(part, `no part ${what}`);
   S.touch(S.items.get(id), part, sim.time, []);
 }
 
@@ -65,6 +76,42 @@ function intoSaucer(sim: PinballSim): number {
   for (let i = 0; i < 2 / DT && sim.heldBy(id) !== 'saucer'; i++) sim.step();
   assert.equal(sim.heldBy(id), 'saucer', 'the saucer never caught the ball');
   return id;
+}
+
+const TOMB = TABLE_IN_USE.tomb!;
+/**
+ * The tomb's mouth: its two ends, `width` apart on the line z = tomb.z (table-test holds them to where the pyramid's
+ * faces cross that line).
+ */
+const MOUTH: [number, number][] = [[TOMB.x - TOMB.width / 2, TOMB.z], [TOMB.x + TOMB.width / 2, TOMB.z]];
+/** Half the tomb's door's thickness: it's a wall, as thick as the rest (sim.ts's WALL_HALF). */
+const DOOR_HALF = 0.08;
+
+/**
+ * A ball rolled up the centre lane at the tomb's mouth from below at `speed`, already rolling (so none of its speed
+ * goes into getting it to roll): by default fast enough to pass over the magnet below the tomb, which holds a ball
+ * under 12 units/s. Returns its id.
+ */
+function rollAtTomb(sim: PinballSim, speed = 16): number {
+  const id = place(sim, TOMB.x, 3.6, 0, speed);
+  sim.items.get(id)!.body.setAngvel({ x: speed / R, y: 0, z: 0 }, true);
+  return id;
+}
+
+/** A ball rolled into the tomb, opened, and stepped until the tomb holds it; returns its id. */
+function intoTomb(sim: PinballSim): number {
+  sim.openTomb();
+  const id = rollAtTomb(sim);
+  for (let i = 0; i < 1 / DT && sim.heldBy(id) !== 'tomb'; i++) sim.step();
+  assert.equal(sim.heldBy(id), 'tomb', 'the tomb never caught the ball');
+  return id;
+}
+
+/** The angle in degrees between a ball's velocity on the playfield and the direction (dx, dz). */
+function offBy(sim: PinballSim, id: number, [dx, dz]: [number, number]): number {
+  const v = sim.items.get(id)!.body.linvel();
+  const cos = (v.x * dx + v.z * dz) / (Math.hypot(v.x, v.z) * Math.hypot(dx, dz));
+  return (Math.acos(Math.min(1, cos)) * 180) / Math.PI;
 }
 
 const targetIndex = (id: string) => TABLE_IN_USE.targets.findIndex((t) => t.id === id);
@@ -437,8 +484,8 @@ const checks: [string, () => void][] = [
     const ball = rollAt(sim, mummy);
     for (let i = 0; i < 0.6 / DT && mummyHits().length < 1; i++) sim.step();
     assert.equal(mummyHits().length, 1, 'the first roll hit it');
-    // Its wall is as thick as its depth (0.3, half of it each side of its face): the ball met it a ball's radius and 0.15
-    // out, where a wall of the usual 0.2 is met 0.37 out.
+    // Its wall is as thick as its depth (0.3, half of it each side of its face): the ball met it a ball's radius and
+    // 0.15 out, where a wall of the usual 0.2 is met 0.37 out.
     const [fx, fz] = faceNormal(mummy);
     const first = sim.items.get(ball)!.body.translation();
     assert.ok((first.x - mummy.x) * fx + (first.z - mummy.z) * fz > 0.41, 'the mummy is 0.3 thick');
@@ -512,15 +559,21 @@ const checks: [string, () => void][] = [
   ['ballAtDropTarget: a ball where the scarab or the eye would rise, and never one at a rising target', () => {
     const { sim, hits } = make();
     const scarab = TABLE_IN_USE.targets[targetIndex('target-scarab')];
-    // Both drop targets up: a ball at one of them is no concern, it stands against a wall.
-    sim.remove(place(sim, scarab.x, scarab.z));
-    assert.equal(sim.ballAtDropTarget(), false, 'nothing is down');
-    // The scarab knocked down by a shot: a ball at its spot holds it down...
+    // Both drop targets up: a ball beside one of them, as near its face as a ball that would hold a down one down, is
+    // no concern: it stands against a wall.
+    const [nx, nz] = faceNormal(scarab);
+    const beside = { x: scarab.x + 0.3 * nx, y: R, z: scarab.z + 0.3 * nz };
+    const by = place(sim, beside.x, beside.z);
+    assert.equal(sim.ballAtDropTarget(), false, 'nothing is down: a ball beside the up scarab does not count');
+    sim.remove(by);
+    // The scarab knocked down by a shot: a ball at its spot holds it down, and one beside it as the first stood...
     const shot = rollAt(sim, scarab);
     for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === scarab.id); i++) sim.step();
     sim.remove(shot);
     const ball = place(sim, scarab.x, scarab.z);
     assert.equal(sim.ballAtDropTarget(), true, 'a ball where the scarab would rise');
+    sim.items.get(ball)!.body.setTranslation(beside, true);
+    assert.equal(sim.ballAtDropTarget(), true, 'a ball beside the down scarab, where the first stood');
     // ... and a ball at any of the rising targets (down all the while) does not.
     for (const g of TABLE_IN_USE.targets.filter((g) => g.rise)) {
       sim.items.get(ball)!.body.setTranslation({ x: g.x, y: R, z: g.z }, true);
@@ -675,6 +728,195 @@ const checks: [string, () => void][] = [
     const len = Math.hypot(sc.eject[0], sc.eject[1]);
     const along = (v.x * sc.eject[0] + v.z * sc.eject[1]) / (len * Math.hypot(v.x, v.z));
     assert.ok(along > 0.9, `it left along the saucer's eject (cos ${along.toFixed(2)} to it), not the lock's`);
+  }],
+  ['the shut tomb is a wall', () => {
+    const { sim, hits } = make();
+    assert.equal(sim.tombOpen, false, 'the tomb starts shut');
+    const id = rollAtTomb(sim);
+    let top = -Infinity, back = Infinity;
+    for (let i = 0; i < 0.6 / DT && sim.items.has(id); i++) {
+      sim.step();
+      const z = sim.items.get(id)?.body.translation().z;
+      if (z === undefined) break;
+      if (z > top) [top, back] = [z, z];
+      back = Math.min(back, z);
+    }
+    // The door stands across the mouth, its face a wall's half-thickness in front of the mouth's line: the ball met it
+    // there, a ball's radius out (measured 5.68, as the step ends; the pyramid's uncut corner met it at 5.36, and with
+    // no door it got in between the jambs' ends, to 5.83), and came back.
+    const face = TOMB.z - DOOR_HALF;
+    assert.ok(top > face - R - 0.06 && top < face - R + 0.01, `the ball got to z ${top.toFixed(3)}, where the door's face is at ${face}`);
+    assert.ok(back < top - 0.3, `it bounced back down the table (to z ${back.toFixed(2)})`);
+    assert.deepEqual(hits.filter((h) => h.kind === 'tomb'), [], 'and nothing caught it');
+  }],
+  ['the open tomb catches a ball, holds it, and kicks it out toward a flipper', () => {
+    const { sim, hits } = make();
+    sim.openTomb();
+    assert.equal(sim.tombOpen, true, 'it opens');
+    const id = rollAtTomb(sim);
+    for (let i = 0; i < 1 / DT && sim.heldBy(id) !== 'tomb'; i++) sim.step();
+    assert.deepEqual(hits.filter((h) => h.kind === 'tomb'), [{ kind: 'tomb', id: TOMB.id, ball: id }], 'one catch');
+    // Held still at its spot for its hold...
+    const caught = sim.time;
+    while (sim.heldBy(id) === 'tomb' && sim.time < caught + TOMB.hold + 0.5) {
+      const p = sim.items.get(id)!.body.translation();
+      assert.ok(Math.hypot(p.x - TOMB.held[0], p.z - TOMB.held[1]) < 1e-3, `held at its spot, not at (${p.x.toFixed(3)}, ${p.z.toFixed(3)})`);
+      sim.step();
+    }
+    const heldFor = sim.time - caught;
+    assert.equal(sim.heldBy(id), null, 'then let go');
+    assert.ok(Math.abs(heldFor - TOMB.hold) <= DT + 1e-9, `held ${heldFor.toFixed(3)} s, not ${TOMB.hold}`);
+    // ... then kicked out along its eject...
+    const off = offBy(sim, id, TOMB.eject);
+    assert.ok(off < 10, `it left ${off.toFixed(1)} degrees off its eject`);
+    // ... past the magnet just below the tomb (it holds a ball as slow) to a flipper, and not caught again on its way.
+    let near: 'left' | 'right' | null = null;
+    for (let i = 0; i < 1 / DT && sim.items.has(id) && !near; i++) {
+      sim.step();
+      near = sim.nearFlipper(id);
+    }
+    assert.ok(near, "it came within a flipper's reach");
+    assert.deepEqual(hits.filter((h) => h.kind === 'saucer'), [], 'the magnet let it go by');
+    assert.equal(hits.filter((h) => h.kind === 'tomb').length, 1, 'the tomb caught it once');
+  }],
+  ["the tomb won't shut on a ball", () => {
+    {
+      // While it holds a ball it stays open, every step of the hold; with the ball out and clear, it shuts.
+      const { sim, hits } = make();
+      const id = intoTomb(sim);
+      while (sim.heldBy(id) === 'tomb') {
+        assert.equal(sim.closeTomb(), false, 'not on the ball it holds');
+        assert.equal(sim.tombOpen, true, 'it stays open');
+        sim.step();
+      }
+      for (let i = 0; i < 0.5 / DT; i++) sim.step();
+      assert.equal(sim.closeTomb(), true, 'it shuts once the ball is out and clear');
+      assert.equal(sim.tombOpen, false);
+      assert.equal(sim.closeTomb(), true, 'shut already, it stays shut');
+      // Shut again, its door is a wall again and its mouth no longer catches: the next ball comes back off the door.
+      sim.remove(id);
+      const next = rollAtTomb(sim);
+      let top = -Infinity;
+      for (let i = 0; i < 0.4 / DT && sim.items.has(next); i++) {
+        sim.step();
+        top = Math.max(top, sim.items.get(next)?.body.translation().z ?? -Infinity);
+      }
+      assert.ok(top < TOMB.z - DOOR_HALF - R + 0.01, `shut again, the door stopped the next ball (it got to z ${top.toFixed(3)})`);
+      assert.equal(hits.filter((h) => h.kind === 'tomb').length, 1, 'and the mouth caught only the first');
+    }
+    // Nor on a ball standing at its mouth: within a ball's radius and 0.05 of the door's face, anywhere along it.
+    const reach = R + DOOR_HALF + 0.05;
+    for (const x of [MOUTH[0][0], TOMB.x, MOUTH[1][0]]) {
+      const shutWithBallAt = (out: number) => {
+        const { sim } = make();
+        sim.openTomb();
+        place(sim, x, TOMB.z - out);
+        return sim.closeTomb();
+      };
+      assert.equal(shutWithBallAt(reach - 0.02), false, `a ball just inside the door's reach at x ${x} keeps it open`);
+      assert.equal(shutWithBallAt(reach + 0.02), true, `a ball just outside it at x ${x} does not`);
+    }
+  }],
+  ['a fast ball is caught too', () => {
+    // At 30 units/s a ball moves 0.125 a substep, and at the fastest the table lets a ball go (60) 0.25: neither gets
+    // past the mouth's catch, nor wedges between the jambs' ends.
+    for (const speed of [30, 60]) {
+      const { sim, hits } = make();
+      sim.openTomb();
+      const id = rollAtTomb(sim, speed);
+      for (let i = 0; i < 0.5 / DT && sim.heldBy(id) !== 'tomb'; i++) sim.step();
+      assert.equal(sim.heldBy(id), 'tomb', `a ball at ${speed} units/s is caught`);
+      assert.deepEqual(hits.filter((h) => h.kind === 'tomb'), [{ kind: 'tomb', id: TOMB.id, ball: id }]);
+      const p = sim.items.get(id)!.body.translation();
+      assert.ok(Math.hypot(p.x - TOMB.held[0], p.z - TOMB.held[1]) < 1e-3, `at ${speed} units/s it is held at its spot`);
+    }
+  }],
+  ['the tomb holds its ball just in front of its door, centred on the mouth and clear of everything', () => {
+    // The doorway is narrower than a ball (its jambs' ends are walls, so 0.44 is open between them, for a ball 0.54
+    // across): a ball is caught at the mouth and held in front of the door's line, never inside.
+    assert.ok(Math.abs(TOMB.held[0] - (MOUTH[0][0] + MOUTH[1][0]) / 2) < 1e-9, 'centred on the mouth');
+    assert.ok(TOMB.held[1] < TOMB.z, 'in front of the mouth');
+    // Every solid (no sensor) within a gap of a ball standing there, at the height a ball meets the walls. The tomb
+    // starts shut, so its door is among them.
+    const { sim } = make();
+    sim.step(); // Rapier's queries see the table's colliders once the world has stepped.
+    const S = sim as any;
+    const within = (gap: number) => {
+      const found: RAPIER.Collider[] = [];
+      const at = { x: TOMB.held[0], y: R, z: TOMB.held[1] };
+      S.world.intersectionsWithShape(at, { x: 0, y: 0, z: 0, w: 1 }, new RAPIER.Cylinder(0.1, R + gap), (c: RAPIER.Collider) => {
+        found.push(c);
+        return true;
+      }, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
+      return found;
+    };
+    // (Less 1e-4: Rapier works in 32-bit floats.)
+    assert.deepEqual(within(0.02 - 1e-4).map((c) => c.handle), [], 'a held ball is 0.02 clear of the door, the jambs and every other solid');
+    assert.ok(within(0.05).some((c) => c.handle === S.tomb.door.handle), 'and just in front of the door: within 0.05 of it');
+  }],
+  ['a ball the tomb holds is its own: the lock and the saucers never take it, nor the tomb theirs', () => {
+    {
+      // The lock's sensor and each saucer's touched by the tomb's ball (through the sim's own touch path): nothing
+      // happens, and the tomb kicks it out at its time, along its own eject.
+      const { sim, hits } = make();
+      const id = intoTomb(sim);
+      touchWhere(sim, id, (p) => p.kind === 'lock', 'lock');
+      TABLE_IN_USE.saucers.forEach((sc, index) => touchWhere(sim, id, (p) => p.kind === 'saucer' && p.index === index, sc.id));
+      sim.step();
+      assert.deepEqual(hits.filter((h) => h.kind === 'lock' || h.kind === 'saucer'), [], 'neither the lock nor a saucer reported it');
+      assert.equal(sim.heldBy(id), 'tomb', "still the tomb's");
+      for (let i = 0; i < 2 / DT && sim.heldBy(id) === 'tomb'; i++) sim.step();
+      assert.equal(sim.heldBy(id), null, 'the tomb let it go');
+      const off = offBy(sim, id, TOMB.eject);
+      assert.ok(off < 10, `along the tomb's eject (${off.toFixed(1)} degrees off it)`);
+    }
+    {
+      // A ball the lock holds and one a saucer holds, touching the open tomb's mouth, aren't caught.
+      const { sim, hits } = make();
+      sim.openTomb();
+      const locked = place(sim, -0.4, 9.5);
+      sim.holdInLock(locked);
+      const saucered = intoSaucer(sim);
+      for (const id of [locked, saucered]) touchWhere(sim, id, (p) => p.kind === 'tomb', "tomb's mouth");
+      sim.step();
+      assert.deepEqual(hits.filter((h) => h.kind === 'tomb'), [], 'the tomb caught neither');
+      assert.equal(sim.heldBy(locked), 'lock');
+      assert.equal(sim.heldBy(saucered), 'saucer');
+    }
+    {
+      // Multiball on the tomb's ball: holdInLock takes it from the tomb, which neither kicks it out of the lock nor
+      // keeps itself from shutting for it.
+      const { sim } = make();
+      const l = TABLE_IN_USE.lock;
+      const id = intoTomb(sim);
+      sim.holdInLock(id);
+      assert.equal(sim.heldBy(id), 'lock');
+      for (let i = 0; i < 2 / DT; i++) sim.step();
+      assert.equal(sim.heldBy(id), 'lock', "still the lock's after the tomb's hold");
+      const at = sim.items.get(id)!.body.translation();
+      assert.ok(Math.hypot(at.x - l.x, at.z - l.z) < 0.05, 'it sits in the lock');
+      assert.equal(sim.closeTomb(), true, 'the tomb shuts: it holds nothing');
+    }
+  }],
+  ['remove() and clear() while the tomb holds a ball', () => {
+    for (const how of ['remove', 'clear'] as const) {
+      const { sim, hits } = make();
+      const id = intoTomb(sim);
+      const handle = sim.items.get(id)!.body.handle;
+      if (how === 'remove') sim.remove(id);
+      else sim.clear();
+      assert.equal(sim.items.has(id), false, `${how}: the ball is gone`);
+      assert.equal((sim as any).world.getRigidBody(handle), null, `${how}: its body is gone from the world`);
+      assert.equal(sim.heldBy(id), null, `${how}: nothing holds it`);
+      // Past the hold's end: nothing tries to kick a ball that's gone, and the tomb catches the next one.
+      assert.doesNotThrow(() => {
+        for (let i = 0; i < 2 / DT; i++) sim.step();
+      });
+      const next = rollAtTomb(sim);
+      for (let i = 0; i < 1 / DT && sim.heldBy(next) !== 'tomb'; i++) sim.step();
+      assert.equal(sim.heldBy(next), 'tomb', `${how}: the tomb catches the next ball`);
+      assert.equal(hits.filter((h) => h.kind === 'tomb').length, 2);
+    }
   }],
   ['every flipper and spinner has its angle', () => {
     const { sim } = make();

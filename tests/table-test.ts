@@ -4,7 +4,7 @@
 // are read the way the rules say.
 // Usage: npm run table-test (or npx tsx tests/table-test.ts)
 import assert from 'node:assert/strict';
-import { TABLE, TABLE_IN_USE, flipperTip, isLockTarget, wallsWithTomb, type Target } from '../src/shared/table';
+import { TABLE, TABLE_IN_USE, flipperTip, isLockTarget, tombMouth, wallsWithTomb, type Target } from '../src/shared/table';
 import { LIT, RULES, SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, parsePinballCommands } from '../src/shared/pinball';
 
 /**
@@ -164,7 +164,7 @@ const checks: [string, () => void][] = [
     assert.ok(t.targets.length <= 32, 'the header has room for 32 targets');
     assert.equal(t.tomb?.id, 'tomb');
     assert.equal(t.diverter?.ramp, 'ramp-right');
-    assert.ok(t.tomb!.width > 2 * TABLE.ballRadius, 'a ball fits the doorway');
+    assert.ok(t.tomb!.width > 2 * TABLE.ballRadius, 'the mouth is wider than a ball (the tomb catches at its mouth)');
   }],
   ["the first 14 targets keep their places in the snapshot header's bits; the rising ones come after them", () => {
     const ids = TABLE_IN_USE.targets.map((g) => g.id);
@@ -181,9 +181,12 @@ const checks: [string, () => void][] = [
     assert.equal(isLockTarget({ ...base, rise: 'drop' }), false);
     assert.equal(isLockTarget({ ...base, rise: 'hold' }), false);
   }],
-  ['the tomb holds a ball inside the pyramid and kicks it out the front; the diverter has its gap in the ramp', () => {
+  ['the tomb holds a ball at its mouth and kicks it out down the table; the diverter has its gap in the ramp', () => {
     const { tomb, diverter, ramps } = TABLE_IN_USE;
-    assert.ok(tomb!.held[1] > tomb!.z, 'the held ball is past the mouth, inside');
+    // The doorway is narrower than a ball between its jambs' walls, so the tomb catches a ball at its mouth and holds
+    // it there, in front of it (pinball-sim-test measures it clear of the door and the jambs).
+    assert.ok(Math.abs(tomb!.held[0] - tomb!.x) < 1e-9, 'the held ball is centred on the mouth');
+    assert.ok(tomb!.held[1] < tomb!.z && tomb!.held[1] > tomb!.z - 2 * TABLE.ballRadius, 'the held ball is just in front of the mouth');
     assert.ok(tomb!.eject[1] < 0, 'it is kicked out of the front corner, down the table');
     assert.ok(tomb!.hold > 0 && tomb!.speed > 0 && tomb!.points > 0);
     const ramp = ramps.find((r) => r.id === diverter!.ramp);
@@ -215,18 +218,38 @@ const checks: [string, () => void][] = [
     assert.deepEqual(pts.slice(1, -1), whole.slice(1, -1), 'round the right, top and left corners, which are where they were');
     assert.equal(outline[0].restitution, TABLE_IN_USE.walls.find((w) => w.kind === 'pyramid')!.restitution);
   }],
-  ["the doorway's jambs run from the mouth's ends straight up to just over the held ball and across to the middle", () => {
-    // The pocket's shape is provisional (the physics settles where the held ball fits between the jambs): this check
-    // follows the shape wallsWithTomb gives it for now, and changes with it.
+  ['tombMouth: the ends wallsWithTomb cuts the pyramid open between, or none', () => {
+    const t = TABLE_IN_USE;
+    const [left, right] = mouthEnds();
+    const mouth = tombMouth(t);
+    assert.ok(mouth, 'the pyramid table has a mouth');
+    // On this table the outline runs from the right end of the mouth round the corners to the left end.
+    assert.ok(near(mouth.a, right) && near(mouth.b, left), `a (${mouth.a}) is the right end and b (${mouth.b}) the left`);
+    const outline = wallsWithTomb(t).find((w) => w.kind === 'pyramid')!.points;
+    assert.deepEqual([outline[0], outline.at(-1)], [mouth.a, mouth.b], 'the cut outline runs from a to b');
+    assert.equal(tombMouth({ ...t, tomb: undefined }), null, 'no tomb, no mouth');
+    assert.equal(tombMouth({ ...t, walls: t.walls.filter((w) => w.kind !== 'pyramid') }), null, 'no pyramid, no mouth');
+    // A mouth's line that misses the front corner's two faces can't cut it: below the corner, or above the corners the
+    // faces rise to.
+    for (const z of [5.7, 7.2]) {
+      assert.throws(() => tombMouth({ ...t, tomb: { ...t.tomb!, z } }), /must cut the front corner/, `z ${z}`);
+      assert.throws(() => wallsWithTomb({ ...t, tomb: { ...t.tomb!, z } }), /must cut the front corner/, `wallsWithTomb at z ${z}`);
+    }
+  }],
+  ["the doorway's jambs run from the mouth's ends straight up the table as far as it is wide, and across to the middle", () => {
+    // The pocket only has to close the pyramid's hollow behind the doorway: a ball is caught at the mouth, never
+    // between the jambs (0.44 apart between their walls). It runs back as far as the mouth is wide, a square recess,
+    // so the picture has a doorway to show. This check follows the shape wallsWithTomb gives it, and changes with it.
     const { tomb } = TABLE_IN_USE;
-    const top = tomb!.held[1] + TABLE.ballRadius + 0.1;
+    const [left, right] = mouthEnds();
+    const top = tomb!.z + (right[0] - left[0]);
     const jambs = wallsWithTomb(TABLE_IN_USE).filter((w) => w.kind === 'tomb');
     assert.equal(jambs.length, 2);
-    for (const end of mouthEnds()) {
+    for (const end of [left, right]) {
       const jamb = jambs.find((w) => near(w.points[0], end));
       assert.ok(jamb, `a jamb from the mouth's end at x ${end[0]}`);
       assert.equal(jamb.points.length, 3, 'a jamb is a 3-point polyline');
-      assert.ok(near(jamb.points[1], [end[0], top]), "straight up the table to the ball's top, plus a margin");
+      assert.ok(near(jamb.points[1], [end[0], top]), 'straight up the table, as far as the mouth is wide');
       assert.ok(near(jamb.points[2], [tomb!.x, top]), "then along that line to the tomb's x");
     }
   }],

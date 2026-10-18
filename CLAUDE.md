@@ -117,11 +117,12 @@ saved ball and a ball's result.
   the units and axes. The snapshot header has room for 3 flippers, 2 spinners and 32 targets: table-test fails a table
   with more, and the header (`SNAP_PINBALL_HEADER`) has to grow first.
 - **What `sim.ts` finds by shape.** Walls carry a `kind` (`outer`, `shooter`, `guide`, `orbit`, `pyramid`, `lane`,
-  `slingback`, `island`), which the picture's build and the stage's occluders read, but `sim.ts` doesn't. It finds the
-  shooter lane's one-way gate as the first wall of two points that runs straight up and down within 1 unit left of the
-  plunger (on this table the lane's inner wall), takes `walls[0]` for the outer wall in `archZ` (table-test holds it to
-  `kind: 'outer'`), and stands a target with no `angle` along the wall nearest it. A table that breaks those needs
-  `sim.ts` looked at, or `kind` read there instead.
+  `slingback`, `island`), which the picture's build and the stage's occluders read. `sim.ts` builds the walls from
+  `wallsWithTomb` (`table.ts`), which finds the `pyramid` wall by its kind to cut the tomb's doorway into it and adds
+  the doorway's jambs (`tomb`); it reads no other kind. It finds the shooter lane's one-way gate as the first wall of
+  two points that runs straight up and down within 1 unit left of the plunger (on this table the lane's inner wall),
+  takes `walls[0]` for the outer wall in `archZ` (table-test holds it to `kind: 'outer'`), and stands a target with no
+  `angle` along the wall nearest it. A table that breaks those needs `sim.ts` looked at, or `kind` read there instead.
 - **The picture.** The stage draws `src/assets/pinball.png`, rendered in Blender from `TABLE_IN_USE` through the stage's
   own camera (`stageCamera`); `pinball.json` says which table (a hash of its data) and which camera. It leaves out what
   moves, and the stage draws that live over it (`pinball-parts.ts`): the balls, the three flippers, the turning plaques,

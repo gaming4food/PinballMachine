@@ -219,10 +219,14 @@ export const PYRAMID: Table = {
     { id: 'bank-eye', targets: ['target-eye-1', 'target-eye-2', 'target-eye-3'], bonus: 5000 },
   ],
   // The tomb: a doorway cut into the pyramid's front corner, 0.6 across at z 6.05 (where the two lower faces are 0.6
-  // apart), on the table's middle line. A ball that rolls in is held 1 s at (-0.4, 6.3) and kicked out down the table,
-  // a little to the left (toward the left flipper, not down the middle into the drain) at 11 units/s. wallsWithTomb
-  // cuts the pyramid's wall open there and closes a pocket behind it. (Provisional, as the toys' spots are.)
-  tomb: { id: 'tomb', x: -0.4, z: 6.05, width: 0.6, held: [-0.4, 6.3], hold: 1.0, eject: [-0.45, -1], speed: 11, points: 1000 },
+  // apart), on the table's middle line. Its jambs' ends are walls, so it is 0.44 wide between them, narrower than a
+  // ball (0.54), and a ball never gets in: the open tomb catches one at its mouth and holds it there 1 s, at
+  // (-0.4, 5.68), just in front of the door's line (a ball's radius and 0.02 in front of the door's face, which is 0.08
+  // in front of the line; the jambs' ends are further off), then kicks it out down the table, a little to the left
+  // (toward the left flipper, not down the middle into the drain) at 11 units/s. A doorway a ball fits would push the
+  // Ankh bank into the left ramp's shot. wallsWithTomb cuts the pyramid's wall open there and closes a pocket behind
+  // it. (Provisional, as the toys' spots are.)
+  tomb: { id: 'tomb', x: -0.4, z: 6.05, width: 0.6, held: [-0.4, 5.68], hold: 1.0, eject: [-0.45, -1], speed: 11, points: 1000 },
   // The diverter: a 0.6 gate hinged by the right S-ramp's start (the dish's east gap), at rest along the ramp's upper
   // rail and swinging 45 degrees across the ramp to the gap in its other rail. (Provisional, as the toys' spots are.)
   diverter: { id: 'diverter', ramp: 'ramp-right', pivot: [-2.45, 14.62], length: 0.6, restDeg: 0, overDeg: -45 },

@@ -13,8 +13,9 @@ export interface Wall {
   points: [number, number][];
   restitution: number;
   /**
-   * What the wall is, for the picture: the outer wall, the shooter lane's, a guide, the orbit's, the pyramid's, a
-   * lane's, a sling's back, an island's, or a jamb of the tomb's doorway (wallsWithTomb makes those; `walls` has none).
+   * What the wall is, for the picture (and, for the pyramid's, for wallsWithTomb): the outer wall, the shooter lane's,
+   * a guide, the orbit's, the pyramid's, a lane's, a sling's back, an island's, or a jamb of the tomb's doorway
+   * (wallsWithTomb makes those; `walls` has none).
    */
   kind?: 'outer' | 'shooter' | 'guide' | 'orbit' | 'pyramid' | 'lane' | 'slingback' | 'island' | 'tomb';
 }
@@ -183,10 +184,12 @@ export interface Flipper {
 }
 
 /**
- * The tomb: a doorway cut into the pyramid's front corner. A ball that rolls in is caught, held at `held` for `hold`
- * seconds, then kicked out along `eject` at `speed`, and scores `points`. The doorway's mouth lies along the line
- * z = `z`, `width` across and centred on `x`: it runs between where the pyramid's two lower faces cross that line
- * (wallsWithTomb cuts the pyramid's wall there and adds the jambs that close the pocket behind it).
+ * The tomb: a doorway cut into the pyramid's front corner, behind a door. Open, it catches a ball that touches its
+ * mouth (the doorway is narrower than a ball, so the ball never goes in), holds it at `held`, just in front of the
+ * mouth, for `hold` seconds, then kicks it out along `eject` at `speed`, and scores `points`. The doorway's mouth lies
+ * along the line z = `z`, `width` across and centred on `x`: it runs between where the pyramid's two lower faces
+ * cross that line (tombMouth; wallsWithTomb cuts the pyramid's wall there and adds the jambs that close the pocket
+ * behind it).
  */
 export interface Tomb {
   id: string;
@@ -272,23 +275,18 @@ export function flipperTip(f: Flipper, deg: number = f.restDeg): [number, number
 }
 
 /**
- * The table's walls as the physics and the picture build them: `t.walls`, and, when the table has a tomb, its pyramid
- * wall cut open at the front corner for the doorway, and the doorway's two jambs added (`kind: 'tomb'`). Everything
- * that builds solids from the walls takes them from here, not from `t.walls`, so the doorway is open to all alike.
- *
- * The pyramid's wall is a closed outline that starts and ends at its front corner, its lowest point. The doorway's
- * mouth lies along z = tomb.z, between where the two faces that meet at that corner cross the line; the wall becomes
- * the open outline from the first of those crossings round the corners to the last. From each end a jamb runs straight
- * up the table to just over the held ball (a ball's radius and 0.1 above `held`), then along that line to the tomb's
- * x. The two together close a pocket behind the mouth, so the pyramid's hollow inside stays closed. (Provisional: the
- * pocket's real shape, with the held ball fitting between the jambs, is for the physics to settle.) A table with no
- * tomb, or no pyramid wall, keeps its walls as they are.
+ * The tomb's mouth: its two ends, where the two faces that meet at the pyramid's front corner cross the line
+ * z = tomb.z. The pyramid's wall is a closed outline that starts and ends at that corner, its lowest point: `a` is
+ * where the face up to the outline's next corner crosses the line, and `b` where the face back from its last corner
+ * does, so the outline cut open at the mouth runs from `a` round the other corners to `b` (on the pyramid table, `a`
+ * is the mouth's right end and `b` its left). It reads the faces, never `tomb.width`; table-test holds the two to each
+ * other. Null for a table with no tomb or no pyramid wall; it throws when the mouth's line can't cut the front corner
+ * off the outline.
  */
-export function wallsWithTomb(t: Table): Wall[] {
+export function tombMouth(t: Table): { a: [number, number]; b: [number, number] } | null {
   const { tomb } = t;
-  const at = tomb ? t.walls.findIndex((w) => w.kind === 'pyramid') : -1;
-  if (!tomb || at < 0) return [...t.walls];
-  const pyramid = t.walls[at];
+  const pyramid = tomb && t.walls.find((w) => w.kind === 'pyramid');
+  if (!tomb || !pyramid) return null;
   const pts = pyramid.points;
   const n = pts.length;
   const front = pts[0];
@@ -298,12 +296,31 @@ export function wallsWithTomb(t: Table): Wall[] {
   if (!closed || !(tomb.z > front[1] && tomb.z < Math.min(pts[1][1], pts[n - 2][1]))) {
     throw new Error(`the tomb's mouth (z ${tomb.z}) must cut the front corner off the pyramid's closed outline`);
   }
-  /** Where the face from the front corner to `b` crosses the mouth's line. */
-  const crossing = (b: [number, number]): [number, number] => [front[0] + ((tomb.z - front[1]) / (b[1] - front[1])) * (b[0] - front[0]), tomb.z];
-  const ends = [crossing(pts[1]), crossing(pts[n - 2])];
-  const outline: Wall = { ...pyramid, points: [ends[0], ...pts.slice(1, n - 1), ends[1]] };
-  const top = tomb.held[1] + TABLE.ballRadius + 0.1;
-  const jambs = ends.map((end): Wall => ({ kind: 'tomb', restitution: pyramid.restitution, points: [end, [end[0], top], [tomb.x, top]] }));
+  /** Where the face from the front corner to `c` crosses the mouth's line. */
+  const crossing = (c: [number, number]): [number, number] => [front[0] + ((tomb.z - front[1]) / (c[1] - front[1])) * (c[0] - front[0]), tomb.z];
+  return { a: crossing(pts[1]), b: crossing(pts[n - 2]) };
+}
+
+/**
+ * The table's walls as the physics and the picture build them: `t.walls`, and, when the table has a tomb, its pyramid
+ * wall cut open at the front corner for the doorway, and the doorway's two jambs added (`kind: 'tomb'`). Everything
+ * that builds solids from the walls takes them from here, not from `t.walls`, so the doorway is open to all alike.
+ *
+ * The wall becomes the open outline from the mouth's end `a` round the corners to its end `b` (tombMouth). From each
+ * end a jamb runs straight up the table as far as the mouth is wide, then along that line to the tomb's x: the two
+ * close a square pocket behind the mouth, so the pyramid's hollow inside stays closed. A ball never gets into the
+ * pocket (the jambs' walls leave less than a ball between them, and the tomb catches a ball at its mouth): its depth
+ * is only so the picture has a doorway to show. A table with no tomb, or no pyramid wall, keeps its walls as they are.
+ */
+export function wallsWithTomb(t: Table): Wall[] {
+  const mouth = tombMouth(t);
+  if (!mouth) return [...t.walls];
+  const tomb = t.tomb!;
+  const at = t.walls.findIndex((w) => w.kind === 'pyramid');
+  const pyramid = t.walls[at];
+  const outline: Wall = { ...pyramid, points: [mouth.a, ...pyramid.points.slice(1, -1), mouth.b] };
+  const top = tomb.z + Math.abs(mouth.a[0] - mouth.b[0]);
+  const jambs = [mouth.a, mouth.b].map((end): Wall => ({ kind: 'tomb', restitution: pyramid.restitution, points: [end, [end[0], top], [tomb.x, top]] }));
   return [...t.walls.slice(0, at), outline, ...jambs, ...t.walls.slice(at + 1)];
 }
 
