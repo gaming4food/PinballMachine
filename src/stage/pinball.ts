@@ -34,7 +34,7 @@ import {
   WIDTH,
 } from '@kit/stage';
 import { pinballHypeOf, type PinballState, pinballStateOf } from '../shared/pinball';
-import { TABLE_IN_USE, TABLE } from '../shared/table';
+import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { CoinBurst } from './coin-burst';
 import { type PinballHeader, readPinballHeader } from './pinball-header';
 import { ballSaved } from './pinball-hud';
@@ -67,6 +67,61 @@ const DRAIN_KEPT = 3;
 const DRAIN_Z = 0.8;
 /** How high a ball's tag floats over it. */
 const TAG_HEIGHT = 0.8;
+
+/**
+ * The table's place in the world: z mirrored (the table's z runs up it, away from the camera) and tilted up by
+ * TABLE.tiltDeg. The stage's table group and the Blender picture's (tools/export-scene.ts) are both placed by it.
+ */
+export function tiltTable<T extends THREE.Object3D>(group: T): T {
+  group.scale.z = -1;
+  group.rotation.x = THREE.MathUtils.degToRad(TABLE.tiltDeg);
+  return group;
+}
+
+/**
+ * The stage's camera, for a frame `width` × `height`: at the player's end, looking down the table at CAMERA_PITCH, as
+ * far back as it must be for the whole table (its rails, the apron and the arch's walls, by the table's size, TABLE) to
+ * fit between FRAME_TOP and FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put it there.
+ * `matrix` is the camera's world matrix (column-major, three's Y-up world, with the table tilted in it as the stage
+ * tilts it) and `fovY` its vertical field of view in degrees. The stage (fitCamera) and the Blender picture
+ * (tools/export-scene.ts) both use it, so the picture lines up with the live parts drawn over it.
+ */
+export function stageCamera(table: Table, width: number, height: number): { matrix: number[]; fovY: number; viewY: number } {
+  void table; // the fit is to the table's frame (TABLE's size), the same for any table drawn in it
+  const tilted = tiltTable(new THREE.Group());
+  tilted.updateMatrixWorld(true);
+  const world = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(tilted.matrixWorld);
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, width / height, 0.5, 200);
+  const half = TABLE.width / 2 + 0.8;
+  const corners: THREE.Vector3[] = [];
+  for (const x of [-half, half]) for (const z of [-1.7, TABLE.length + 0.6]) for (const y of [0, 0.9]) corners.push(world(x, y, z));
+  const aim = world(0, 0, TABLE.length * 0.45);
+  const pitch = THREE.MathUtils.degToRad(CAMERA_PITCH);
+  const back = new THREE.Vector3(0, Math.sin(pitch), Math.cos(pitch));
+  const band = ((FRAME_BOTTOM - FRAME_TOP) / height) * 2;
+  const ndc = new THREE.Vector3();
+  let top = 1;
+  let bottom = -1;
+  for (let d = 8; d < 120; d += 0.05) {
+    camera.position.copy(aim).addScaledVector(back, d);
+    camera.lookAt(aim);
+    camera.updateMatrixWorld(true);
+    top = -Infinity;
+    bottom = Infinity;
+    let wide = 0;
+    for (const c of corners) {
+      ndc.copy(c).project(camera);
+      top = Math.max(top, ndc.y);
+      bottom = Math.min(bottom, ndc.y);
+      wide = Math.max(wide, Math.abs(ndc.x));
+    }
+    if (top - bottom <= band && wide < 0.95) break;
+  }
+  // The table's middle at NDC (top + bottom) / 2 goes to the band's middle: a view offset moves it up by its pixels.
+  const want = 1 - (FRAME_TOP + FRAME_BOTTOM) / height;
+  const viewY = ((want - (top + bottom) / 2) * height) / 2;
+  return { matrix: [...camera.matrixWorld.elements], fovY: CAMERA_FOV, viewY };
+}
 
 /** A ball as drawn: its chrome sphere and its name tag. */
 interface BallView {
@@ -161,8 +216,7 @@ export class PinballScene implements MachineScene {
     this.scene.environmentIntensity = look.envIntensity;
     if (!this.city && !transparent) this.scene.background = new THREE.Color(look.background);
 
-    this.table.scale.z = -1;
-    this.table.rotation.x = THREE.MathUtils.degToRad(TABLE.tiltDeg);
+    tiltTable(this.table);
     this.table.add(standInTable(TABLE_IN_USE, look, TABLE.width, TABLE.length), this.parts.group, this.burst.group);
     this.scene.add(this.table);
     this.table.updateMatrixWorld(true);
@@ -214,41 +268,13 @@ export class PinballScene implements MachineScene {
     return new THREE.Vector3(x, y, z).applyMatrix4(this.table.matrixWorld);
   }
 
-  /**
-   * The camera at the player's end, looking down the table at CAMERA_PITCH, as far back as it must be for the whole
-   * table (its rails, the apron and the arch's walls) to fit between FRAME_TOP and FRAME_BOTTOM; then moved in the
-   * frame (a view offset) to put it there.
-   */
+  /** The camera where stageCamera puts it: its place and aim, and its place in the frame (a view offset). */
   private fitCamera(): void {
-    const half = TABLE.width / 2 + 0.8;
-    const corners: THREE.Vector3[] = [];
-    for (const x of [-half, half]) for (const z of [-1.7, TABLE.length + 0.6]) for (const y of [0, 0.9]) corners.push(this.world(x, y, z));
-    const aim = this.world(0, 0, TABLE.length * 0.45);
-    const pitch = THREE.MathUtils.degToRad(CAMERA_PITCH);
-    const back = new THREE.Vector3(0, Math.sin(pitch), Math.cos(pitch));
-    const band = ((FRAME_BOTTOM - FRAME_TOP) / HEIGHT) * 2;
-    const ndc = new THREE.Vector3();
-    let top = 1;
-    let bottom = -1;
-    this.camera.clearViewOffset();
-    for (let d = 8; d < 120; d += 0.05) {
-      this.camera.position.copy(aim).addScaledVector(back, d);
-      this.camera.lookAt(aim);
-      this.camera.updateMatrixWorld(true);
-      top = -Infinity;
-      bottom = Infinity;
-      let wide = 0;
-      for (const c of corners) {
-        ndc.copy(c).project(this.camera);
-        top = Math.max(top, ndc.y);
-        bottom = Math.min(bottom, ndc.y);
-        wide = Math.max(wide, Math.abs(ndc.x));
-      }
-      if (top - bottom <= band && wide < 0.95) break;
-    }
-    // The table's middle at NDC (top + bottom) / 2 goes to the band's middle: a view offset moves it up by its pixels.
-    const want = 1 - (FRAME_TOP + FRAME_BOTTOM) / HEIGHT;
-    this.viewY = ((want - (top + bottom) / 2) * HEIGHT) / 2;
+    const fit = stageCamera(TABLE_IN_USE, WIDTH, HEIGHT);
+    this.camera.matrix.fromArray(fit.matrix);
+    this.camera.matrix.decompose(this.camera.position, this.camera.quaternion, this.camera.scale);
+    this.camera.updateMatrixWorld(true);
+    this.viewY = fit.viewY;
     this.shake(0, 0);
   }
 

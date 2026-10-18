@@ -1,3 +1,8 @@
 node_modules/
 # The stand-in host's wallet and save files (npm run dev).
 data-host/
+# The Blender picture's working files (npm run picture): the exported scene, the composed art and raw renders, the
+# hero picture.
+blender/scene.json
+blender/out/
+blender/renders/
