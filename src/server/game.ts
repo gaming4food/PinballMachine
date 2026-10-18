@@ -4,7 +4,9 @@
 // bonus, both drop targets (the scarab and the eye) light the lock, a ball in the lit lock starts multiball (more balls
 // from the line, then the house's), all 3 top rollovers light the kickback, the ball saver gives a quick drain back, a
 // stuck ball gets a nudge, and one no nudge frees goes back to the plunger lane. A drained ball pays: its points make
-// coins, 70% to its owner and the rest shared by everyone who flipped it (the owner too, if they flipped).
+// coins, 70% to its owner and the rest shared by everyone who flipped it (the owner too, if they flipped). The quest's
+// toys (the pop-ups, the mummy, the tomb and the diverter's gate) are raised, opened and swung as the game is asked to
+// (setToy), each only when no ball is in its way; the mummy goes down on its third hit, and a ball in the tomb scores.
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
@@ -40,6 +42,16 @@ const CENTRE_BONUS = 1000;
 const TOP_LANES = ['rollover-1', 'rollover-2', 'rollover-3'] as const;
 /** A stuck ball is nudged this many times; stuck still after them, it goes back to the plunger lane (watchStuck). */
 const STUCK_NUDGES = 3;
+/**
+ * The quest's toys the game moves (setToy): all the pop-up targets, the mummy, the tomb's door and the diverter's gate.
+ * The pop-ups and the mummy are the table's rising targets (Target.rise: RISERS says which a toy stands for).
+ */
+const TOYS = ['popups', 'mummy', 'tomb', 'diverter'] as const;
+export type Toy = (typeof TOYS)[number];
+const isToy = (x: unknown): x is Toy => TOYS.some((toy) => toy === x);
+const RISERS = { popups: 'drop', mummy: 'hold' } as const;
+/** The mummy goes down on this many hits since it rose. */
+const MUMMY_HITS = 3;
 /**
  * A flip word counts only within this long (wall-clock ms) of the table's last step. Every machine the city has made
  * hears every chat line, and the claw's and the Speedway's players say left and right too: while the pinball is
@@ -146,6 +158,19 @@ export class PinballGame implements Machine {
   private readonly rolloversLit = new Set<string>();
   /** The centre lane's lamps lit, by rollover id (centre-1 to centre-4). */
   private readonly centreLit = new Set<string>();
+  /**
+   * What each toy was last asked to be (setToy): up is raised, open or over. They all start down, shut and at rest, as
+   * the table does.
+   */
+  private readonly toyUp: Record<Toy, boolean> = { popups: false, mummy: false, tomb: false, diverter: false };
+  /**
+   * The parts of the toys not yet where they were asked to be, by part (a rising target's id, or 'tomb' or 'diverter'),
+   * each with its toy: a ball is in the way, and moveToys tries again next step. Only what was asked for is here: a
+   * pop-up a ball knocks down is not.
+   */
+  private readonly toyWaits = new Map<string, Toy>();
+  /** The hits the mummy has taken since it last rose: its MUMMY_HITS-th puts it down. */
+  private mummyHits = 0;
   /** Double score and the bought ball saver run until these, on the table's clock (-Infinity: off). */
   private doubleUntil = -Infinity;
   private saverUntil = -Infinity;
@@ -359,7 +384,9 @@ export class PinballGame implements Machine {
   /**
    * From the control panel (a 'machine.action'). `{ kind: 'remove', userId }` takes that viewer's ball out of the line
    * (not off the table); a hype button (hypeId; the buttons are listed in entry.ts) is pressed for free, as often as
-   * the streamer likes (press). Anything can arrive, so anything else, a hype button this table hasn't got among it, is
+   * the streamer likes (press); `{ kind: 'toy', toy, up }` raises or puts away a toy (setToy), but only where
+   * PINBALL_TOYS is '1', which `npm run dev:toys` sets for the dev host: the city never does, and shows no button for
+   * it. Anything can arrive, so anything else, a hype button this table hasn't got among it, a toy that isn't one, is
    * ignored.
    */
   action(action: unknown): void {
@@ -368,7 +395,11 @@ export class PinballGame implements Machine {
       this.press(hype);
       return;
     }
-    const a = action as { kind?: unknown; userId?: unknown } | null;
+    const a = action as { kind?: unknown; userId?: unknown; toy?: unknown; up?: unknown } | null;
+    if (a?.kind === 'toy') {
+      if (process.env.PINBALL_TOYS === '1' && isToy(a.toy) && typeof a.up === 'boolean') this.setToy(a.toy, a.up);
+      return;
+    }
     if (a?.kind !== 'remove' || typeof a.userId !== 'number') return;
     const user = this.line.find((u) => u.id === a.userId) ?? (this.upNext?.user.id === a.userId ? this.upNext.user : null);
     if (!user) return;
@@ -394,6 +425,11 @@ export class PinballGame implements Machine {
     this.rolloversLit.clear();
     this.centreLit.clear();
     this.sim.resetTargets();
+    // Every toy put away through the game: the pop-ups and the mummy down, the tomb shut, the gate at rest. The table
+    // is clear (a ball the tomb held went with the rest), so no ball is in the way and none has to wait. The sim's
+    // clear() leaves the gate where it was, so this is what sets it back.
+    for (const toy of TOYS) this.setToy(toy, false);
+    this.moveToys();
     // Bought hype must not outlive the reset: the saver and double score, and a saver still waiting, whose buyer gets
     // their coins back (refund) when the city says so.
     this.saverUntil = this.doubleUntil = -Infinity;
@@ -565,6 +601,60 @@ export class PinballGame implements Machine {
     this.setFlippers();
   }
 
+  // --- The toys ---
+
+  /**
+   * Asks for a toy up (the pop-ups or the mummy raised, the tomb open, the gate swung over) or down (put away). The
+   * game moves it from the next step on, and never into a ball: a pop-up or the mummy isn't raised where a ball
+   * stands, the door isn't shut on a ball in the doorway or held there, the gate isn't swung while a ball is in its
+   * sweep. What a ball is in the way of waits, and is tried again every step (moveToys). It is a request to move, not
+   * a standing order: a pop-up a ball knocks down stays down until it is asked up again (a mode that wants all three
+   * down needs it so). The mummy asked up afresh has taken no hits; asked up again while up, it keeps its count.
+   */
+  setToy(toy: Toy, up: boolean): void {
+    if (toy === 'mummy' && up && !this.toyUp.mummy) this.mummyHits = 0;
+    this.toyUp[toy] = up;
+    for (const part of this.partsOf(toy)) this.toyWaits.set(part, toy);
+  }
+
+  /** Whether the toy was last asked up (setToy): the mummy's third hit asks it down, and so does a reset. */
+  toyWanted(toy: Toy): boolean {
+    return this.toyUp[toy];
+  }
+
+  /**
+   * What a toy is made of: the ids of the rising targets it stands for, or the tomb's or the gate's own name. A table
+   * without a tomb or a gate has nothing to move for it.
+   */
+  private partsOf(toy: Toy): string[] {
+    if (toy === 'tomb') return this.table.tomb ? [toy] : [];
+    if (toy === 'diverter') return this.table.diverter ? [toy] : [];
+    return this.table.targets.filter((t) => t.rise === RISERS[toy]).map((t) => t.id);
+  }
+
+  /** Brings about what the toys were asked to be, a part at a time; a part a ball is in the way of waits a step. */
+  private moveToys(): void {
+    for (const [part, toy] of this.toyWaits) if (this.moveToy(toy, part)) this.toyWaits.delete(part);
+  }
+
+  /** Moves one part of a toy as its toy was asked: true when it is there, false while a ball is in the way. */
+  private moveToy(toy: Toy, part: string): boolean {
+    const up = this.toyUp[toy];
+    switch (toy) {
+      case 'popups':
+      case 'mummy':
+        if (up) return this.sim.raiseTarget(part);
+        this.sim.lowerTarget(part);
+        return true;
+      case 'tomb':
+        if (!up) return this.sim.closeTomb();
+        this.sim.openTomb();
+        return true;
+      case 'diverter':
+        return this.sim.setDiverter(up);
+    }
+  }
+
   // --- Stepping ---
 
   step(): void {
@@ -575,6 +665,7 @@ export class PinballGame implements Machine {
     this.setFlippers();
     this.sim.step();
     this.raiseDrops();
+    this.moveToys();
     this.watchStuck();
     this.lastStepMs = performance.now() - t0;
   }
@@ -664,7 +755,8 @@ export class PinballGame implements Machine {
 
   /**
    * A ball that has stayed within a ball's radius of one spot for stuckSeconds gets the table nudged. One still stuck
-   * after STUCK_NUDGES nudges is never left there: it's taken off and launched again up the plunger lane (unstick).
+   * after STUCK_NUDGES nudges is never left there: it's taken off and launched again up the plunger lane (unstick). A
+   * ball something holds still on purpose isn't stuck: the lock's, a saucer's (the magnet is one) and the tomb's.
    */
   private watchStuck(): void {
     const now = this.sim.time;
@@ -674,7 +766,8 @@ export class PinballGame implements Machine {
       if (!ball) continue;
       const p = ball.body.translation();
       b.x = p.x;
-      if (id === this.heldBall || this.sim.heldBy(id) === 'saucer' || Math.hypot(p.x - b.anchor.x, p.z - b.anchor.z) > TABLE.ballRadius) {
+      const heldBy = this.sim.heldBy(id);
+      if (id === this.heldBall || heldBy === 'saucer' || heldBy === 'tomb' || Math.hypot(p.x - b.anchor.x, p.z - b.anchor.z) > TABLE.ballRadius) {
         b.anchor = { x: p.x, z: p.z, at: now };
         b.nudges = 0;
       } else if (now - b.anchor.at >= RULES.stuckSeconds) {
@@ -720,8 +813,15 @@ export class PinballGame implements Machine {
     this.score(b, points);
     switch (hit.kind) {
       case 'target': {
+        // The mummy goes down on its MUMMY_HITS-th hit since it rose (each hit scored above, the last too). A hit after
+        // that, from a second ball in the same step, asks it down again and changes nothing; asked up afresh, it
+        // starts again from none (setToy).
+        if (this.table.targets.some((t) => t.id === hit.id && t.rise === 'hold')) {
+          if (++this.mummyHits >= MUMMY_HITS) this.setToy('mummy', false);
+          break;
+        }
         // Only the lock's two drop targets (the scarab and the eye) count toward it: the flip plaques have their banks,
-        // and the pop-ups and the mummy only score.
+        // and the pop-ups only score (the physics has dropped them).
         const drops = this.table.targets.filter(isLockTarget);
         if (!drops.some((t) => t.id === hit.id)) break;
         this.targetsHit.add(hit.id);
@@ -796,6 +896,7 @@ export class PinballGame implements Machine {
     else if (hit.kind === 'spinner') points = hit.id === 'spinner' ? t.spinner.pointsPerTurn : (t.spinners.find((p) => p.id === hit.id)?.pointsPerTurn ?? 0);
     else if (hit.kind === 'saucer') points = t.saucers.find((p) => p.id === hit.id)?.points ?? 0;
     else if (hit.kind === 'bank') points = t.banks.find((p) => p.id === hit.id)?.bonus ?? 0;
+    else if (hit.kind === 'tomb') points = t.tomb?.points ?? 0;
     return this.doubled(points);
   }
 

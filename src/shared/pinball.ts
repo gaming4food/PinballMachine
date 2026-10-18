@@ -114,17 +114,20 @@ export function parsePinballCommands(text: string): PinballCommands {
 
 /** The snapshot type byte for the pinball. */
 export const SNAP_TYPE_PINBALL = 4;
-/** The snapshot header's size in bytes: 1 + 8 + 2 + 3 * 4 + 4 + 4 + 4 + 2 * 4. */
-export const SNAP_PINBALL_HEADER = 43;
+/** The snapshot header's size in bytes: 1 + 8 + 2 + 3 * 4 + 4 + 4 + 4 + 2 * 4 + 4. */
+export const SNAP_PINBALL_HEADER = 47;
 /*
  * A pinball snapshot is a header, then `count` bodies as the coin pusher's (the balls, each with `owner`). The header:
  * [u8 type][f64 simTime][u16 count][f32 x3 flipper angles, degrees, in table order][u32 lit inserts][u32 targets down]
- * [u32 targets turned][f32 main spinner angle, radians][f32 right spinner angle, radians]
+ * [u32 targets turned][f32 main spinner angle, radians][f32 right spinner angle, radians][u32 toys]
+ * The toys word, at byte 43, is the toys' bits (TOY below). The rising targets (the pop-ups and the mummy) are not in
+ * it: they are in the targets down, a bit each, set while they stand down.
  */
 
 /**
- * The toys' bits, as the physics gives them (PinballSim.toys()): the tomb open, and the diverter's gate set over (its
- * goal: it swings there, and back, at 400 degrees a second, so a stage can swing it as the physics does).
+ * The toys' bits, as the physics gives them (PinballSim.toys()) and the header's last word carries them: the tomb open,
+ * and the diverter's gate set over (its goal: it swings there, and back, at 400 degrees a second, so a stage can swing
+ * it as the physics does).
  */
 export const TOY = { tombOpen: 1 << 0, diverterOver: 1 << 1 } as const;
 

@@ -1,6 +1,6 @@
 // The pinball machine's stage side (docs/MACHINE_REPOS.md section 2): its scene, its scoreboard overlay, and its
-// snapshot, whose header carries the three flippers, the lit inserts, the drop targets down, the plaques turned and
-// both spinners.
+// snapshot, whose header carries the three flippers, the lit inserts, the targets down, the plaques turned, both
+// spinners and the toys' bits.
 import { definePages } from '@kit/stage';
 import { entry } from './entry';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from './shared/pinball';

@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx --disable-warning=ExperimentalWarning kit/src/kit/host/host.ts --dir src --port 7841",
+    "dev:toys": "tsx --disable-warning=ExperimentalWarning tools/dev-toys.ts",
+    "toy": "tsx --disable-warning=ExperimentalWarning tools/toy.ts",
     "contract-test": "tsx --disable-warning=ExperimentalWarning tests/contract-test.ts",
     "table-test": "tsx --disable-warning=ExperimentalWarning tests/table-test.ts",
     "pinball-sim-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sim-test.ts",

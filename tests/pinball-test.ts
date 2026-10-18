@@ -1,7 +1,10 @@
 // Tests the pinball game (server/game.ts) headlessly, with the real physics and wallet: the line of viewers' balls, the
 // flippers and the auto-save, paying a drained ball (the owner sharing the 30% when they flipped), multiball, the ball
 // saver, the table's clock, a stuck ball (nudged, then launched again), flip words only while the table runs, the high
-// scores and the reset. Each step builds on the last, as the claw's claw-test does.
+// scores and the reset, the parts of the pyramid, and the quest's toys (the game raises, opens and swings them as it is
+// asked, each waiting for a ball in its way; the mummy goes down on its third hit; a ball in the tomb scores and isn't
+// stuck; a reset puts every toy away; the dev host's toy action works only with PINBALL_TOYS). Each step builds on the
+// last, as the claw's claw-test does.
 // Usage: npm run pinball-test (or npx tsx tests/pinball-test.ts)
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -10,9 +13,9 @@ import { join } from 'node:path';
 import { Economy, initPhysics, roomInfo, type User } from '@kit/server';
 import type { ServerMsg } from '@kit/shared';
 import { entry } from '../src/entry';
-import { PinballGame } from '../src/server/game';
-import { DT } from '../src/server/sim';
-import { LIT, RULES } from '../src/shared/pinball';
+import { PinballGame, type Toy } from '../src/server/game';
+import { DT, PinballSim } from '../src/server/sim';
+import { LIT, RULES, TOY } from '../src/shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget } from '../src/shared/table';
 
 await initPhysics();
@@ -627,6 +630,301 @@ step('multiball with a ball in the saucer: it is let go, and none is lost', () =
   assert.equal(game.sim.items.size, 2, 'the two balls left are on the table');
   run(1.5);
   assert.equal(game.sim.items.size, 2, 'none lost after the saucer let go');
+});
+
+// --- The quest's toys (the pop-ups, the mummy, the tomb and the diverter's gate) ---
+
+const popups = TABLE_IN_USE.targets.filter((t) => t.rise === 'drop');
+const mummy = TABLE_IN_USE.targets.find((t) => t.rise === 'hold')!;
+const TOMB = TABLE_IN_USE.tomb!;
+const DIVERTER = TABLE_IN_USE.diverter!;
+const TOYS = ['popups', 'mummy', 'tomb', 'diverter'] as const satisfies readonly Toy[];
+/** A target's bit in the physics' targetsDown(), by id. */
+const targetBit = (id: string) => 1 << TABLE_IN_USE.targets.findIndex((t) => t.id === id);
+const POPUP_BITS = popups.reduce((bits, t) => bits | targetBit(t.id), 0);
+/** The pop-ups' and the mummy's bits: set while they stand down, as they do till the game raises them. */
+const RISING = POPUP_BITS | targetBit(mummy.id);
+/** The toys' word in the snapshot the game sends: byte 43 of its header (shared/pinball.ts). */
+const toyBits = () => game.sim.snapshot().readUInt32LE(43);
+
+/**
+ * The pop-ups a ball standing at (x, z) is in the way of, asked of the physics on a table of its own, so nothing in the
+ * game moves: whichever it will not raise.
+ */
+function popupsBlockedAt(x: number, z: number): string[] {
+  const sim = new PinballSim(TABLE_IN_USE, () => {});
+  sim.items.get(sim.launch(null))!.body.setTranslation({ x, y: R, z }, true);
+  return popups.filter((t) => !sim.raiseTarget(t.id)).map((t) => t.id);
+}
+
+/** Rolls ball `id` up the centre lane at the tomb's mouth from 0.75 below it, at a speed the open tomb catches. */
+function rollAtTomb(id: number): void {
+  put(id, TOMB.x, TOMB.z - 0.75, 0, 16);
+  game.sim.items.get(id)!.body.setAngvel({ x: 16 / R, y: 0, z: 0 }, true);
+}
+
+step('the toys come up when the game asks, and wait for a ball in the way', () => {
+  const uma = viewer('uma', 'Uma');
+  const ball = freshBall(uma);
+  assert.deepEqual(TOYS.map((toy) => game.toyWanted(toy)), [false, false, false, false], 'nothing is wanted up to start');
+  assert.equal(game.sim.targetsDown() & RISING, RISING, 'the pop-ups and the mummy stand down');
+  // A ball held on the first pop-up's spot is in its way, and not in the last one's (the physics says which it is in
+  // the way of: the pop-ups stand in a row, so a neighbour may be too).
+  const first = popups[0];
+  const last = popups.at(-1)!;
+  const inTheWay = popupsBlockedAt(first.x, first.z);
+  assert.ok(inTheWay.includes(first.id), `a ball on ${first.id} is in its way`);
+  assert.ok(!inTheWay.includes(last.id), `but not in ${last.id}'s`);
+  const blocked = inTheWay.reduce((bits, id) => bits | targetBit(id), 0);
+  game.setToy('popups', true);
+  assert.equal(game.toyWanted('popups'), true);
+  hold(ball, first.x, first.z, 1);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, blocked, 'the pop-ups the ball is in the way of stay down, and the rest rise');
+  hold(ball, first.x, first.z, 1);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, blocked, 'and go on waiting for as long as it stays');
+  assert.equal(game.sim.targetsDown() & targetBit(mummy.id), targetBit(mummy.id), "the mummy wasn't asked for, and stays down");
+  // The ball gone, the ones that waited rise a step later.
+  game.sim.remove(ball);
+  run(2 * DT);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, 0, 'they all rise once the ball has gone');
+  // A pop-up a ball knocks down stays down: the game raises a toy when it is asked to, not whenever it finds it down
+  // (a mode that wants all three down would never get them otherwise).
+  game.sim.lowerTarget(first.id);
+  run(0.5);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, targetBit(first.id), 'a pop-up a ball knocked down stays down');
+  game.setToy('popups', true);
+  run(2 * DT);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, 0, 'until it is asked to raise them again');
+  // Put away, they go down whatever stands there: lowering never traps a ball.
+  game.setToy('popups', false);
+  assert.equal(game.toyWanted('popups'), false);
+  run(2 * DT);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, POPUP_BITS, 'asked to put away, they go down');
+});
+
+step('the mummy goes down on its third hit', () => {
+  const vic = viewer('vic', 'Vic');
+  const ball = freshBall(vic);
+  const bit = targetBit(mummy.id);
+  game.setToy('mummy', true);
+  run(2 * DT);
+  assert.equal(game.sim.targetsDown() & bit, 0, 'the mummy is up');
+  const before = scoreOf(vic);
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.equal(game.sim.targetsDown() & bit, 0, 'two hits leave it up');
+  assert.equal(game.toyWanted('mummy'), true);
+  assert.equal(scoreOf(vic) - before, 2 * 750, 'each hit scored 750');
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.equal(game.sim.targetsDown() & bit, bit, 'the third puts it down');
+  assert.equal(game.toyWanted('mummy'), false, 'and nothing brings it back');
+  assert.equal(scoreOf(vic) - before, 3 * 750, 'the third scored too');
+  run(0.5);
+  assert.equal(game.sim.targetsDown() & bit, bit, 'it stays down');
+  // Raised again, it takes three more: its hits are counted from when it rose.
+  game.setToy('mummy', true);
+  run(2 * DT);
+  assert.equal(game.sim.targetsDown() & bit, 0, 'raised again');
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.equal(game.sim.targetsDown() & bit, 0, 'two more leave it up');
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.equal(game.sim.targetsDown() & bit, bit, 'and the third puts it down again');
+  // Asked for while it is up already, it is not a fresh mummy: the hits so far still count.
+  game.setToy('mummy', true);
+  run(2 * DT);
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  game.setToy('mummy', true);
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.equal(game.sim.targetsDown() & bit, 0, 'asked for again while up, the count goes on');
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.equal(game.sim.targetsDown() & bit, bit, 'so the third hit since it rose puts it down');
+});
+
+step('with the toys up, only the scarab and the eye light the lock, and bringing them back leaves the toys be', () => {
+  const yan = viewer('yan', 'Yan');
+  const ball = freshBall(yan);
+  const sim = game.sim as any;
+  const drops = TABLE_IN_USE.targets.flatMap((t, i) => (isLockTarget(t) ? [i] : []));
+  const dropBits = drops.reduce((bits, i) => bits | (1 << i), 0);
+  game.setToy('popups', true);
+  game.setToy('mummy', true);
+  hold(ball, -0.4, 9, 2 * DT);
+  assert.equal(game.sim.targetsDown() & RISING, 0, 'the pop-ups and the mummy are up');
+  // Hits on the toys score, and light nothing: the pop-ups and the mummy aren't the lock's drop targets.
+  const before = scoreOf(yan);
+  for (const id of [...popups.map((t) => t.id), mummy.id]) hitPart({ kind: 'target', id, ball });
+  assert.equal(scoreOf(yan) - before, popups.reduce((sum, t) => sum + t.points, 0) + mummy.points);
+  assert.equal(game.state().lockLit, false, 'the toys do not light the lock');
+  // The scarab and the eye do. Down as the physics drops them, they come back up a second later, and only they: the toys
+  // stand as they stood (the pop-ups' own drops are theirs to take back).
+  for (const i of drops) {
+    sim.targets[i].down = true;
+    sim.targets[i].collider.setEnabled(false);
+    hitPart({ kind: 'target', id: TABLE_IN_USE.targets[i].id, ball });
+  }
+  assert.equal(game.state().lockLit, true, 'the scarab and the eye light the lock');
+  assert.equal(game.sim.targetsDown() & dropBits, dropBits, 'both are down');
+  hold(ball, -0.4, 9, 1.2);
+  assert.equal(game.sim.targetsDown() & dropBits, 0, 'and back up a second later');
+  assert.equal(game.sim.targetsDown() & RISING, 0, 'with the pop-ups and the mummy still up');
+  // A pop-up a ball has knocked down is no drop target either: coming back from the lock leaves it down.
+  game.sim.lowerTarget(popups[1].id);
+  for (const i of drops) {
+    sim.targets[i].down = true;
+    sim.targets[i].collider.setEnabled(false);
+    hitPart({ kind: 'target', id: TABLE_IN_USE.targets[i].id, ball });
+  }
+  hold(ball, -0.4, 9, 1.2);
+  assert.equal(game.sim.targetsDown() & dropBits, 0, 'the lock targets came back again');
+  assert.equal(game.sim.targetsDown() & RISING, targetBit(popups[1].id), 'and the knocked-down pop-up is still down');
+});
+
+step('a ball in the tomb scores, and the stuck watcher leaves it alone', () => {
+  const val = viewer('val', 'Val');
+  const ball = freshBall(val);
+  const nudges = () => feed().filter((t) => t === 'The table gets a nudge.').length;
+  game.setToy('tomb', true);
+  run(2 * DT);
+  assert.equal(game.sim.tombOpen, true, 'the tomb is open');
+  // Rolled at the mouth, it is caught, and the catch scores what the table says.
+  rollAtTomb(ball);
+  let before = scoreOf(val);
+  for (let i = 0; i < 1 / DT && game.sim.heldBy(ball) !== 'tomb'; i++) {
+    before = scoreOf(val);
+    run(DT);
+  }
+  assert.equal(game.sim.heldBy(ball), 'tomb', 'the tomb caught the ball');
+  assert.ok(TOMB.points > 0);
+  assert.equal(scoreOf(val) - before, TOMB.points, "the catch scored the tomb's points");
+  // Under double score it pays twice.
+  (game as any).doubleUntil = game.sim.time + 30;
+  const mid = scoreOf(val);
+  hitPart({ kind: 'tomb', id: TOMB.id, ball });
+  assert.equal(scoreOf(val) - mid, 2 * TOMB.points, 'doubled under double score');
+  // Held on past the time it takes to be stuck, it is not nudged: the tomb holds it, not the table.
+  (game.sim as any).tombHold.until = Infinity;
+  const nudged = nudges();
+  run(RULES.stuckSeconds + 1);
+  assert.equal(game.sim.heldBy(ball), 'tomb', 'still held');
+  assert.equal(nudges(), nudged, 'no nudge for a ball the tomb holds');
+});
+
+step('the door waits for the ball the tomb holds, and the gate for a ball in its way', () => {
+  const xan = viewer('xan', 'Xan');
+  let ball = freshBall(xan);
+  game.setToy('tomb', true);
+  run(2 * DT);
+  rollAtTomb(ball);
+  for (let i = 0; i < 1 / DT && game.sim.heldBy(ball) !== 'tomb'; i++) run(DT);
+  assert.equal(game.sim.heldBy(ball), 'tomb', 'the tomb caught the ball');
+  // Asked to shut while it holds the ball, the tomb stays open as long as it does, and shuts once the ball has gone.
+  (game.sim as any).tombHold.until = Infinity;
+  game.setToy('tomb', false);
+  run(0.5);
+  assert.equal(game.toyWanted('tomb'), false);
+  assert.equal(game.sim.tombOpen, true, 'not shut on the ball it holds');
+  (game.sim as any).tombHold.until = game.sim.time;
+  run(0.25);
+  assert.notEqual(game.sim.heldBy(ball), 'tomb', 'the ball is let go');
+  assert.equal(game.sim.tombOpen, false, 'and the door shuts once it has gone from the doorway');
+  // The gate: a ball held in the middle of where it sweeps (taken from the table's data, wherever the gate stands, and
+  // at its ramp's height) keeps it at rest; with the ball gone it swings.
+  ball = ballOf(xan)!;
+  const floor = ((game.sim as any).diverter as { y: number }).y;
+  const mid = (((DIVERTER.restDeg + DIVERTER.overDeg) / 2) * Math.PI) / 180;
+  const inTheWay = () => {
+    const body = game.sim.items.get(ball)!.body;
+    body.setTranslation({ x: DIVERTER.pivot[0] + (DIVERTER.length / 2) * Math.cos(mid), y: floor + R, z: DIVERTER.pivot[1] + (DIVERTER.length / 2) * Math.sin(mid) }, true);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  };
+  game.setToy('diverter', true);
+  run(0.5, inTheWay);
+  assert.equal(game.toyWanted('diverter'), true);
+  assert.equal(game.sim.diverterOver, false, 'not swung into the ball in its way');
+  assert.equal(game.sim.toys() & TOY.diverterOver, 0);
+  game.sim.remove(ball);
+  run(2 * DT);
+  assert.equal(game.sim.diverterOver, true, 'it swings once the ball has gone');
+  game.setToy('diverter', false);
+  run(2 * DT);
+  assert.equal(game.sim.diverterOver, false, 'and back when asked');
+});
+
+step('a reset puts every toy away', () => {
+  const wes = viewer('wes', 'Wes');
+  const ball = freshBall(wes);
+  for (const toy of TOYS) game.setToy(toy, true);
+  hold(ball, -0.4, 9, 0.5);
+  assert.equal(game.sim.targetsDown() & RISING, 0, 'the pop-ups and the mummy are up');
+  assert.equal(game.sim.tombOpen, true);
+  assert.equal(game.sim.diverterOver, true);
+  assert.equal(toyBits(), TOY.tombOpen | TOY.diverterOver, "and the snapshot's toy word says the tomb is open and the gate over");
+  // A ball in the tomb at the time goes with the rest.
+  rollAtTomb(ball);
+  for (let i = 0; i < 1 / DT && game.sim.heldBy(ball) !== 'tomb'; i++) run(DT);
+  assert.equal(game.sim.heldBy(ball), 'tomb', 'the tomb holds the ball');
+  game.resetMachine();
+  const away = () => {
+    assert.equal(game.sim.items.size, 0, 'the ball the tomb held is gone with the rest');
+    assert.equal(game.sim.targetsDown() & RISING, RISING, 'every rising target is down');
+    assert.equal(game.sim.tombOpen, false, 'the tomb is shut');
+    assert.equal(game.sim.diverterOver, false, 'the gate is at rest');
+    assert.equal(toyBits(), 0, "and the snapshot's toy word is clear");
+    assert.deepEqual(TOYS.map((toy) => game.toyWanted(toy)), [false, false, false, false], 'none is wanted up');
+  };
+  away();
+  run(1);
+  away();
+});
+
+step('the toy action works only with PINBALL_TOYS', () => {
+  const was = process.env.PINBALL_TOYS;
+  try {
+    game.resetMachine();
+    delete process.env.PINBALL_TOYS;
+    game.action({ kind: 'toy', toy: 'tomb', up: true });
+    run(0.1);
+    assert.equal(game.sim.tombOpen, false, 'without PINBALL_TOYS the action is ignored like any unknown one');
+    assert.equal(game.toyWanted('tomb'), false);
+    process.env.PINBALL_TOYS = '0';
+    game.action({ kind: 'toy', toy: 'tomb', up: true });
+    run(0.1);
+    assert.equal(game.sim.tombOpen, false, 'only 1 switches it on');
+    process.env.PINBALL_TOYS = '1';
+    game.action({ kind: 'toy', toy: 'tomb', up: true });
+    run(0.1);
+    assert.equal(game.sim.tombOpen, true, 'with PINBALL_TOYS=1 it opens');
+    game.action({ kind: 'toy', toy: 'popups', up: true });
+    game.action({ kind: 'toy', toy: 'mummy', up: true });
+    game.action({ kind: 'toy', toy: 'diverter', up: true });
+    run(0.5);
+    assert.equal(game.sim.targetsDown() & RISING, 0, 'the pop-ups and the mummy rise');
+    assert.equal(game.sim.diverterOver, true);
+    // Anything else is ignored, the switch on: an unknown toy, no toy, an up that is not a yes or a no (these that are
+    // falsy would shut the tomb if taken for a no).
+    game.action({ kind: 'toy', toy: 'nonsense', up: false });
+    game.action({ kind: 'toy', up: false });
+    game.action({ kind: 'toy', toy: ['tomb'], up: false });
+    game.action({ kind: 'toy', toy: 'tomb', up: 0 });
+    game.action({ kind: 'toy', toy: 'tomb', up: null });
+    game.action({ kind: 'toy', toy: 'tomb', up: '' });
+    game.action({ kind: 'toy', toy: 'tomb' });
+    game.action({ kind: 'toy' });
+    run(0.5);
+    assert.equal(game.sim.tombOpen, true, 'nothing of that shut the tomb');
+    assert.deepEqual(TOYS.map((toy) => game.toyWanted(toy)), [true, true, true, true]);
+    assert.equal((game as any).toyWaits.size, 0, 'and nothing was left waiting to be moved');
+    game.action({ kind: 'toy', toy: 'tomb', up: false });
+    game.action({ kind: 'toy', toy: 'diverter', up: false });
+    run(0.5);
+    assert.equal(game.sim.tombOpen, false, 'and down');
+    assert.equal(game.sim.diverterOver, false);
+  } finally {
+    if (was === undefined) delete process.env.PINBALL_TOYS;
+    else process.env.PINBALL_TOYS = was;
+  }
 });
 
 for (const [name, fn] of steps) {

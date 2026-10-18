@@ -9,8 +9,9 @@
 // on a ball and never holds one the lock or a saucer has (nor they its), the quest's diverter (a gate on the right
 // ramp, over a gap in its rail) at rest leaves the ramp running as before and swung over sends balls from the dish
 // into the lock, swinging at its own slow speed and never into a ball, the toys' bits say what's open and over, and
-// the snapshot is the 43-byte header (type, time, ball count, the three flippers' angles, the lit bits, the targets
-// down and turned, both spinners' angles) then each ball's body; a ball's owner is in its state, not the snapshot.
+// the snapshot is the 47-byte header (type, time, ball count, the three flippers' angles, the lit bits, the targets
+// down and turned, both spinners' angles, the toys' bits) then each ball's body; a ball's owner is in its state, not
+// the snapshot.
 // (The pathways round the table are pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
@@ -1177,6 +1178,11 @@ const checks: [string, () => void][] = [
   }],
   ['the snapshot', () => {
     const { sim } = make();
+    // The toys' word is the physics' own, as it stands when the snapshot is taken: none on a fresh table, and then the
+    // tomb open and the gate set over, both set before any ball is on the table (the gate waits for a ball in its way).
+    assert.equal(sim.snapshot(0).readUInt32LE(43), 0, 'a fresh table: the tomb shut and the gate at rest');
+    sim.openTomb();
+    assert.equal(sim.setDiverter(true), true);
     const a = sim.launch(3);
     const b = sim.launch(null);
     sim.flip('left', true);
@@ -1189,7 +1195,7 @@ const checks: [string, () => void][] = [
     assert.equal(snap[0], SNAP_TYPE_PINBALL);
     assert.equal(snap[0], 4);
     assert.equal(snap.length, SNAP_PINBALL_HEADER + count * SNAP_STRIDE);
-    assert.equal(snap.length, 43 + count * SNAP_STRIDE);
+    assert.equal(snap.length, 47 + count * SNAP_STRIDE);
     assert.ok(Math.abs(snap.readDoubleLE(1) - sim.time) < 1e-9);
     assert.equal(snap.readUInt16LE(9), count);
     assert.ok(Math.abs(snap.readFloatLE(11) - sim.flipperAngle('left')) < 1e-4);
@@ -1200,6 +1206,8 @@ const checks: [string, () => void][] = [
     assert.equal(snap.readUInt32LE(31), sim.targetsTurned());
     assert.ok(Math.abs(snap.readFloatLE(35) - sim.spinnerAngle()) < 1e-4);
     assert.ok(Math.abs(snap.readFloatLE(39) - sim.spinnerAngles()[1]) < 1e-4);
+    assert.equal(snap.readUInt32LE(43), TOY.tombOpen | TOY.diverterOver, 'the toys: the tomb open and the gate set over');
+    assert.equal(snap.readUInt32LE(43), sim.toys());
     const ids = [0, 1].map((k) => snap.readUInt32LE(SNAP_PINBALL_HEADER + k * SNAP_STRIDE)).sort();
     assert.deepEqual(ids, [a, b].sort());
     const p = sim.items.get(a)!.body.translation();

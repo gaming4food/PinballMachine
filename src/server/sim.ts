@@ -1142,7 +1142,8 @@ export class PinballSim {
 
   /**
    * The binary snapshot (shared/pinball.ts): the header, with the three flippers' angles (degrees), the lit inserts the
-   * game passes, the targets down and turned and the two spinners' turns, then each ball in the kit's body format.
+   * game passes, the targets down and turned, the two spinners' turns and the toys' bits (toys()), then each ball in
+   * the kit's body format.
    */
   snapshot(lit: number): Buffer {
     const count = this.items.size;
@@ -1158,6 +1159,7 @@ export class PinballSim {
     const spinners = this.spinnerAngles();
     buf.writeFloatLE(spinners[0] ?? 0, 35);
     buf.writeFloatLE(spinners[1] ?? 0, 39);
+    buf.writeUInt32LE(this.toys() >>> 0, 43);
     let o = SNAP_PINBALL_HEADER;
     for (const ball of this.items.values()) {
       const p = ball.body.translation();

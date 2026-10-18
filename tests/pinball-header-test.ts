@@ -29,7 +29,7 @@ test(`the header round-trips ${TABLE_IN_USE.targets.length} targets and three fl
   inner.targets[13].turned = true;
   inner.spinAngle = 1.25;
   const h = readPinballHeader(headerOf(sim, LIT.centre2));
-  assert.equal(SNAP_PINBALL_HEADER, 43);
+  assert.equal(SNAP_PINBALL_HEADER, 47);
   assert.equal(h.targetsDown & (1 << 12), 1 << 12);
   assert.equal(h.targetsDown, (1 << 12) | RISING);
   assert.equal(h.targetsTurned, (1 << 9) | (1 << 13));
