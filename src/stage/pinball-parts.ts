@@ -17,18 +17,19 @@ import falcon62 from '../assets/plaques/falconplaque-62.png';
 import scarab62 from '../assets/plaques/scarab-62.png';
 import sundisc14 from '../assets/plaques/sundisc-14.png';
 import { LIT } from '../shared/pinball';
-import type { Flipper, Table, Target } from '../shared/table';
-import { CYAN, PINK, segmentBox } from './table-mesh';
+import { FLIPPER_SHAPE, flipperHull, type Flipper, type Table, type Target } from '../shared/table';
+import { CX, CYAN, PINK, segmentBox } from './table-mesh';
 
 const YELLOW = 0xffd23f;
 const GREEN = 0x39ff6a;
-/** The table's middle line (the pyramid's, the bumpers' and the main flippers' axis), as build_table.py's CX. */
-const CX = -0.4;
-/** The flippers as the picture's build draws them: base and tip radius, the body's bottom and top. */
-const FLIPPER_BASE_R = 0.25;
-const FLIPPER_TIP_R = 0.13;
-const FLIPPER_Y0 = 0.02;
-const FLIPPER_Y1 = 0.34;
+/**
+ * A flipper as the picture's build draws it, in the physics' shape (FLIPPER_SHAPE): a cream body, a gold cap on its top
+ * (its outline shrunk to CAP_SCALE about the pivot, CAP_THICK thick) and a gold pin on the cap.
+ */
+const CAP_SCALE = 0.82;
+const CAP_THICK = 0.03;
+/** How many points round each of a drawn flipper's rounds (the physics' collider has 12; more look rounder). */
+const FLIPPER_ROUND = 24;
 /** A target: its gold body's thickness and height; the emblem's bottom and top. */
 const TARGET_THICK = 0.2;
 const TARGET_HEIGHT = 0.52;
@@ -82,9 +83,19 @@ const EMBLEMS: Record<string, string> = {
   'target-eye-3': eye22,
 };
 
-/** The picture's gold, the flippers' cream rubber and the spinners' blue enamel (build_table.py's, linear colours). */
+/** The flippers' cream rubber and the spinners' blue enamel (build_table.py's, linear colours). */
 const linear = (r: number, g: number, b: number) => new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColorSpace);
-const GOLD = new THREE.MeshStandardMaterial({ color: linear(1, 0.7, 0.14), metalness: 1, roughness: 0.16 });
+/**
+ * The live parts' one gold (the targets' bodies and pins, the flippers' caps and pins, the spinners' posts and bars),
+ * made to look like the picture's gold from the stage's camera. The picture's gold measures about sRGB (204, 136, 18)
+ * at its middle, (141, 105, 43) in shade and (241, 158, 28) lit, a deep orange gold (scene light 0.51, 0.18, 0.003
+ * under the stage's tone mapping); build_table.py's base colour (1, 0.7, 0.14) reads pale yellow through it. A mirror
+ * gold, as the build's, looking down at the table sees only the dark above it in the stage's environment (lit round its
+ * sides) and showed black at the first look; so this is half metal and satin, lit by the stage's lights, with a glow of
+ * its own: alone it gives the picture's shade, (161, 96, 16), and lit from above about its middle.
+ */
+const GOLD_COLOR = linear(1, 0.38, 0.03);
+export const GOLD = new THREE.MeshStandardMaterial({ color: GOLD_COLOR, metalness: 0.5, roughness: 0.35, emissive: GOLD_COLOR, emissiveIntensity: 0.28 });
 const CREAM = new THREE.MeshStandardMaterial({ color: linear(0.92, 0.86, 0.72), roughness: 0.35, metalness: 0.05 });
 const BLUE_ENAMEL = new THREE.MeshStandardMaterial({ color: linear(0.02, 0.12, 0.75), roughness: 0.22, metalness: 0.1 });
 
@@ -127,17 +138,14 @@ function emblemGeometry(width: number): THREE.PlaneGeometry {
   return geo;
 }
 
-/** A flipper's shape in its own frame (+x from the pivot to the tip): its two circles' hull from y0 to y1, `scale` of it. */
-function flipperGeometry(length: number, y0: number, y1: number, scale = 1): THREE.BufferGeometry {
-  const pts: THREE.Vector3[] = [];
-  const n = 24;
-  for (const y of [y0, y1]) {
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * 2 * Math.PI;
-      pts.push(new THREE.Vector3(scale * FLIPPER_BASE_R * Math.cos(a), y, scale * FLIPPER_BASE_R * Math.sin(a)));
-      pts.push(new THREE.Vector3(scale * (length + FLIPPER_TIP_R * Math.cos(a)), y, scale * FLIPPER_TIP_R * Math.sin(a)));
-    }
-  }
+/**
+ * A flipper's body in its own frame (+x from the pivot to the tip): the physics' outline (shared/table.ts flipperHull),
+ * from the playfield to its height; or, with `cap`, that outline shrunk about the pivot and lying on its top.
+ */
+function flipperGeometry(length: number, cap = false): THREE.BufferGeometry {
+  const pts = flipperHull(length, FLIPPER_ROUND).map(([x, y, z]) =>
+    cap ? new THREE.Vector3(CAP_SCALE * x, FLIPPER_SHAPE.height + (y > 0 ? CAP_THICK : 0), CAP_SCALE * z) : new THREE.Vector3(x, y, z),
+  );
   return new ConvexGeometry(pts);
 }
 
@@ -165,6 +173,8 @@ function glowMap(): THREE.DataTexture {
     }
   }
   glowTexture = new THREE.DataTexture(data, n, n);
+  // Smooth when drawn larger or smaller than it is (a DataTexture is nearest-filtered unless told).
+  glowTexture.magFilter = glowTexture.minFilter = THREE.LinearFilter;
   glowTexture.needsUpdate = true;
   return glowTexture;
 }
@@ -202,6 +212,8 @@ function targetFrame(table: Table, t: Target): { u: [number, number]; n: [number
 /** A target as drawn: its pivot (at its place, turned to its face), its rest turn, and its turn or drop under way. */
 export interface TargetView {
   pivot: THREE.Group;
+  /** Its gold body, the emblems on its faces. */
+  body: THREE.Mesh;
   /** A flip plaque (it turns), or a drop target (it sinks). */
   plaque: boolean;
   /** The pivot's turn about y at rest: its local +x along its face, its local +z out of its front toward the play. */
@@ -234,8 +246,8 @@ export class TableParts {
   readonly standIn = new THREE.Group();
   /** The glows over the picture's lamps and bumpers: drawn only over the picture. */
   readonly glowGroup = new THREE.Group();
-  /** The flippers in the table's order (left, right, upper right). */
-  readonly flippers: { f: Flipper; mesh: THREE.Group }[] = [];
+  /** The flippers in the table's order (left, right, upper right): each turned as a whole, with its body, cap and pin. */
+  readonly flippers: { f: Flipper; mesh: THREE.Group; body: THREE.Mesh; cap: THREE.Mesh; pin: THREE.Mesh }[] = [];
   /** Every target, in the table's order (the header's bit numbering). */
   readonly targets: TargetView[] = [];
   /** The spinners' plates: the main spinner, then the table's others. */
@@ -255,18 +267,19 @@ export class TableParts {
     const g = this.group;
     g.add(this.standIn, this.glowGroup);
 
-    // The flippers: cream rubber bodies with a gold cap and a gold pin, as the picture's build draws them.
+    // The flippers, in the physics' shape: cream rubber bodies with a gold cap on top and a gold pin, as the picture's
+    // build draws them.
     for (const f of table.flippers) {
       const mesh = new THREE.Group();
-      const body = new THREE.Mesh(flipperGeometry(f.length, FLIPPER_Y0, FLIPPER_Y1), CREAM);
-      const cap = new THREE.Mesh(flipperGeometry(f.length, FLIPPER_Y1, FLIPPER_Y1 + 0.03, 0.82), GOLD);
-      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.03, 24), GOLD);
-      pin.position.y = FLIPPER_Y1 + 0.045;
+      const body = new THREE.Mesh(flipperGeometry(f.length), CREAM);
+      const cap = new THREE.Mesh(flipperGeometry(f.length, true), GOLD);
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, CAP_THICK, 24), GOLD);
+      pin.position.y = FLIPPER_SHAPE.height + CAP_THICK * 1.5;
       body.castShadow = cap.castShadow = true;
       mesh.add(body, cap, pin);
       mesh.position.set(f.pivot[0], 0, f.pivot[1]);
       g.add(mesh);
-      this.flippers.push({ f, mesh });
+      this.flippers.push({ f, mesh, body, cap, pin });
     }
     this.setFlippers(table.flippers.map((f) => f.restDeg));
 
@@ -299,7 +312,7 @@ export class TableParts {
         pivot.add(back, pin, cap);
       }
       g.add(pivot);
-      this.targets.push({ pivot, plaque: t.flip === true, rest, from: 0, to: 0, start: -Infinity, y: 0 });
+      this.targets.push({ pivot, body, plaque: t.flip === true, rest, from: 0, to: 0, start: -Infinity, y: 0 });
     }
 
     // The spinners: gold posts each side of the lane and a gold bar across them, the blue plate hanging from the bar.

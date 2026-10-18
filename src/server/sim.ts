@@ -13,7 +13,7 @@ import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { DT } from '@kit/server';
 import { SNAP_STRIDE, type BodyState } from '@kit/shared';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../shared/pinball';
-import { TABLE, type Dish, type Flipper, type Ramp, type Table } from '../shared/table';
+import { FLIPPER_SHAPE, flipperHull, TABLE, type Dish, type Flipper, type Ramp, type Table } from '../shared/table';
 
 // Passed on for the game and the tests, which import it from here; it's every machine's (@kit/server).
 export { DT } from '@kit/server';
@@ -64,10 +64,11 @@ const MAX_SPEED = 60;
 
 /** How fast a flipper swings, degrees per second. */
 const FLIPPER_SPEED = 1800;
-/** A flipper's shape: round at the base (on the pivot) and at the tip, its tip round ending at its `length`. */
-const FLIPPER_BASE_R = 0.22;
-const FLIPPER_TIP_R = 0.1;
-const FLIPPER_HEIGHT = 0.45;
+/**
+ * A flipper's shape (shared/table.ts's FLIPPER_SHAPE, which the stage draws too): round on its pivot and at its tip, the
+ * tip's round ending at its `length`.
+ */
+const { baseRadius: FLIPPER_BASE_R, tipRadius: FLIPPER_TIP_R } = FLIPPER_SHAPE;
 /** A ball this near a swinging flipper's face is batted by it (bat). */
 const BAT_TOUCH = 0.03;
 
@@ -329,7 +330,7 @@ export class PinballSim {
         RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(f.pivot[0], 0, f.pivot[1]).setRotation(turnTo(f.restDeg)),
       );
       this.world.createCollider(
-        RAPIER.ColliderDesc.convexHull(flipperPoints(f.length))!.setFriction(FLIPPER.friction).setRestitution(FLIPPER.restitution),
+        RAPIER.ColliderDesc.convexHull(new Float32Array(flipperHull(f.length).flat()))!.setFriction(FLIPPER.friction).setRestitution(FLIPPER.restitution),
         body,
       );
       this.flippers.push({ f, body, angle: f.restDeg, up: false });
@@ -883,20 +884,6 @@ export class PinballSim {
     }
     return buf;
   }
-}
-
-/** A flipper's outline in its own frame (+x from the pivot), at the playfield and at its top, for a convex hull. */
-function flipperPoints(length: number): Float32Array {
-  const pts: number[] = [];
-  const n = 12;
-  for (const y of [0, FLIPPER_HEIGHT]) {
-    for (let k = 0; k < n; k++) {
-      const a = (k / n) * 2 * Math.PI;
-      pts.push(FLIPPER_BASE_R * Math.cos(a), y, FLIPPER_BASE_R * Math.sin(a));
-      pts.push(length - FLIPPER_TIP_R + FLIPPER_TIP_R * Math.cos(a), y, FLIPPER_TIP_R * Math.sin(a));
-    }
-  }
-  return new Float32Array(pts);
 }
 
 /** The wall segment nearest p. */

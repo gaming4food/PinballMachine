@@ -26,7 +26,17 @@ Rebuild it whenever the table data changes, and commit the picture with its side
 
 `npm run picture -- hero` renders the promotional picture instead (the whole cabinet from the front at 38°, a 90 mm
 lens, with the live parts) to `blender/renders/hero.png`; it leaves `src/assets` alone. `TURNED=target-ra-1,target-eye-2`
-shows those flip plaques turned in it.
+shows those flip plaques turned in it. Its flippers have the physics' shape (`FLIPPER_SHAPE` in `src/shared/table.ts`,
+which `tools/export-scene.ts` writes into `blender/scene.json`), as the stage's live flippers do.
+
+## The live plaques' pictures
+
+The stage draws the flip plaques and the drop targets itself, with their emblems from `src/assets/plaques`: the pieces
+of `blender/art` they use, at 256 × 256 (a plaque is about 25 px wide on the stage). Make them again from the art with
+
+    python -I blender/plaques.py blender/art src/assets/plaques
+
+and commit them. `npm run pinball-parts-test` checks the set and the size.
 
 ## What it needs
 

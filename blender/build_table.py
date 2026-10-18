@@ -1054,19 +1054,24 @@ for args in STANDEES:
     standee(*args)
 SKIP_CHECK = False
 
+# The flippers (live parts: the hero's only), in the physics' shape, as src/shared/table.ts's FLIPPER_SHAPE (scene.json's
+# flipperShape; the stage's live flippers have it too): round on the pivot and at the tip, the tip's round ending at the
+# flipper's length, as tall as the physics'. A cream body, a gold cap on its top (its outline at 0.82) and a gold pin.
+FLIPPER_SHAPE = S['flipperShape']
+RB, RT, FH = FLIPPER_SHAPE['baseRadius'], FLIPPER_SHAPE['tipRadius'], FLIPPER_SHAPE['height']
 for fl in T['flippers']:
     px_, py_ = fl['pivot']; a_ = math.radians(fl['restDeg']); L_ = fl['length']
-    tipx, tipy = px_ + L_ * math.cos(a_), py_ + L_ * math.sin(a_)
+    tipx, tipy = px_ + (L_ - RT) * math.cos(a_), py_ + (L_ - RT) * math.sin(a_)
     outline = []
     for k in range(24):
         t_ = math.pi / 2 + k / 23 * math.pi
-        outline.append((px_ + 0.25 * math.cos(a_ + t_), py_ + 0.25 * math.sin(a_ + t_)))
+        outline.append((px_ + RB * math.cos(a_ + t_), py_ + RB * math.sin(a_ + t_)))
     for k in range(24):
         t_ = -math.pi / 2 + k / 23 * math.pi
-        outline.append((tipx + 0.13 * math.cos(a_ + t_), tipy + 0.13 * math.sin(a_ + t_)))
-    LIVE.append(prism('flipper', outline, 0.02, 0.34, CREAM, 0.04))
-    LIVE.append(prism('flipper cap', [(px_ + (x_ - px_) * 0.82, py_ + (y_ - py_) * 0.82) for x_, y_ in outline], 0.34, 0.37, GOLD, 0.01))
-    LIVE.append(cylinder('flipper pin', px_, py_, 0.09, 0.37, 0.4, GOLD, 24))
+        outline.append((tipx + RT * math.cos(a_ + t_), tipy + RT * math.sin(a_ + t_)))
+    LIVE.append(prism('flipper', outline, 0.02, FH, CREAM, 0.04))
+    LIVE.append(prism('flipper cap', [(px_ + (x_ - px_) * 0.82, py_ + (y_ - py_) * 0.82) for x_, y_ in outline], FH, FH + 0.03, GOLD, 0.01))
+    LIVE.append(cylinder('flipper pin', px_, py_, 0.09, FH + 0.03, FH + 0.06, GOLD, 24))
 
 
 # ---------------------------------------------------------------- render

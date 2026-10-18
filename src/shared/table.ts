@@ -178,6 +178,31 @@ export interface Table {
   banks: Bank[];
 }
 
+/**
+ * A flipper's shape, the physics' (server/sim.ts: its collider and its bat) and the stage's (stage/pinball-parts.ts)
+ * alike: round on its pivot (`baseRadius`) and at its tip (`tipRadius`, the tip's round ending at the flipper's
+ * `length`), and `height` tall off the playfield. The Blender build's hero picture draws its flippers from it too
+ * (tools/export-scene.ts writes it into blender/scene.json).
+ */
+export const FLIPPER_SHAPE = { baseRadius: 0.22, tipRadius: 0.1, height: 0.45 } as const;
+
+/**
+ * A flipper's outline in its own frame (+x from the pivot to the tip, y up off the playfield), at the playfield and at
+ * its top: `n` points round each of its two rounds, for a convex hull (the physics' collider, the stage's flipper).
+ */
+export function flipperHull(length: number, n = 12): [number, number, number][] {
+  const { baseRadius, tipRadius, height } = FLIPPER_SHAPE;
+  const pts: [number, number, number][] = [];
+  for (const y of [0, height]) {
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * 2 * Math.PI;
+      pts.push([baseRadius * Math.cos(a), y, baseRadius * Math.sin(a)]);
+      pts.push([length - tipRadius + tipRadius * Math.cos(a), y, tipRadius * Math.sin(a)]);
+    }
+  }
+  return pts;
+}
+
 /** Where a flipper's tip is at a given angle (its rest angle by default), from its pivot and length. */
 export function flipperTip(f: Flipper, deg: number = f.restDeg): [number, number] {
   const a = (deg * Math.PI) / 180;

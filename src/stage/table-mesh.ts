@@ -16,6 +16,8 @@ import type { Ramp, Table } from '../shared/table';
 
 export const PINK = 0xff2bd6;
 export const CYAN = 0x22e6ff;
+/** The table's middle line (the pyramid's, the bumpers' and the main flippers' axis), as build_table.py's CX. */
+export const CX = -0.4;
 
 /** How tall the walls stand off the playfield, and how thick they're drawn (the physics' are 0.16 thick). */
 const WALL_HEIGHT = 0.55;
@@ -293,27 +295,33 @@ export function pictureDepth(table: Table, width: number, length: number): THREE
   for (const w of table.walls) {
     if (w.kind === 'outer' || w.kind === 'orbit' || w.kind === 'pyramid' || w.kind === 'slingback') continue;
     for (let k = 1; k < w.points.length; k++) {
-      let a = w.points[k - 1];
-      let b = w.points[k];
+      const [a, b] = [w.points[k - 1], w.points[k]];
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      const cutA = nearPivot(a);
-      const cutB = nearPivot(b);
-      if (len <= (Number(cutA) + Number(cutB)) * CLEAR_OF_PIVOT + 0.05) continue;
-      const toward = (from: [number, number], to: [number, number]): [number, number] => [
-        from[0] + ((to[0] - from[0]) / len) * CLEAR_OF_PIVOT,
-        from[1] + ((to[1] - from[1]) / len) * CLEAR_OF_PIVOT,
-      ];
-      if (cutA) a = toward(a, b);
-      if (cutB) b = toward(b, a);
-      hide(segmentBox(a, b, WALL_THICK, PICTURE_WALL, depthOnly));
+      const cutA = nearPivot(a) ? CLEAR_OF_PIVOT : 0;
+      const cutB = nearPivot(b) ? CLEAR_OF_PIVOT : 0;
+      if (len <= cutA + cutB + 0.05) continue;
+      // Each end moved in along the wall by its own cut, from the wall's own ends.
+      const ux = (b[0] - a[0]) / len;
+      const uz = (b[1] - a[1]) / len;
+      hide(segmentBox([a[0] + ux * cutA, a[1] + uz * cutA], [b[0] - ux * cutB, b[1] - uz * cutB], WALL_THICK, PICTURE_WALL, depthOnly));
     }
   }
 
-  // The slings' plastics: a triangle from each rubber face back to its sling's back corner.
+  // The slings' plastics: a triangle from each rubber face back to its sling's back corner (the corner of the wall
+  // closing it, the slingback starting at the sling's top end); without one, the build's own guess, 0.3 out from the
+  // face's middle, away from the table's middle line.
+  const same = (p: readonly [number, number], q: readonly [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6;
   for (const s of table.slings) {
-    const back = table.walls.find((w) => w.kind === 'slingback' && w.points[0][0] === s.a[0] && w.points[0][1] === s.a[1]);
-    if (!back) continue;
-    const c = back.points[1];
+    const back = table.walls.find((w) => w.kind === 'slingback' && same(w.points[0], s.a));
+    let c: readonly [number, number];
+    if (back) c = back.points[1];
+    else {
+      const len = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
+      let [nx, nz] = [-(s.b[1] - s.a[1]) / len, (s.b[0] - s.a[0]) / len];
+      const [mx, mz] = [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
+      if (Math.abs(mx + nx - CX) < Math.abs(mx - CX)) [nx, nz] = [-nx, -nz];
+      c = [mx + nx * 0.3, mz + nz * 0.3];
+    }
     const tri = new THREE.Shape();
     // Drawn in (x, -z), extruded along +z and turned so the depth stands up: (x, -z, d) to (x, d, z).
     tri.moveTo(s.a[0], -s.a[1]);

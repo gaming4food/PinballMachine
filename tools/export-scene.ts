@@ -1,12 +1,12 @@
 // Writes blender/scene.json for the Blender build (blender/build_table.py): the table in use, the table's place in the
 // world and the stage's camera, both exactly as the stage sets them (tiltTable and stageCamera in src/stage/pinball.ts,
-// never copied numbers), and where a few known table points land on the stage's frame, which the build checks its own
-// camera against (CAMERA MATCH).
+// never copied numbers), the flippers' shape (the physics', which the stage draws too), and where a few known table
+// points land on the stage's frame, which the build checks its own camera against (CAMERA MATCH).
 // Usage: npx tsx tools/export-scene.ts [out path]   (npm run picture runs it)
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import { TABLE, TABLE_IN_USE } from '../src/shared/table';
+import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE } from '../src/shared/table';
 // The stage's code loads in Node with its CSS and the like stubbed.
 import '../tests/stub-assets';
 
@@ -25,6 +25,7 @@ export interface Scene {
   cameraMatrix: number[];
   tableMatrix: number[];
   tableConst: typeof TABLE;
+  flipperShape: typeof FLIPPER_SHAPE;
   table: typeof TABLE_IN_USE;
 }
 
@@ -51,6 +52,7 @@ export function exportScene(): Scene {
     cameraMatrix: fit.matrix, // column-major, three's Y-up world
     tableMatrix: [...table.matrixWorld.elements],
     tableConst: TABLE,
+    flipperShape: FLIPPER_SHAPE,
     table: TABLE_IN_USE,
   };
 }
