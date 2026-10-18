@@ -15,8 +15,10 @@ const test = (name: string, fn: () => void) => tests.push([name, fn]);
 
 /** The header as the stage is handed it (the kit's readSnapshot): the snapshot's bytes up to where the bodies start. */
 const headerOf = (sim: PinballSim, lit: number) => new DataView(new Uint8Array(sim.snapshot(lit)).buffer, 0, SNAP_PINBALL_HEADER);
+/** The rising targets (the pop-ups and the mummy) start down: their bits are set in every fresh sim's header. */
+const RISING = TABLE_IN_USE.targets.reduce((bits, t, i) => (t.rise ? bits | (1 << i) : bits), 0);
 
-test('the header round-trips 14 targets and three flippers', () => {
+test(`the header round-trips ${TABLE_IN_USE.targets.length} targets and three flippers`, () => {
   const sim = new PinballSim(TABLE_IN_USE, () => {});
   sim.flip('right', true);
   for (let i = 0; i < 10; i++) sim.step();
@@ -29,7 +31,7 @@ test('the header round-trips 14 targets and three flippers', () => {
   const h = readPinballHeader(headerOf(sim, LIT.centre2));
   assert.equal(SNAP_PINBALL_HEADER, 43);
   assert.equal(h.targetsDown & (1 << 12), 1 << 12);
-  assert.equal(h.targetsDown, 1 << 12);
+  assert.equal(h.targetsDown, (1 << 12) | RISING);
   assert.equal(h.targetsTurned, (1 << 9) | (1 << 13));
   assert.equal(h.flippers.length, 3);
   assert.equal(h.spinners.length, 2);
@@ -55,10 +57,10 @@ test('the stage reads the header as the server wrote it: the time, the count, th
   assert.equal(h.lit, lit);
 });
 
-test('a table at rest: no balls, flippers down, nothing lit, every target up', () => {
+test('a table at rest: no balls, flippers down, nothing lit, every target up but the rising ones, which stand down', () => {
   const sim = new PinballSim(TABLE_IN_USE, () => {});
   const h = readPinballHeader(headerOf(sim, 0));
-  assert.deepEqual(h, { time: 0, count: 0, flippers: sim.flipperAngles().map((a) => Math.fround(a)), lit: 0, targetsDown: 0, targetsTurned: 0, spinners: [0, 0] });
+  assert.deepEqual(h, { time: 0, count: 0, flippers: sim.flipperAngles().map((a) => Math.fround(a)), lit: 0, targetsDown: RISING, targetsTurned: 0, spinners: [0, 0] });
 });
 
 test('every lit bit on', () => {

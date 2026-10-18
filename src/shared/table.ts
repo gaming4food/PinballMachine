@@ -12,8 +12,11 @@ export const TABLE = { width: 10, length: 16.7, tiltDeg: 6.5, ballRadius: 0.27, 
 export interface Wall {
   points: [number, number][];
   restitution: number;
-  /** What the wall is, for the picture: the outer wall, the shooter lane's, a guide, the orbit's, the pyramid's, a lane's, a sling's back, an island's. */
-  kind?: 'outer' | 'shooter' | 'guide' | 'orbit' | 'pyramid' | 'lane' | 'slingback' | 'island';
+  /**
+   * What the wall is, for the picture: the outer wall, the shooter lane's, a guide, the orbit's, the pyramid's, a
+   * lane's, a sling's back, an island's, or a jamb of the tomb's doorway (wallsWithTomb makes those; `walls` has none).
+   */
+  kind?: 'outer' | 'shooter' | 'guide' | 'orbit' | 'pyramid' | 'lane' | 'slingback' | 'island' | 'tomb';
 }
 
 /** A pop bumper: a round post that kicks the ball away when it's hit. */
@@ -37,7 +40,7 @@ export interface Sling {
   points: number;
 }
 
-/** A target: a drop target or a flip target, centered at (x, z) and `width` wide along its face. */
+/** A target: a drop target, a flip target or a rising one, centered at (x, z) and `width` wide along its face. */
 export interface Target {
   id: string;
   x: number;
@@ -48,6 +51,21 @@ export interface Target {
   angle?: number;
   /** A flip target: it stays up when hit and turns to its back, rather than dropping. */
   flip?: boolean;
+  /**
+   * A rising target: it starts down (no wall, nothing to hit) and the game raises it, and puts it down again. Raised,
+   * `'drop'` drops when hit, as a drop target does, and reports it (a pop-up); `'hold'` stays up when hit and reports
+   * every hit (the mummy). Neither is one of the lock's drop targets (isLockTarget).
+   */
+  rise?: 'drop' | 'hold';
+  /** How thick it is across its face, for the physics' wall and the picture (default 0.2). */
+  depth?: number;
+  /** How tall it is drawn (default 0.52). */
+  height?: number;
+}
+
+/** One of the lock's drop targets (the scarab and the eye): no flip plaque, no rising target. Only these light it. */
+export function isLockTarget(t: Target): boolean {
+  return !t.flip && !t.rise;
 }
 
 /** A rollover lane at the top: it scores and lights when a ball rolls over it. */
@@ -98,6 +116,11 @@ export interface Ramp {
   rail: number;
   skirt?: boolean;
   flare?: number;
+  /**
+   * A gap in one rail, for the diverter to send a ball out through: that side's rail is left out between path points
+   * `from` and `to` ('right' is the ramp's right hand going along its path).
+   */
+  opening?: { side: 'left' | 'right'; from: number; to: number };
 }
 
 /** A raised round dish at (x, z), its floor `y` up and `r` across, with a rim `rail` high open over each arc of `gaps` (degrees). */
@@ -159,6 +182,38 @@ export interface Flipper {
   upDeg: number;
 }
 
+/**
+ * The tomb: a doorway cut into the pyramid's front corner. A ball that rolls in is caught, held at `held` for `hold`
+ * seconds, then kicked out along `eject` at `speed`, and scores `points`. The doorway's mouth lies along the line
+ * z = `z`, `width` across and centred on `x`: it runs between where the pyramid's two lower faces cross that line
+ * (wallsWithTomb cuts the pyramid's wall there and adds the jambs that close the pocket behind it).
+ */
+export interface Tomb {
+  id: string;
+  x: number;
+  z: number;
+  width: number;
+  held: [number, number];
+  hold: number;
+  eject: [number, number];
+  speed: number;
+  points: number;
+}
+
+/**
+ * The diverter: a gate on a ramp, hinged at `pivot` and `length` long, that swings between `restDeg` (its rest) and
+ * `overDeg` (over the ramp, toward the gap in its rail: the ramp's `opening`) to send a ball out of the ramp there.
+ * The angles are in degrees from the +x axis toward +z, as a flipper's.
+ */
+export interface Diverter {
+  id: string;
+  ramp: string;
+  pivot: [number, number];
+  length: number;
+  restDeg: number;
+  overDeg: number;
+}
+
 /** A whole table. */
 export interface Table {
   walls: Wall[];
@@ -179,6 +234,10 @@ export interface Table {
   /** The spinners besides `spinner`. */
   spinners: ExtraSpinner[];
   banks: Bank[];
+  /** The quest's tomb in the pyramid's front corner, if the table has one. Read the walls through wallsWithTomb. */
+  tomb?: Tomb;
+  /** The quest's diverter on one of the ramps, if the table has one. */
+  diverter?: Diverter;
 }
 
 /**
@@ -210,6 +269,42 @@ export function flipperHull(length: number, n = 12): [number, number, number][] 
 export function flipperTip(f: Flipper, deg: number = f.restDeg): [number, number] {
   const a = (deg * Math.PI) / 180;
   return [f.pivot[0] + f.length * Math.cos(a), f.pivot[1] + f.length * Math.sin(a)];
+}
+
+/**
+ * The table's walls as the physics and the picture build them: `t.walls`, and, when the table has a tomb, its pyramid
+ * wall cut open at the front corner for the doorway, and the doorway's two jambs added (`kind: 'tomb'`). Everything
+ * that builds solids from the walls takes them from here, not from `t.walls`, so the doorway is open to all alike.
+ *
+ * The pyramid's wall is a closed outline that starts and ends at its front corner, its lowest point. The doorway's
+ * mouth lies along z = tomb.z, between where the two faces that meet at that corner cross the line; the wall becomes
+ * the open outline from the first of those crossings round the corners to the last. From each end a jamb runs straight
+ * up the table to just over the held ball (a ball's radius and 0.1 above `held`), then along that line to the tomb's
+ * x. The two together close a pocket behind the mouth, so the pyramid's hollow inside stays closed. (Provisional: the
+ * pocket's real shape, with the held ball fitting between the jambs, is for the physics to settle.) A table with no
+ * tomb, or no pyramid wall, keeps its walls as they are.
+ */
+export function wallsWithTomb(t: Table): Wall[] {
+  const { tomb } = t;
+  const at = tomb ? t.walls.findIndex((w) => w.kind === 'pyramid') : -1;
+  if (!tomb || at < 0) return [...t.walls];
+  const pyramid = t.walls[at];
+  const pts = pyramid.points;
+  const n = pts.length;
+  const front = pts[0];
+  // The mouth's line has to cut the front corner off a closed outline: above the corner, below the two corners the
+  // faces rise to.
+  const closed = n >= 4 && pts[n - 1][0] === front[0] && pts[n - 1][1] === front[1];
+  if (!closed || !(tomb.z > front[1] && tomb.z < Math.min(pts[1][1], pts[n - 2][1]))) {
+    throw new Error(`the tomb's mouth (z ${tomb.z}) must cut the front corner off the pyramid's closed outline`);
+  }
+  /** Where the face from the front corner to `b` crosses the mouth's line. */
+  const crossing = (b: [number, number]): [number, number] => [front[0] + ((tomb.z - front[1]) / (b[1] - front[1])) * (b[0] - front[0]), tomb.z];
+  const ends = [crossing(pts[1]), crossing(pts[n - 2])];
+  const outline: Wall = { ...pyramid, points: [ends[0], ...pts.slice(1, n - 1), ends[1]] };
+  const top = tomb.held[1] + TABLE.ballRadius + 0.1;
+  const jambs = ends.map((end): Wall => ({ kind: 'tomb', restitution: pyramid.restitution, points: [end, [end[0], top], [tomb.x, top]] }));
+  return [...t.walls.slice(0, at), outline, ...jambs, ...t.walls.slice(at + 1)];
 }
 
 /** The table in use: the pyramid table (pyramid.ts), which the server's physics and the stage both read. */

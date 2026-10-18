@@ -81,17 +81,35 @@ export const PYRAMID: Table = {
     // The eye target, the scarab's partner (above).
     { id: 'target-eye', x: 1.877, z: 7.861, width: 0.55, points: 500, angle: -26.57 },
     // The Ankh bank on the pyramid's lower-left face (facing the right flipper) and the Eye bank on its lower-right face
-    // (facing the left): three plaques along each face from the front corner, close to the face (0.14 out) and slid 0.18
-    // toward the front corner, 0.5 wide. Across the whole face at 0.6, the top one stood out into the shot up the left
-    // ramp past the pyramid's left corner (2 of 10 shots made it). On the pyramid's faces they block nothing that wasn't
-    // already a wall; a bank under the pyramid stood in the shot up the left ramp, and one by the left inlane trapped
-    // every ball down the left orbit.
-    { id: 'target-ankh-1', x: -0.672, z: 5.824, width: 0.5, points: 300, angle: 135, flip: true },
-    { id: 'target-ankh-2', x: -1.047, z: 6.199, width: 0.5, points: 300, angle: 135, flip: true },
-    { id: 'target-ankh-3', x: -1.421, z: 6.573, width: 0.5, points: 300, angle: 135, flip: true },
-    { id: 'target-eye-1', x: -0.128, z: 5.824, width: 0.5, points: 300, angle: 45, flip: true },
-    { id: 'target-eye-2', x: 0.247, z: 6.199, width: 0.5, points: 300, angle: 45, flip: true },
-    { id: 'target-eye-3', x: 0.621, z: 6.573, width: 0.5, points: 300, angle: 45, flip: true },
+    // (facing the left): three plaques along each face from the front corner, close to the face (0.14 out). Across the
+    // whole face at 0.6, the top one stood out into the shot up the left ramp past the pyramid's left corner (2 of 10
+    // shots made it). On the pyramid's faces they block nothing that wasn't already a wall; a bank under the pyramid
+    // stood in the shot up the left ramp, and one by the left inlane trapped every ball down the left orbit.
+    // Each bank was 0.5 wide at 0.245, 0.775 and 1.305 along its face from the front corner, the lowest nearly meeting
+    // its twin there. The tomb's doorway is cut into that corner (tomb, below), so the lowest now starts past its
+    // mouth, 0.424 along, and three 0.5 wide no longer fit. The Eye bank is 0.42 wide, centred 0.66, 1.11 and 1.56
+    // along. The Ankh bank cannot be: its highest plaque may end no farther up than about 1.57, or it clips the shot up
+    // the left ramp past the pyramid's left corner (at 0.42 wide only 6 of the layout test's 10 shots, and 14 of its
+    // 25, reached the dish, where the old bank held 9 and 20). So it is packed against the doorway: 0.38 wide, the
+    // least planned for a plaque, 0.382 apart from 0.427 to 1.570 along, with under 0.01 to spare. The Eye bank can't
+    // be packed alike: the left flipper's first shot in pinball-sim-test then lands on a drop target, not round the
+    // right orbit (5 of 10 get up there, where 6 are held). (Provisional, like the toys below, until the quest's toys
+    // are measured on the table.)
+    { id: 'target-ankh-1', x: -0.935, z: 6.087, width: 0.38, points: 300, angle: 135, flip: true },
+    { id: 'target-ankh-2', x: -1.205, z: 6.357, width: 0.38, points: 300, angle: 135, flip: true },
+    { id: 'target-ankh-3', x: -1.475, z: 6.627, width: 0.38, points: 300, angle: 135, flip: true },
+    { id: 'target-eye-1', x: 0.166, z: 6.118, width: 0.42, points: 300, angle: 45, flip: true },
+    { id: 'target-eye-2', x: 0.484, z: 6.436, width: 0.42, points: 300, angle: 45, flip: true },
+    { id: 'target-eye-3', x: 0.802, z: 6.754, width: 0.42, points: 300, angle: 45, flip: true },
+    // The quest's toys, after the fourteen above: the snapshot header's bit for each of those must not move. These
+    // start down (no wall, nothing to hit) and the game raises them. The three pop-ups run up the open floor right of
+    // the pyramid, each stepped down the table and out from the one before, and drop when hit; the mummy stands in the
+    // left lane, taller and thicker than the rest, and stays up when hit, scoring every hit. (All four spots are
+    // provisional: the toys are to be measured on the table, and these placed from the measurements.)
+    { id: 'target-popup-1', x: 1.35, z: 6.75, width: 0.5, points: 500, angle: -30, rise: 'drop' },
+    { id: 'target-popup-2', x: 1.85, z: 6.45, width: 0.5, points: 500, angle: -30, rise: 'drop' },
+    { id: 'target-popup-3', x: 2.35, z: 6.15, width: 0.5, points: 500, angle: -30, rise: 'drop' },
+    { id: 'target-mummy', x: -2.25, z: 6.25, width: 0.8, points: 750, angle: 30, rise: 'hold', depth: 0.3, height: 0.95 },
   ],
   rollovers: [
     // The three top lanes, between the lane guides.
@@ -153,8 +171,9 @@ export const PYRAMID: Table = {
     // ball on it always leaves it. (An S-hump in the orbit lane itself trapped balls: a pocket against the shooter's gate,
     // and a valley at the hump's foot.) It goes east from the dish and gently down the table from there on: its first run
     // went up the table, and a ball leaving the dish ran out of speed on it and rolled back.
+    // Its right rail is left out between its 2nd and 4th points (the diverter's gap, diverter below).
     {
-      id: 'ramp-right', width: 0.6, rail: 0.45, skirt: false,
+      id: 'ramp-right', width: 0.6, rail: 0.45, skirt: false, opening: { side: 'right', from: 1, to: 3 },
       path: [
         [-2.55, 14.35, 0.8], [-2.172, 14.345, 0.799], [-1.794, 14.34, 0.799],
         [-1.415, 14.335, 0.798], [-1.037, 14.33, 0.798], [-0.659, 14.32, 0.797],
@@ -199,4 +218,12 @@ export const PYRAMID: Table = {
     { id: 'bank-ankh', targets: ['target-ankh-1', 'target-ankh-2', 'target-ankh-3'], bonus: 5000 },
     { id: 'bank-eye', targets: ['target-eye-1', 'target-eye-2', 'target-eye-3'], bonus: 5000 },
   ],
+  // The tomb: a doorway cut into the pyramid's front corner, 0.6 across at z 6.05 (where the two lower faces are 0.6
+  // apart), on the table's middle line. A ball that rolls in is held 1 s at (-0.4, 6.3) and kicked out down the table,
+  // a little to the left (toward the left flipper, not down the middle into the drain) at 11 units/s. wallsWithTomb
+  // cuts the pyramid's wall open there and closes a pocket behind it. (Provisional, as the toys' spots are.)
+  tomb: { id: 'tomb', x: -0.4, z: 6.05, width: 0.6, held: [-0.4, 6.3], hold: 1.0, eject: [-0.45, -1], speed: 11, points: 1000 },
+  // The diverter: a 0.6 gate hinged by the right S-ramp's start (the dish's east gap), at rest along the ramp's upper
+  // rail and swinging 45 degrees across the ramp to the gap in its other rail. (Provisional, as the toys' spots are.)
+  diverter: { id: 'diverter', ramp: 'ramp-right', pivot: [-2.45, 14.62], length: 0.6, restDeg: 0, overDeg: -45 },
 };

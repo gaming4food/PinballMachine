@@ -14,7 +14,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
 import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
 import { type HypeBuyer, LIT, parsePinballCommands, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
-import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
+import { TABLE_IN_USE, TABLE, isLockTarget, type Table } from '../shared/table';
 import { PinballSim, type Hit } from './sim';
 
 /** How many high scores are kept. */
@@ -720,8 +720,9 @@ export class PinballGame implements Machine {
     this.score(b, points);
     switch (hit.kind) {
       case 'target': {
-        // Only the drop targets count toward the lock; the flip plaques have their banks.
-        const drops = this.table.targets.filter((t) => !t.flip);
+        // Only the lock's two drop targets (the scarab and the eye) count toward it: the flip plaques have their banks,
+        // and the pop-ups and the mummy only score.
+        const drops = this.table.targets.filter(isLockTarget);
         if (!drops.some((t) => t.id === hit.id)) break;
         this.targetsHit.add(hit.id);
         if (drops.every((t) => this.targetsHit.has(t.id))) {
@@ -908,9 +909,9 @@ export class PinballGame implements Machine {
     if (b) this.score(b, points);
   }
 
-  /** Test hook: every drop target hit by this ball, through the hits' own path (so the lock lights). */
+  /** Test hook: each of the lock's drop targets hit by this ball, through the hits' own path (so the lock lights). */
   knockAllTargets(ball: number): void {
-    for (const t of this.table.targets) if (!t.flip) this.hit({ kind: 'target', id: t.id, ball });
+    for (const t of this.table.targets) if (isLockTarget(t)) this.hit({ kind: 'target', id: t.id, ball });
   }
 
   /** How many viewers have flipped this ball (each once). */

@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { initPhysics } from '@kit/server';
 import { PinballSim } from '../src/server/sim';
 import { LIT } from '../src/shared/pinball';
-import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, type Table } from '../src/shared/table';
+import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, isLockTarget, type Table } from '../src/shared/table';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
 import './stub-assets';
 
@@ -211,7 +211,7 @@ test('a plaque turns over 0.15 s, and back again when its bit clears', () => {
 
 test('the two drop targets are drop targets (no plaque), each with its emblem, and they sink when down', () => {
   const parts = new TableParts(TABLE_IN_USE);
-  const drops = TABLE_IN_USE.targets.flatMap((t, i) => (t.flip ? [] : [i]));
+  const drops = TABLE_IN_USE.targets.flatMap((t, i) => (isLockTarget(t) ? [i] : []));
   assert.deepEqual(drops.map((i) => TABLE_IN_USE.targets[i].id), ['target-scarab', 'target-eye']);
   for (const i of drops) assert.equal(parts.targets[i].plaque, false);
   parts.setTargets(1 << drops[1], 0, 0);

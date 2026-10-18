@@ -1,10 +1,50 @@
 // The pinball's pyramid table and its rules, as data: the table is on the playfield, the flippers leave a gap a ball
-// can't stop in, every piece has its own id, it fits the snapshot header's room, and chat commands are read the way the
-// rules say.
+// can't stop in, every piece has its own id, it fits the snapshot header's room, the quest's toys (the pop-ups, the
+// mummy, the tomb and the diverter) are there and the tomb's doorway is cut into the pyramid's wall, and chat commands
+// are read the way the rules say.
 // Usage: npm run table-test (or npx tsx tests/table-test.ts)
 import assert from 'node:assert/strict';
-import { TABLE, TABLE_IN_USE, flipperTip } from '../src/shared/table';
+import { TABLE, TABLE_IN_USE, flipperTip, isLockTarget, wallsWithTomb, type Target } from '../src/shared/table';
 import { LIT, RULES, SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, parsePinballCommands } from '../src/shared/pinball';
+
+/**
+ * Where the uncut pyramid's two lower faces cross the line z = tomb.z, left end first: the doorway's mouth runs between
+ * them (this reads the pyramid's data, not wallsWithTomb, so the two can be held against each other).
+ */
+function mouthEnds(): [[number, number], [number, number]] {
+  const { tomb, walls } = TABLE_IN_USE;
+  const pyramid = walls.find((w) => w.kind === 'pyramid')!;
+  const ends: [number, number][] = [];
+  for (let i = 0; i + 1 < pyramid.points.length; i++) {
+    const [a, b] = [pyramid.points[i], pyramid.points[i + 1]];
+    if ((a[1] - tomb!.z) * (b[1] - tomb!.z) < 0) ends.push([a[0] + ((tomb!.z - a[1]) / (b[1] - a[1])) * (b[0] - a[0]), tomb!.z]);
+  }
+  assert.equal(ends.length, 2, "the mouth's line crosses the pyramid's two lower faces");
+  ends.sort((p, q) => p[0] - q[0]);
+  return [ends[0], ends[1]];
+}
+const near = (p: [number, number], q: [number, number], eps = 1e-6) => Math.hypot(p[0] - q[0], p[1] - q[1]) < eps;
+
+/** A target's face as the physics stands it (sim.ts): the rectangle `width` along its angle and `depth` thick. */
+function faceOf(g: Target) {
+  const a = ((g.angle ?? 0) * Math.PI) / 180;
+  const u: [number, number] = [Math.cos(a), Math.sin(a)];
+  return { c: [g.x, g.z] as [number, number], u, n: [-u[1], u[0]] as [number, number], hw: g.width / 2, ht: (g.depth ?? 0.2) / 2 };
+}
+/** The gap between two target faces along their best separating axis: negative when they overlap. */
+function faceGap(a: ReturnType<typeof faceOf>, b: ReturnType<typeof faceOf>): number {
+  const span = (f: ReturnType<typeof faceOf>, ax: [number, number]) => {
+    const mid = f.c[0] * ax[0] + f.c[1] * ax[1];
+    const reach = f.hw * Math.abs(f.u[0] * ax[0] + f.u[1] * ax[1]) + f.ht * Math.abs(f.n[0] * ax[0] + f.n[1] * ax[1]);
+    return [mid - reach, mid + reach];
+  };
+  let best = -Infinity;
+  for (const ax of [a.u, a.n, b.u, b.n]) {
+    const [a0, a1] = span(a, ax), [b0, b1] = span(b, ax);
+    best = Math.max(best, b0 - a1, a0 - b1);
+  }
+  return best;
+}
 
 const checks: [string, () => void][] = [
   ['everything is on the playfield', () => {
@@ -20,6 +60,8 @@ const checks: [string, () => void][] = [
     for (const d of t.dishes) spots.push([d.id, d.x, d.z]);
     for (const r of t.ramps) r.path.forEach(([x, z], i) => spots.push([`${r.id} point ${i}`, x, z]));
     spots.push(['spinner', t.spinner.x, t.spinner.z], ['lock', t.lock.x, t.lock.z], ['kickback', t.kickback.x, t.kickback.z]);
+    if (t.tomb) spots.push(['tomb', t.tomb.x, t.tomb.z], ['tomb held', ...t.tomb.held]);
+    if (t.diverter) spots.push(['diverter pivot', ...t.diverter.pivot]);
     spots.push(['plunger from', t.plunger.x, t.plunger.zFrom], ['plunger to', t.plunger.x, t.plunger.zTo]);
     for (const f of t.flippers) spots.push([`${f.side} flipper pivot`, ...f.pivot], [`${f.side} flipper tip`, ...flipperTip(f)]);
     for (const [what, x, z] of spots) {
@@ -39,7 +81,9 @@ const checks: [string, () => void][] = [
   ['the counts and the drain', () => {
     const t = TABLE_IN_USE;
     assert.equal(t.bumpers.length, 5);
-    assert.equal(t.targets.length, 14);
+    // The scarab and the eye, the three banks of plaques and the Ankh and Eye banks (14), then the quest's toys: three
+    // pop-ups and the mummy.
+    assert.equal(t.targets.length, 18);
     assert.equal(t.banks.length, 4);
     assert.equal(t.flippers.length, 3);
     assert.equal(t.saucers.length, 2);
@@ -107,8 +151,126 @@ const checks: [string, () => void][] = [
   }],
   ['ids are unique across every part', () => {
     const t = TABLE_IN_USE;
-    const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers, ...t.saucers, ...t.spinners, ...t.banks, ...t.ramps, ...t.dishes].map((p) => p.id);
+    const toys = [...(t.tomb ? [t.tomb] : []), ...(t.diverter ? [t.diverter] : [])];
+    const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers, ...t.saucers, ...t.spinners, ...t.banks, ...t.ramps, ...t.dishes, ...toys].map((p) => p.id);
     assert.equal(new Set(ids).size, ids.length, `duplicate id in ${ids.join(', ')}`);
+  }],
+  ['the toys: three pop-ups and the mummy start down, the lock keeps its two drop targets', () => {
+    const t = TABLE_IN_USE;
+    const rising = t.targets.filter((g) => g.rise);
+    assert.deepEqual(rising.filter((g) => g.rise === 'drop').map((g) => g.id), ['target-popup-1', 'target-popup-2', 'target-popup-3']);
+    assert.deepEqual(rising.filter((g) => g.rise === 'hold').map((g) => g.id), ['target-mummy']);
+    assert.deepEqual(t.targets.filter(isLockTarget).map((g) => g.id), ['target-scarab', 'target-eye']);
+    assert.ok(t.targets.length <= 32, 'the header has room for 32 targets');
+    assert.equal(t.tomb?.id, 'tomb');
+    assert.equal(t.diverter?.ramp, 'ramp-right');
+    assert.ok(t.tomb!.width > 2 * TABLE.ballRadius, 'a ball fits the doorway');
+  }],
+  ["the first 14 targets keep their places in the snapshot header's bits; the rising ones come after them", () => {
+    const ids = TABLE_IN_USE.targets.map((g) => g.id);
+    assert.deepEqual(ids.slice(0, 14), [
+      'target-scarab', 'target-ra-1', 'target-ra-2', 'target-ra-3', 'target-horus-1', 'target-horus-2', 'target-horus-3',
+      'target-eye', 'target-ankh-1', 'target-ankh-2', 'target-ankh-3', 'target-eye-1', 'target-eye-2', 'target-eye-3',
+    ]);
+    assert.deepEqual(ids.slice(14), ['target-popup-1', 'target-popup-2', 'target-popup-3', 'target-mummy']);
+  }],
+  ['isLockTarget: a drop target that is neither a flip plaque nor a rising target', () => {
+    const base: Target = { id: 'x', x: 0, z: 0, width: 1, points: 1 };
+    assert.equal(isLockTarget(base), true);
+    assert.equal(isLockTarget({ ...base, flip: true }), false);
+    assert.equal(isLockTarget({ ...base, rise: 'drop' }), false);
+    assert.equal(isLockTarget({ ...base, rise: 'hold' }), false);
+  }],
+  ['the tomb holds a ball inside the pyramid and kicks it out the front; the diverter has its gap in the ramp', () => {
+    const { tomb, diverter, ramps } = TABLE_IN_USE;
+    assert.ok(tomb!.held[1] > tomb!.z, 'the held ball is past the mouth, inside');
+    assert.ok(tomb!.eject[1] < 0, 'it is kicked out of the front corner, down the table');
+    assert.ok(tomb!.hold > 0 && tomb!.speed > 0 && tomb!.points > 0);
+    const ramp = ramps.find((r) => r.id === diverter!.ramp);
+    assert.ok(ramp, `the diverter's ramp ${diverter!.ramp} is on the table`);
+    const gap = ramp.opening;
+    assert.ok(gap && gap.from >= 0 && gap.from < gap.to && gap.to <= ramp.path.length - 1, "the ramp's opening is between two of its path points");
+    assert.ok(diverter!.length > 0 && diverter!.restDeg !== diverter!.overDeg, 'the gate swings between two angles');
+  }],
+  ['wallsWithTomb cuts the doorway out of the pyramid and adds its jambs', () => {
+    const walls = wallsWithTomb(TABLE_IN_USE);
+    const jambs = walls.filter((w) => w.kind === 'tomb');
+    assert.equal(jambs.length, 2);
+    // No pyramid wall crosses the doorway's mouth.
+    const { x, z, width } = TABLE_IN_USE.tomb!;
+    for (const w of walls.filter((w) => w.kind === 'pyramid')) for (const [px, pz] of w.points) assert.ok(Math.hypot(px - x, pz - z) >= width / 2 - 1e-9);
+  }],
+  ["the doorway's mouth runs between where the pyramid's lower faces cross z = tomb.z, tomb.width apart", () => {
+    const { tomb } = TABLE_IN_USE;
+    const [left, right] = mouthEnds();
+    assert.ok(Math.abs(right[0] - left[0] - tomb!.width) < 1e-6, `the faces cross ${(right[0] - left[0]).toFixed(6)} apart, not ${tomb!.width}`);
+    assert.ok(Math.abs((left[0] + right[0]) / 2 - tomb!.x) < 1e-6, "the mouth is centred on the tomb's x");
+    // The cut outline runs from the mouth's right end round the right, top and left corners to its left end.
+    const walls = wallsWithTomb(TABLE_IN_USE);
+    const outline = walls.filter((w) => w.kind === 'pyramid');
+    assert.equal(outline.length, 1, 'one pyramid wall');
+    const pts = outline[0].points;
+    const whole = TABLE_IN_USE.walls.find((w) => w.kind === 'pyramid')!.points;
+    assert.ok(near(pts[0], right) && near(pts.at(-1)!, left), 'from the right end of the mouth to the left end');
+    assert.deepEqual(pts.slice(1, -1), whole.slice(1, -1), 'round the right, top and left corners, which are where they were');
+    assert.equal(outline[0].restitution, TABLE_IN_USE.walls.find((w) => w.kind === 'pyramid')!.restitution);
+  }],
+  ["the doorway's jambs run from the mouth's ends straight up to just over the held ball and across to the middle", () => {
+    // The pocket's shape is provisional (the physics settles where the held ball fits between the jambs): this check
+    // follows the shape wallsWithTomb gives it for now, and changes with it.
+    const { tomb } = TABLE_IN_USE;
+    const top = tomb!.held[1] + TABLE.ballRadius + 0.1;
+    const jambs = wallsWithTomb(TABLE_IN_USE).filter((w) => w.kind === 'tomb');
+    assert.equal(jambs.length, 2);
+    for (const end of mouthEnds()) {
+      const jamb = jambs.find((w) => near(w.points[0], end));
+      assert.ok(jamb, `a jamb from the mouth's end at x ${end[0]}`);
+      assert.equal(jamb.points.length, 3, 'a jamb is a 3-point polyline');
+      assert.ok(near(jamb.points[1], [end[0], top]), "straight up the table to the ball's top, plus a margin");
+      assert.ok(near(jamb.points[2], [tomb!.x, top]), "then along that line to the tomb's x");
+    }
+  }],
+  ["the pyramid's outline and the two jambs make one closed loop: its hollow stays closed", () => {
+    const key = (p: [number, number]) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+    const degree = new Map<string, number>();
+    for (const w of wallsWithTomb(TABLE_IN_USE).filter((w) => w.kind === 'pyramid' || w.kind === 'tomb')) {
+      for (let i = 0; i + 1 < w.points.length; i++) for (const p of [w.points[i], w.points[i + 1]]) degree.set(key(p), (degree.get(key(p)) ?? 0) + 1);
+    }
+    // Every corner of a closed loop is the end of exactly two of its segments.
+    const loose = [...degree].filter(([, n]) => n !== 2).map(([k]) => k);
+    assert.deepEqual(loose, [], `ends that join nothing: ${loose.join(' ')}`);
+  }],
+  ['wallsWithTomb leaves the other walls as they are, and a table without a tomb whole', () => {
+    const t = TABLE_IN_USE;
+    const other = (ws: typeof t.walls) => ws.filter((w) => w.kind !== 'pyramid' && w.kind !== 'tomb');
+    assert.deepEqual(other(wallsWithTomb(t)), other(t.walls));
+    assert.equal(wallsWithTomb(t)[0], t.walls[0], 'the outer wall is still first');
+    assert.deepEqual(wallsWithTomb({ ...t, tomb: undefined }), t.walls);
+  }],
+  ['the Ankh and Eye plaques are at least 0.38 wide and stand clear of the doorway along their faces', () => {
+    const t = TABLE_IN_USE;
+    const front = t.walls.find((w) => w.kind === 'pyramid')!.points[0];
+    const [left, right] = mouthEnds();
+    const plaques = t.targets.filter((g) => /^target-(ankh|eye)-\d$/.test(g.id));
+    assert.equal(plaques.length, 6);
+    for (const g of plaques) {
+      const a = (g.angle! * Math.PI) / 180;
+      const along = (p: [number, number]) => (p[0] - front[0]) * Math.cos(a) + (p[1] - front[1]) * Math.sin(a);
+      assert.ok(g.width >= 0.38, `${g.id} is ${g.width} wide`);
+      // The Ankh bank runs up the lower-left face (angle 135), the Eye bank up the lower-right (45).
+      const mouth = g.angle === 135 ? left : right;
+      assert.ok(along([g.x, g.z]) - g.width / 2 >= along(mouth) - 1e-9, `${g.id} starts ${(along([g.x, g.z]) - g.width / 2).toFixed(3)} along its face, inside the doorway's ${along(mouth).toFixed(3)}`);
+    }
+  }],
+  ['no two targets overlap, the rising ones included (up or down)', () => {
+    // The Ra bank has no angle: it stands along the orbit's wall, which the physics finds by shape, far from the rest.
+    const faced = TABLE_IN_USE.targets.filter((g) => g.angle !== undefined);
+    for (let i = 0; i < faced.length; i++) {
+      for (let j = i + 1; j < faced.length; j++) {
+        const gap = faceGap(faceOf(faced[i]), faceOf(faced[j]));
+        assert.ok(gap > 0, `${faced[i].id} and ${faced[j].id} overlap by ${(-gap).toFixed(3)}`);
+      }
+    }
   }],
   ['the rules and the snapshot header', () => {
     assert.deepEqual(RULES, {

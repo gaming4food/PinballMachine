@@ -13,7 +13,7 @@ import { entry } from '../src/entry';
 import { PinballGame } from '../src/server/game';
 import { DT } from '../src/server/sim';
 import { LIT, RULES } from '../src/shared/pinball';
-import { TABLE_IN_USE, TABLE } from '../src/shared/table';
+import { TABLE_IN_USE, TABLE, isLockTarget } from '../src/shared/table';
 
 await initPhysics();
 
@@ -492,8 +492,11 @@ step('the drop targets wait to come back up while a ball stands where one rises'
   const ole = viewer('ole', 'Ole');
   const ball = freshBall(ole);
   const sim = game.sim as any;
-  const drops = TABLE_IN_USE.targets.flatMap((t, i) => (t.flip ? [] : [i]));
+  const drops = TABLE_IN_USE.targets.flatMap((t, i) => (isLockTarget(t) ? [i] : []));
   const bits = drops.reduce((b, i) => b | (1 << i), 0);
+  // The pop-ups and the mummy start down, and nothing here raises them: their bits are set all along.
+  const rising = TABLE_IN_USE.targets.reduce((b, t, i) => (t.rise ? b | (1 << i) : b), 0);
+  assert.deepEqual(drops.map((i) => TABLE_IN_USE.targets[i].id), ['target-scarab', 'target-eye']);
   // Both down, as the physics drops them, and their hits to the game.
   for (const i of drops) {
     sim.targets[i].down = true;
@@ -502,10 +505,38 @@ step('the drop targets wait to come back up while a ball stands where one rises'
   }
   const eye = TABLE_IN_USE.targets[drops[1]];
   hold(ball, eye.x, eye.z, 1.5);
-  assert.equal(game.sim.targetsDown(), bits, 'not raised into the ball standing on one');
+  assert.equal(game.sim.targetsDown(), bits | rising, 'not raised into the ball standing on one');
   put(ball, -0.4, 9);
   run(2 * DT);
-  assert.equal(game.sim.targetsDown(), 0, 'up once the ball has gone');
+  assert.equal(game.sim.targetsDown(), rising, 'up once the ball has gone, the rising targets still down');
+});
+
+step("the pop-ups and the mummy don't light the lock", () => {
+  const una = viewer('una', 'Una');
+  const toys = ['target-popup-1', 'target-popup-2', 'target-popup-3', 'target-mummy'];
+  let ball = freshBall(una);
+  const before = scoreOf(una);
+  for (const id of toys) hitPart({ kind: 'target', id, ball });
+  assert.equal(game.state().lockLit, false, "the pop-ups and the mummy aren't the lock's drop targets");
+  assert.equal(scoreOf(una) - before, 3 * pointsOf('target-popup-1') + pointsOf('target-mummy'), 'but they score what the table says');
+  // The scarab and the eye light it, whatever the toys did before.
+  hitPart({ kind: 'target', id: 'target-scarab', ball });
+  assert.equal(game.state().lockLit, false, 'one drop target is not enough');
+  hitPart({ kind: 'target', id: 'target-eye', ball });
+  assert.equal(game.state().lockLit, true, 'the scarab and the eye light it');
+  // And they light it alone, with no toy hit: a table cleared, nothing hit but the two.
+  ball = freshBall(una);
+  assert.equal(game.state().lockLit, false, 'a cleared table has the lock dark');
+  hitPart({ kind: 'target', id: 'target-scarab', ball });
+  hitPart({ kind: 'target', id: 'target-eye', ball });
+  assert.equal(game.state().lockLit, true, 'the two alone light the lock');
+  // The toys hit between the two change nothing.
+  ball = freshBall(una);
+  hitPart({ kind: 'target', id: 'target-scarab', ball });
+  for (const id of toys) hitPart({ kind: 'target', id, ball });
+  assert.equal(game.state().lockLit, false);
+  hitPart({ kind: 'target', id: 'target-eye', ball });
+  assert.equal(game.state().lockLit, true);
 });
 
 step('the saucer and the magnet score', () => {

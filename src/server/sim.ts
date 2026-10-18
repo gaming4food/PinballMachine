@@ -2,18 +2,19 @@
 // only draw the snapshots it sends). The playfield, the walls, the glass, the bumpers, the slings, the targets, the
 // raised ramps and the dish are fixed colliders; the balls are dynamic spheres with CCD; the flippers are kinematic
 // bodies swung toward up or rest. Bumpers and slings kick a ball away and report it; drop targets drop, and flip targets
-// turn to their backs (a bank of them all turned reports a match); the rollovers, the spinners, the lock and the kickback
-// are sensors that report; a saucer holds a slow ball a moment and kicks it out; a ball past the drain is taken off and
-// reported. What the hits are worth, whose balls they are and what's lit is the game's (game.ts): this is only the
-// physics. (The ramps, the dish, the flip targets, the saucers and the second spinner were built and proven in the
-// Blender spike, spike/blender/sim-features.mts.)
+// turn to their backs (a bank of them all turned reports a match); a rising target (a pop-up or the mummy) stands down,
+// no wall at all, until the game raises it, and then a pop-up drops when hit and the mummy stays up and reports every
+// hit; the rollovers, the spinners, the lock and the kickback are sensors that report; a saucer holds a slow ball a
+// moment and kicks it out; a ball past the drain is taken off and reported. What the hits are worth, whose balls they
+// are and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish, the flip targets, the
+// saucers and the second spinner were built and proven in the Blender spike, spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { DT } from '@kit/server';
 import { SNAP_STRIDE, type BodyState } from '@kit/shared';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../shared/pinball';
-import { FLIPPER_SHAPE, flipperHull, TABLE, type Dish, type Flipper, type Ramp, type Table } from '../shared/table';
+import { FLIPPER_SHAPE, flipperHull, isLockTarget, TABLE, type Dish, type Flipper, type Ramp, type Table, type Target } from '../shared/table';
 
 // Passed on for the game and the tests, which import it from here; it's every machine's (@kit/server).
 export { DT } from '@kit/server';
@@ -29,8 +30,8 @@ const H = DT / SUBSTEPS;
 const WALL_HALF = 0.08;
 /** Half a sling's thickness. */
 const SLING_HALF = 0.08;
-/** Half a drop target's thickness, across its wall. */
-const TARGET_HALF = 0.1;
+/** How thick a target is across its face when its table says nothing (Target.depth). */
+const TARGET_DEPTH = 0.2;
 /** Thick blocks outside the outer wall (and over the top), so nothing gets off the table even past a wall. */
 const BACKSTOP = 1.5;
 
@@ -72,7 +73,10 @@ const { baseRadius: FLIPPER_BASE_R, tipRadius: FLIPPER_TIP_R } = FLIPPER_SHAPE;
 /** A ball this near a swinging flipper's face is batted by it (bat). */
 const BAT_TOUCH = 0.03;
 
-/** A bumper or a sling kicks the same ball again only after this long (s), so a ball touching twice gets one kick. */
+/**
+ * A bumper or a sling kicks the same ball again, and a flip plaque or the mummy scores it again, only after this long
+ * (s), so a ball touching twice gets one kick (or one score).
+ */
 const KICK_COOLDOWN = 0.1;
 /** The rollovers' and the kickback's sensors' radius. */
 const ROLLOVER_R = 0.3;
@@ -152,7 +156,10 @@ export class PinballSim {
   private readonly parts = new Map<number, Part>();
   private readonly ballByCollider = new Map<number, Ball>();
   private readonly flippers: FlipperState[] = [];
-  /** Each target: a drop target is `down` (its collider off); a flip target stays up, `turned` to its back. */
+  /**
+   * Each target: a drop target (the lock's, or a pop-up) is `down` with its collider off; a flip target stays up,
+   * `turned` to its back; a rising target is `down` until the game raises it.
+   */
   private readonly targets: { collider: RAPIER.Collider; down: boolean; turned: boolean; a: [number, number]; b: [number, number] }[] = [];
   /** Matched banks, and when their plaques turn back to the front. */
   private readonly bankResets = new Map<string, number>();
@@ -281,7 +288,8 @@ export class PinballSim {
       for (const [x, z] of [s.a, s.b]) this.fixed(this.post(x, z, SLING_HALF).setFriction(0).setRestitution(SLING_RESTITUTION), part);
     }
 
-    // Each target stands along the wall nearest it, or runs its own way (angle).
+    // Each target stands along the wall nearest it, or runs its own way (angle), as thick as its depth. A rising target
+    // is built down, its collider off, and stays so until the game raises it.
     t.targets.forEach((g, index) => {
       const [a, b] = g.angle !== undefined
         ? ([[g.x, g.z], [g.x + Math.cos(rad(g.angle)), g.z + Math.sin(rad(g.angle))]] as [[number, number], [number, number]])
@@ -290,10 +298,12 @@ export class PinballSim {
       const len = Math.hypot(ux, uz);
       const ex = ((ux / len) * g.width) / 2, ez = ((uz / len) * g.width) / 2;
       const collider = this.fixed(
-        this.segment([g.x - ex, g.z - ez], [g.x + ex, g.z + ez], TARGET_HALF).setFriction(WALL_FRICTION).setRestitution(TARGET_RESTITUTION),
+        this.segment([g.x - ex, g.z - ez], [g.x + ex, g.z + ez], halfDepth(g)).setFriction(WALL_FRICTION).setRestitution(TARGET_RESTITUTION),
         { kind: 'target', id: g.id, index },
       );
-      this.targets.push({ collider, down: false, turned: false, a: [g.x - ex, g.z - ez], b: [g.x + ex, g.z + ez] });
+      const down = g.rise !== undefined;
+      if (down) collider.setEnabled(false);
+      this.targets.push({ collider, down, turned: false, a: [g.x - ex, g.z - ez], b: [g.x + ex, g.z + ez] });
     });
 
     for (const r of t.rollovers) this.sensor(this.post(r.x, r.z, ROLLOVER_R), { kind: 'rollover', id: r.id });
@@ -566,39 +576,71 @@ export class PinballSim {
     return bits;
   }
 
-  /** Raises every drop target and turns every flip target back to its front. */
+  /** Raises the lock's drop targets, turns every flip target back to its front and puts every rising target down. */
   resetTargets(): void {
-    for (const g of this.targets) {
-      g.down = false;
+    this.targets.forEach((g, i) => {
+      const rising = this.table.targets[i].rise !== undefined;
+      g.down = rising;
       g.turned = false;
-      g.collider.setEnabled(true);
-    }
+      g.collider.setEnabled(!rising);
+    });
     this.bankResets.clear();
   }
 
-  /** Raises the drop targets only; the flip targets stay as they're turned. */
+  /**
+   * Raises the lock's drop targets (the scarab and the eye) only: the flip targets stay as they're turned, and the
+   * rising ones as they stand.
+   */
   resetDropTargets(): void {
     this.table.targets.forEach((spec, i) => {
-      if (spec.flip) return;
+      if (!isLockTarget(spec)) return;
       const g = this.targets[i];
       g.down = false;
       g.collider.setEnabled(true);
     });
   }
 
-  /** Whether a ball stands where a drop target that is down would rise (a target raised into a ball would wedge it). */
+  /**
+   * Raises a rising target (a pop-up or the mummy) and returns true: or, while a ball stands where it rises, returns
+   * false and changes nothing (a target raised into a ball would wedge it), so the game tries again next step. One that
+   * is up already stays up; an id that names no rising target is refused (false).
+   */
+  raiseTarget(id: string): boolean {
+    const i = this.targetIndex(id);
+    if (i < 0 || this.table.targets[i].rise === undefined) return false;
+    const g = this.targets[i];
+    if (!g.down) return true;
+    if (this.ballAtTarget(i)) return false;
+    g.down = false;
+    g.collider.setEnabled(true);
+    return true;
+  }
+
+  /** Puts a rising target down, its collider off: no wall and nothing to hit, until it is raised again. */
+  lowerTarget(id: string): void {
+    const i = this.targetIndex(id);
+    if (i < 0 || this.table.targets[i].rise === undefined) return;
+    const g = this.targets[i];
+    g.down = true;
+    g.collider.setEnabled(false);
+  }
+
+  /** Whether a ball stands where a lock drop target that is down would rise (raised into a ball, it would wedge it). */
   ballAtDropTarget(): boolean {
-    const reach = TABLE.ballRadius + TARGET_HALF + 0.05;
-    return this.targets.some((g, i) => {
-      if (!g.down || this.table.targets[i].flip) return false;
-      const dx = g.b[0] - g.a[0], dz = g.b[1] - g.a[1];
-      for (const ball of this.items.values()) {
-        const p = ball.body.translation();
-        const t = Math.max(0, Math.min(1, ((p.x - g.a[0]) * dx + (p.z - g.a[1]) * dz) / (dx * dx + dz * dz)));
-        if (Math.hypot(p.x - g.a[0] - t * dx, p.z - g.a[1] - t * dz) < reach) return true;
-      }
-      return false;
-    });
+    return this.targets.some((g, i) => g.down && isLockTarget(this.table.targets[i]) && this.ballAtTarget(i));
+  }
+
+  /** Whether a ball stands within reach of target i's face: a ball's radius, half its depth and 0.05 from it. */
+  private ballAtTarget(i: number): boolean {
+    const g = this.targets[i];
+    const reach = TABLE.ballRadius + halfDepth(this.table.targets[i]) + 0.05;
+    const dx = g.b[0] - g.a[0], dz = g.b[1] - g.a[1];
+    for (const ball of this.items.values()) {
+      const p = ball.body.translation();
+      const t = Math.max(0, Math.min(1, ((p.x - g.a[0]) * dx + (p.z - g.a[1]) * dz) / (dx * dx + dz * dz)));
+      if (Math.hypot(p.x - g.a[0] - t * dx, p.z - g.a[1] - t * dz) < reach) return true;
+    }
+    return false;
   }
 
   /** The spinner's turn, in radians (0 to 2π). */
@@ -794,19 +836,22 @@ export class PinballSim {
         return;
       }
       case 'target': {
-        if (!this.table.targets[part.index].flip) {
+        const spec = this.table.targets[part.index];
+        if (!spec.flip && spec.rise !== 'hold') {
+          // A drop target, the lock's or a pop-up, drops: its collider goes off once the step is done (toDrop).
           if (this.targets[part.index].down || toDrop.includes(part.index)) return;
           toDrop.push(part.index);
           this.report({ kind: 'target', id: part.id, ball: ball.id });
           return;
         }
-        // A flip target stays up; the first hit turns it to its back. Every hit scores (with the bumpers' cool-down).
+        // A flip target stays up and the first hit turns it to its back; a held one (the mummy) stays up and does not
+        // turn at all. Every hit of either scores (with the bumpers' cool-down).
         const g = this.targets[part.index];
         const key = `${part.id}:${ball.id}`;
         if (now - (this.lastKick.get(key) ?? -Infinity) < KICK_COOLDOWN) return;
         this.lastKick.set(key, now);
         this.report({ kind: 'target', id: part.id, ball: ball.id });
-        if (g.turned) return;
+        if (spec.rise === 'hold' || g.turned) return;
         g.turned = true;
         // Its bank matches when all its plaques are turned: once, until they turn back (a second ball on the last plaque
         // in the same step finds it already turned, above).
@@ -902,6 +947,11 @@ export class PinballSim {
     }
     return buf;
   }
+}
+
+/** Half a target's thickness across its face: its wall stands this far out each side of its segment. */
+function halfDepth(g: Target): number {
+  return (g.depth ?? TARGET_DEPTH) / 2;
 }
 
 /** The wall segment nearest p. */

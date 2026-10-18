@@ -2,16 +2,18 @@
 // table, no shot gets out through a wall, a ball left alone drains, the right flipper shoots to the upper table (up the
 // left ramp and round the left orbit) and the left flipper too (round the right orbit) and at the drop targets, a bumper
 // kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
-// is held and let go cleanly, and the snapshot is the 43-byte header (type, time, ball count, the three flippers'
-// angles, the lit bits, the targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in
-// its state, not the snapshot. (The pathways round the table are pinball-layout-test's.)
+// is held and let go cleanly, the quest's rising targets (the three pop-ups and the mummy) start down, rise when the
+// game raises them, never rise into a ball, and the pop-ups drop when hit while the mummy stays up and reports every
+// hit, and the snapshot is the 43-byte header (type, time, ball count, the three flippers' angles, the lit bits, the
+// targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in its state, not the
+// snapshot. (The pathways round the table are pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
 import { SNAP_STRIDE } from '@kit/shared';
 import { DT, PinballSim, type Hit } from '../src/server/sim';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from '../src/shared/pinball';
-import { TABLE_IN_USE, TABLE, type Table } from '../src/shared/table';
+import { TABLE_IN_USE, TABLE, isLockTarget, type Table, type Target } from '../src/shared/table';
 
 await initPhysics();
 
@@ -44,14 +46,15 @@ function place(sim: PinballSim, x: number, z: number, vx = 0, vz = 0): number {
 
 /**
  * Has ball `id` touch the part `partId` now, through the sim's own touch path (as a contact in a substep would). For
- * flip targets and other parts that act in touch itself: it passes touch an empty to-drop list that nothing reads, so a
- * drop target touched this way reports but never drops.
+ * flip targets, the mummy and other parts that act in touch itself: it passes touch an empty to-drop list that nothing
+ * reads, so a drop target touched this way reports but never drops.
  */
 function touch(sim: PinballSim, id: number, partId: string): void {
   const S = sim as any;
   const part = [...S.parts.values()].find((p: any) => p.id === partId);
   assert.ok(part, `no part ${partId}`);
-  assert.ok(part.kind !== 'target' || TABLE_IN_USE.targets[part.index].flip, `touch() is for flip targets, not the drop target ${partId}`);
+  const spec = part.kind === 'target' ? TABLE_IN_USE.targets[part.index] : null;
+  assert.ok(!spec || spec.flip || spec.rise === 'hold', `touch() is for flip targets and the mummy, not the drop target ${partId}`);
   S.touch(S.items.get(id), part, sim.time, []);
 }
 
@@ -65,6 +68,29 @@ function intoSaucer(sim: PinballSim): number {
 }
 
 const targetIndex = (id: string) => TABLE_IN_USE.targets.findIndex((t) => t.id === id);
+/** The rising targets (the pop-ups and the mummy) start down: their bits in a fresh sim's targetsDown(). */
+const RISING = TABLE_IN_USE.targets.reduce((bits, t, i) => (t.rise ? bits | (1 << i) : bits), 0);
+
+/** The unit normal of a target's face on the side toward the flippers' middle, the side the stage stands it. */
+function faceNormal(g: Target): [number, number] {
+  const a = ((g.angle ?? 0) * Math.PI) / 180;
+  const [nx, nz] = [-Math.sin(a), Math.cos(a)];
+  return nx * (-0.4 - g.x) + nz * (2 - g.z) < 0 ? [-nx, -nz] : [nx, nz];
+}
+/**
+ * A ball put `from` in front of target `g` and rolled square at its face at `speed`: a new ball, or ball `again` rolled
+ * once more. Returns its id.
+ */
+function rollAt(sim: PinballSim, g: Target, { from = 0.6, speed = 9, again }: { from?: number; speed?: number; again?: number } = {}): number {
+  const [nx, nz] = faceNormal(g);
+  const [x, z] = [g.x + from * nx, g.z + from * nz];
+  if (again === undefined) return place(sim, x, z, -speed * nx, -speed * nz);
+  const body = sim.items.get(again)!.body;
+  body.setTranslation({ x, y: R, z }, true);
+  body.setLinvel({ x: -speed * nx, y: 0, z: -speed * nz }, true);
+  body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  return again;
+}
 
 const speedOf = (sim: PinballSim, id: number) => {
   const v = sim.items.get(id)!.body.linvel();
@@ -223,7 +249,7 @@ const checks: [string, () => void][] = [
     // the flip points; measured 2026-10-18: 6 of these 10 past z 12, 2 more on a drop target, 1 the sling, and the last
     // drop misses the flipper).
     const flipper = TABLE_IN_USE.flippers.find((f) => f.side === 'left')!;
-    const drops = TABLE_IN_USE.targets.filter((t) => !t.flip).map((t) => t.id);
+    const drops = TABLE_IN_USE.targets.filter(isLockTarget).map((t) => t.id);
     const results: string[] = [];
     let up = 0, onDrop = 0;
     for (let n = 0; n < 10; n++) {
@@ -346,10 +372,7 @@ const checks: [string, () => void][] = [
     // The scarab drop target, right of the pyramid and facing the left flipper: a ball rolled square at its front (the
     // side toward the flippers' middle, as the stage and the picture stand it).
     const drop = TABLE_IN_USE.targets[targetIndex('target-scarab')];
-    const a = ((drop.angle ?? 0) * Math.PI) / 180;
-    let [nx, nz] = [-Math.sin(a), Math.cos(a)];
-    if (nx * (-0.4 - drop.x) + nz * (2 - drop.z) < 0) [nx, nz] = [-nx, -nz];
-    const shot = place(sim, drop.x + 0.6 * nx, drop.z + 0.6 * nz, -9 * nx, -9 * nz);
+    const shot = rollAt(sim, drop);
     for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === drop.id); i++) sim.step();
     const plaque = TABLE_IN_USE.targets.find((t) => t.flip)!;
     const id = place(sim, -0.4, 3, 0, 0);
@@ -357,13 +380,203 @@ const checks: [string, () => void][] = [
     sim.step();
     assert.ok(hits.some((h) => h.kind === 'target' && h.id === drop.id && h.ball === shot), 'the drop target reported');
     assert.ok(hits.some((h) => h.kind === 'target' && h.id === plaque.id && h.ball === id), 'the plaque reported');
-    assert.equal(sim.targetsDown(), 1 << targetIndex(drop.id), 'the drop target is down');
+    // (The rising targets stand down all along: their bits are set in every sim, and not this check's.)
+    assert.equal(sim.targetsDown(), (1 << targetIndex(drop.id)) | RISING, 'the drop target is down');
     assert.equal(sim.targetsTurned(), 1 << targetIndex(plaque.id), 'the plaque is turned, and not down');
     sim.resetDropTargets();
-    assert.equal(sim.targetsDown(), 0);
+    assert.equal(sim.targetsDown(), RISING, 'resetDropTargets raises the drop target and leaves the rising ones down');
     assert.equal(sim.targetsTurned(), 1 << targetIndex(plaque.id), 'resetDropTargets leaves the plaques');
     sim.resetTargets();
     assert.equal(sim.targetsTurned(), 0, 'resetTargets turns the plaques back too');
+  }],
+  ['the pop-ups and the mummy start down, rise when raised, and the pop-ups drop when hit', () => {
+    const rising = ['target-popup-1', 'target-popup-2', 'target-popup-3', 'target-mummy'];
+    const bit = (id: string) => 1 << targetIndex(id);
+    {
+      // A fresh sim has all four down; raising each clears its bit.
+      const { sim } = make();
+      assert.equal(sim.targetsDown(), rising.reduce((bits, id) => bits | bit(id), 0), 'all four start down');
+      for (const id of rising) {
+        assert.equal(sim.raiseTarget(id), true, `${id} rises`);
+        assert.equal(sim.targetsDown() & bit(id), 0, `${id}'s bit clears`);
+      }
+      assert.equal(sim.targetsDown(), 0, 'all four up');
+    }
+    for (const id of rising.slice(0, 3)) {
+      const g = TABLE_IN_USE.targets[targetIndex(id)];
+      {
+        // Down, it is no wall: a ball rolled at it goes through its place, and nothing is reported.
+        const { sim, hits } = make();
+        const [nx, nz] = faceNormal(g);
+        const ball = rollAt(sim, g);
+        for (let i = 0; i < 0.25 / DT; i++) sim.step();
+        const p = sim.items.get(ball)!.body.translation();
+        assert.ok((p.x - g.x) * nx + (p.z - g.z) * nz < -0.3, `${id} down: the ball went through its place`);
+        assert.deepEqual(hits.filter((h) => h.id === id), [], `${id} down: nothing to hit`);
+      }
+      // Raised, a ball rolled square at its face drops it and reports the one hit.
+      const { sim, hits } = make();
+      assert.equal(sim.raiseTarget(id), true);
+      const shot = rollAt(sim, g);
+      for (let i = 0; i < 0.4 / DT && !(sim.targetsDown() & bit(id)); i++) sim.step();
+      assert.equal(sim.targetsDown() & bit(id), bit(id), `${id} dropped`);
+      assert.deepEqual(hits.filter((h) => h.id === id), [{ kind: 'target', id, ball: shot }], `${id}: one hit`);
+      assert.equal(sim.targetsTurned(), 0, `${id} drops, it does not turn`);
+      // Dropped, it is no wall again, and it reports nothing more.
+      for (let i = 0; i < 0.3 / DT; i++) sim.step();
+      assert.equal(hits.filter((h) => h.id === id).length, 1, `${id} reports once`);
+    }
+  }],
+  ['the mummy stays up when hit and reports every hit, a cool-down apart', () => {
+    const { sim, hits } = make();
+    const mummy = TABLE_IN_USE.targets[targetIndex('target-mummy')];
+    const bit = 1 << targetIndex(mummy.id);
+    const mummyHits = () => hits.filter((h) => h.kind === 'target' && h.id === mummy.id);
+    assert.equal(sim.raiseTarget(mummy.id), true);
+    // A ball rolled at it twice, the second roll a cool-down after the first: two hits, and it stands there, up.
+    const ball = rollAt(sim, mummy);
+    for (let i = 0; i < 0.6 / DT && mummyHits().length < 1; i++) sim.step();
+    assert.equal(mummyHits().length, 1, 'the first roll hit it');
+    // Its wall is as thick as its depth (0.3, half of it each side of its face): the ball met it a ball's radius and 0.15
+    // out, where a wall of the usual 0.2 is met 0.37 out.
+    const [fx, fz] = faceNormal(mummy);
+    const first = sim.items.get(ball)!.body.translation();
+    assert.ok((first.x - mummy.x) * fx + (first.z - mummy.z) * fz > 0.41, 'the mummy is 0.3 thick');
+    assert.equal(sim.targetsDown() & bit, 0, 'still up after the first');
+    for (let i = 0; i < 0.15 / DT; i++) sim.step();
+    rollAt(sim, mummy, { again: ball });
+    for (let i = 0; i < 0.6 / DT && mummyHits().length < 2; i++) sim.step();
+    assert.deepEqual(mummyHits(), [{ kind: 'target', id: mummy.id, ball }, { kind: 'target', id: mummy.id, ball }], 'the second roll hit it too');
+    assert.equal(sim.targetsDown() & bit, 0, 'still up after the second');
+    assert.equal(sim.targetsTurned() & bit, 0, 'and it never turns');
+    // The bumpers' cool-down: two touches in one moment are one hit, a touch a cool-down later another.
+    const held = place(sim, -0.4, 9.5);
+    sim.holdInLock(held);
+    const before = mummyHits().length;
+    touch(sim, held, mummy.id);
+    touch(sim, held, mummy.id);
+    sim.step();
+    assert.equal(mummyHits().length - before, 1, 'two touches inside the cool-down are one hit');
+    for (let i = 0; i < 0.2 / DT; i++) sim.step();
+    touch(sim, held, mummy.id);
+    sim.step();
+    assert.equal(mummyHits().length - before, 2, 'a touch after the cool-down is another');
+    assert.equal(sim.targetsDown() & bit, 0, 'up all along');
+    // Lowered, it is down (its collider off): lowerTarget sets its bit, and a ball rolled at it goes through.
+    sim.lowerTarget(mummy.id);
+    assert.equal(sim.targetsDown() & bit, bit, 'lowerTarget puts it down');
+    const count = mummyHits().length;
+    const [nx, nz] = faceNormal(mummy);
+    const through = rollAt(sim, mummy);
+    for (let i = 0; i < 0.25 / DT; i++) sim.step();
+    const p = sim.items.get(through)!.body.translation();
+    assert.ok((p.x - mummy.x) * nx + (p.z - mummy.z) * nz < -0.3, 'the ball went through the place where it stood');
+    assert.equal(mummyHits().length, count, 'and nothing was hit');
+  }],
+  ['a rising target never rises into a ball', () => {
+    for (const id of ['target-popup-2', 'target-mummy']) {
+      const g = TABLE_IN_USE.targets[targetIndex(id)];
+      const bit = 1 << targetIndex(id);
+      const [nx, nz] = faceNormal(g);
+      const u = [Math.cos(((g.angle ?? 0) * Math.PI) / 180), Math.sin(((g.angle ?? 0) * Math.PI) / 180)];
+      {
+        // A ball held still at its spot: it stays down, and says so. With the ball moved away, it rises.
+        const { sim } = make();
+        const ball = place(sim, g.x, g.z);
+        assert.equal(sim.raiseTarget(id), false, `${id} stays down under a ball`);
+        assert.equal(sim.targetsDown() & bit, bit, `${id}'s bit is still set`);
+        sim.items.get(ball)!.body.setTranslation({ x: g.x + 2 * nx, y: R, z: g.z + 2 * nz }, true);
+        assert.equal(sim.raiseTarget(id), true, `${id} rises once the ball has gone`);
+        assert.equal(sim.targetsDown() & bit, 0, `${id}'s bit clears`);
+        assert.equal(sim.raiseTarget(id), true, 'raised already, it stays raised');
+      }
+      // Its reach: a ball's radius, half its depth and 0.05, from its face (the segment, not the line it runs along).
+      const reach = TABLE.ballRadius + (g.depth ?? 0.2) / 2 + 0.05;
+      const raisedWithBallAt = (along: number, across: number) => {
+        const { sim } = make();
+        place(sim, g.x + u[0] * along + nx * across, g.z + u[1] * along + nz * across);
+        return sim.raiseTarget(id);
+      };
+      assert.equal(raisedWithBallAt(0, reach - 0.02), false, `a ball just inside ${id}'s reach blocks it`);
+      assert.equal(raisedWithBallAt(0, -(reach - 0.02)), false, `... on its back too`);
+      assert.equal(raisedWithBallAt(0, reach + 0.02), true, `a ball just outside ${id}'s reach does not`);
+      assert.equal(raisedWithBallAt(g.width / 2 + 0.1, 0), false, `a ball beside ${id}'s end blocks it`);
+      assert.equal(raisedWithBallAt(g.width / 2 + reach + 0.02, 0), true, `a ball further along its line than its reach from its end does not`);
+    }
+    // Only the rising targets rise: the others, and ids that aren't targets, are refused and nothing changes.
+    const { sim } = make();
+    assert.equal(sim.raiseTarget('target-scarab'), false, "the scarab isn't a rising target");
+    assert.equal(sim.raiseTarget('nonsense'), false);
+    assert.equal(sim.targetsDown(), RISING);
+  }],
+  ['ballAtDropTarget: a ball where the scarab or the eye would rise, and never one at a rising target', () => {
+    const { sim, hits } = make();
+    const scarab = TABLE_IN_USE.targets[targetIndex('target-scarab')];
+    // Both drop targets up: a ball at one of them is no concern, it stands against a wall.
+    sim.remove(place(sim, scarab.x, scarab.z));
+    assert.equal(sim.ballAtDropTarget(), false, 'nothing is down');
+    // The scarab knocked down by a shot: a ball at its spot holds it down...
+    const shot = rollAt(sim, scarab);
+    for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === scarab.id); i++) sim.step();
+    sim.remove(shot);
+    const ball = place(sim, scarab.x, scarab.z);
+    assert.equal(sim.ballAtDropTarget(), true, 'a ball where the scarab would rise');
+    // ... and a ball at any of the rising targets (down all the while) does not.
+    for (const g of TABLE_IN_USE.targets.filter((g) => g.rise)) {
+      sim.items.get(ball)!.body.setTranslation({ x: g.x, y: R, z: g.z }, true);
+      assert.equal(sim.ballAtDropTarget(), false, `a ball at ${g.id}, which is down`);
+    }
+  }],
+  ['resetTargets puts the rising targets down; resetDropTargets raises only the scarab and the eye', () => {
+    const lock = TABLE_IN_USE.targets.filter(isLockTarget);
+    assert.deepEqual(lock.map((g) => g.id), ['target-scarab', 'target-eye']);
+    const lockBits = lock.reduce((bits, g) => bits | (1 << targetIndex(g.id)), 0);
+    const rising = TABLE_IN_USE.targets.filter((g) => g.rise);
+    const plaque = TABLE_IN_USE.targets.find((t) => t.flip)!;
+    /** A sim with the scarab and the eye knocked down by shots, every rising target raised and a plaque turned. */
+    const knocked = () => {
+      const { sim, hits } = make();
+      for (const g of lock) {
+        const shot = rollAt(sim, g);
+        for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === g.id); i++) sim.step();
+        sim.remove(shot);
+      }
+      for (const g of rising) assert.equal(sim.raiseTarget(g.id), true, `${g.id} rises`);
+      const held = place(sim, -0.4, 9.5);
+      sim.holdInLock(held);
+      touch(sim, held, plaque.id);
+      sim.step();
+      sim.remove(held);
+      assert.equal(sim.targetsDown(), lockBits, 'knocked: the scarab and the eye are down, the rising targets up');
+      return { sim, hits };
+    };
+    {
+      const { sim } = knocked();
+      sim.resetDropTargets();
+      assert.equal(sim.targetsDown(), 0, 'resetDropTargets raised the scarab and the eye, and left the rising ones up');
+      assert.equal(sim.targetsTurned(), 1 << targetIndex(plaque.id), 'and the plaque turned');
+      for (const g of rising) sim.lowerTarget(g.id);
+      sim.resetDropTargets();
+      assert.equal(sim.targetsDown(), RISING, 'with the rising ones down it leaves them down');
+    }
+    {
+      const { sim, hits } = knocked();
+      sim.resetTargets();
+      assert.equal(sim.targetsDown(), RISING, 'resetTargets: the scarab and the eye up, the rising targets down');
+      assert.equal(sim.targetsTurned(), 0, 'and the plaque turned back');
+      // The eye is a wall again, and a pop-up that was up and is down now is none.
+      const eye = TABLE_IN_USE.targets[targetIndex('target-eye')];
+      hits.length = 0;
+      const shot = rollAt(sim, eye);
+      for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === eye.id); i++) sim.step();
+      assert.ok(hits.some((h) => h.id === eye.id && h.ball === shot), 'the eye is a wall again');
+      sim.clear();
+      hits.length = 0;
+      const popup = TABLE_IN_USE.targets[targetIndex('target-popup-1')];
+      rollAt(sim, popup);
+      for (let i = 0; i < 0.3 / DT; i++) sim.step();
+      assert.deepEqual(hits.filter((h) => h.id === popup.id), [], 'a pop-up put down is no wall');
+    }
   }],
   ['a bank pays once: a plaque hit twice, and its last plaque hit by two balls in one step', () => {
     const { sim, hits } = make();
