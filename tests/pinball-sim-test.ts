@@ -1,6 +1,6 @@
 // The pinball's physics (server/sim.ts), headless with the real Rapier: a launch goes up the plunger lane and onto the
 // table, no shot gets out through a wall, a ball left alone drains, the right flipper shoots to the upper table (up the
-// left ramp and round the left orbit) and the left flipper into the pyramid's Eye bank and the sun bumper, a bumper
+// left ramp and round the left orbit) and the left flipper too (round the right orbit) and at the drop targets, a bumper
 // kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
 // is held and let go cleanly, and the snapshot is the 43-byte header (type, time, ball count, the three flippers'
 // angles, the lit bits, the targets down and turned, both spinners' angles) then each ball's body; a ball's owner is in
@@ -183,7 +183,7 @@ const checks: [string, () => void][] = [
   }],
   ["the right flipper's shots reach the upper table", () => {
     // The right flipper: on the pyramid table its shots go up the left ramp and round the left orbit, over z 12 (the pop
-    // bumpers' level, as on the stand-in table); the left flipper's, from these drops, run into the pyramid's Eye bank.
+    // bumpers' level, as on the stand-in table); the left flipper's go round the right orbit (the next check).
     const flipper = TABLE_IN_USE.flippers.find((f) => f.side === 'right')!;
     const tops: number[] = [];
     for (let n = 0; n < 10; n++) {
@@ -216,14 +216,16 @@ const checks: [string, () => void][] = [
     const reached = tops.filter((z) => z > 12).length;
     assert.ok(reached >= 6, `only ${reached} of 10 shots got past z 12: ${tops.map((z) => z.toFixed(1)).join(', ')}`);
   }],
-  ["the left flipper's shots reach the Eye bank and the sun bumper", () => {
-    // On the pyramid table the left flipper shoots at the pyramid's lower-right face (the Eye bank, facing it) and the sun
-    // bumper above the right sling. Ten drops onto it, the same kind as the right flipper's but fixed (evenly spread over
-    // the drop spots and the flip points; measured 2026-10-17: 8 of these 10 hit one or the other, 7 the sun bumper).
+  ["the left flipper's shots reach the upper table, and the drop targets", () => {
+    // The left flipper's most common shot (the ball flipped two thirds of the way along) goes round the right orbit to
+    // the upper table, as the right flipper's goes round the left; its steeper ones hit the drop targets right of the
+    // pyramid. Ten drops onto it, the same kind as the right flipper's but fixed (evenly spread over the drop spots and
+    // the flip points; measured 2026-10-18: 6 of these 10 past z 12, 2 more on a drop target, 1 the sling, and the last
+    // drop misses the flipper).
     const flipper = TABLE_IN_USE.flippers.find((f) => f.side === 'left')!;
-    const eyeBank = TABLE_IN_USE.banks.find((b) => b.id === 'bank-eye')!.targets;
+    const drops = TABLE_IN_USE.targets.filter((t) => !t.flip).map((t) => t.id);
     const results: string[] = [];
-    let reached = 0;
+    let up = 0, onDrop = 0;
     for (let n = 0; n < 10; n++) {
       const { sim, hits } = make();
       sim.flip('left', true);
@@ -240,12 +242,19 @@ const checks: [string, () => void][] = [
       assert.ok(sim.items.has(id), `drop ${n}: the ball drained before the flip`);
       hits.length = 0;
       sim.flip('left', true);
-      for (let i = 0; i < 2 / DT && sim.items.has(id); i++) sim.step();
-      const got = hits.filter((h) => h.ball === id && (h.id === 'bumper-sun' || eyeBank.includes(h.id))).map((h) => h.id);
-      if (got.length) reached++;
-      results.push([...new Set(got)].join('+') || 'neither');
+      let top = -Infinity;
+      for (let i = 0; i < 2 / DT && sim.items.has(id); i++) {
+        sim.step();
+        const ball = sim.items.get(id);
+        if (ball) top = Math.max(top, ball.body.translation().z);
+      }
+      const drop = hits.some((h) => h.ball === id && drops.includes(h.id));
+      if (top > 12) up++;
+      else if (drop) onDrop++;
+      results.push(top > 12 ? `up (${top.toFixed(1)})` : drop ? 'drop target' : `${top.toFixed(1)}`);
     }
-    assert.ok(reached >= 7, `only ${reached} of 10 shots hit the Eye bank or the sun bumper: ${results.join(', ')}`);
+    assert.ok(up >= 6, `only ${up} of 10 shots got past z 12: ${results.join(', ')}`);
+    assert.ok(up + onDrop >= 8, `only ${up + onDrop} of 10 shots got past z 12 or hit a drop target: ${results.join(', ')}`);
   }],
   ['a bumper kicks and reports', () => {
     const { sim, hits } = make();
@@ -334,9 +343,13 @@ const checks: [string, () => void][] = [
   }],
   ['flip targets turn and stay up; resetDropTargets raises only the drop targets', () => {
     const { sim, hits } = make();
-    // The scarab drop target, on the pyramid's upper-left face (which runs at 45 degrees): a ball rolled square at it.
+    // The scarab drop target, right of the pyramid and facing the left flipper: a ball rolled square at its front (the
+    // side toward the flippers' middle, as the stage and the picture stand it).
     const drop = TABLE_IN_USE.targets[targetIndex('target-scarab')];
-    const shot = place(sim, drop.x - 0.6 * Math.SQRT1_2, drop.z + 0.6 * Math.SQRT1_2, 9 * Math.SQRT1_2, -9 * Math.SQRT1_2);
+    const a = ((drop.angle ?? 0) * Math.PI) / 180;
+    let [nx, nz] = [-Math.sin(a), Math.cos(a)];
+    if (nx * (-0.4 - drop.x) + nz * (2 - drop.z) < 0) [nx, nz] = [-nx, -nz];
+    const shot = place(sim, drop.x + 0.6 * nx, drop.z + 0.6 * nz, -9 * nx, -9 * nz);
     for (let i = 0; i < 0.4 / DT && !hits.some((h) => h.id === drop.id); i++) sim.step();
     const plaque = TABLE_IN_USE.targets.find((t) => t.flip)!;
     const id = place(sim, -0.4, 3, 0, 0);

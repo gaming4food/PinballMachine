@@ -25,6 +25,11 @@ const FEED_KEPT = 12;
 const AUTO_MISS = 6;
 /** After an auto-save flip, the flipper is left down this long before the next, so it can drop and swing again. */
 const AUTO_REST = 0.15;
+/**
+ * Both drop targets down: they stay down this long (s) before they come back up, so the stage shows the second one drop
+ * (raised in the substep it dropped, it never showed down), and longer while a ball stands where one rises.
+ */
+const DROPS_SHOW = 1;
 /** Multiball's balls are launched this far apart (s), so two never sit in the plunger lane at once. */
 const MULTIBALL_GAP = 0.6;
 /** The centre lane's four rollovers, in order, and the insert each lights (LIT). All four lit pay CENTRE_BONUS. */
@@ -135,6 +140,8 @@ export class PinballGame implements Machine {
   private kickbackLit = false;
   /** The drop targets down and the top rollovers lit since the lock or the kickback last lit, by id. */
   private readonly targetsHit = new Set<string>();
+  /** When both drop targets, down, come back up (DROPS_SHOW after the second dropped); Infinity: none is waiting to. */
+  private dropsUpAt = Infinity;
   private readonly rolloversLit = new Set<string>();
   /** The centre lane's lamps lit, by rollover id (centre-1 to centre-4). */
   private readonly centreLit = new Set<string>();
@@ -382,6 +389,7 @@ export class PinballGame implements Machine {
     this.lockLit = false;
     this.kickbackLit = false;
     this.targetsHit.clear();
+    this.dropsUpAt = Infinity;
     this.rolloversLit.clear();
     this.centreLit.clear();
     this.sim.resetTargets();
@@ -565,8 +573,16 @@ export class PinballGame implements Machine {
     this.autoSave();
     this.setFlippers();
     this.sim.step();
+    this.raiseDrops();
     this.watchStuck();
     this.lastStepMs = performance.now() - t0;
+  }
+
+  /** Both drop targets back up when their time down is over, once no ball stands where one rises. */
+  private raiseDrops(): void {
+    if (this.sim.time < this.dropsUpAt || this.sim.ballAtDropTarget()) return;
+    this.dropsUpAt = Infinity;
+    this.sim.resetDropTargets();
   }
 
   /** Multiball's balls and the line's next ball (after its moment), as their times come. */
@@ -708,9 +724,10 @@ export class PinballGame implements Machine {
         if (!drops.some((t) => t.id === hit.id)) break;
         this.targetsHit.add(hit.id);
         if (drops.every((t) => this.targetsHit.has(t.id))) {
-          // The drop targets come back up for the next time round; the lock stays lit till a ball goes in.
+          // The drop targets come back up for the next time round (DROPS_SHOW later, raiseDrops); the lock stays lit
+          // till a ball goes in.
           this.targetsHit.clear();
-          this.sim.resetDropTargets();
+          this.dropsUpAt = this.sim.time + DROPS_SHOW;
           if (!this.lockLit) {
             this.lockLit = true;
             this.feed('Lock lit!', 'milestone');

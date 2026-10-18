@@ -17,6 +17,7 @@ import { entry } from '../src/entry';
 import { PinballGame } from '../src/server/game';
 import { DT } from '../src/server/sim';
 import { type PinballHypeMsg, pinballHypeOf, RULES } from '../src/shared/pinball';
+import { TABLE } from '../src/shared/table';
 
 await initPhysics();
 
@@ -162,8 +163,14 @@ test("multiball with no ball on the table is refused, and the streamer's press s
 test('the ball saver with a ball on the table lasts 15 seconds', () => {
   const { game, run, moments, ballOn, bought, done } = aGame();
   try {
-    ballOn('ana');
-    run(RULES.ballSaverStart + 0.5); // the ball's own saver is over
+    const ball = ballOn('ana');
+    // The ball's own saver is over, the ball held still above the pyramid meanwhile (so the table can't drain it).
+    const body = game.sim.items.get(ball)!.body;
+    for (let i = 0; i < Math.round((RULES.ballSaverStart + 0.5) / DT); i++) {
+      body.setTranslation({ x: -0.4, y: TABLE.ballRadius, z: 9 }, true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      run(DT);
+    }
     assert.equal(game.state().saverUntil, null);
     const p = bought('ben', 50);
     assert.equal(game.buyHype('saver', p), null);

@@ -15,8 +15,10 @@ export const PYRAMID: Table = {
     { kind: 'shooter', points: [[4.2, 0.3], [5, 0.3]], restitution: 0.1 },
     { kind: 'shooter', points: [[4.2, 0.3], [4.2, 12.1]], restitution: 0.4 },
     // The inlane guides: the left one from the left wall down to the flipper's pivot, the right one from the top of its
-    // inlane down to its pivot; the right outlane's inner wall is the guide that runs on down to the drain.
-    { kind: 'guide', points: [[-5, 6.6], [-4.2, 6], [-4.2, 3.6], [-2.1, 2]], restitution: 0.3 },
+    // inlane down to its pivot; the right outlane's inner wall is the guide that runs on down to the drain. The left
+    // one's last run is the right one's mirror (from x -4.05): from -4.2 its gentler slope held a ball caught on the left
+    // flipper on the flipper's base once the flipper dropped (6 of 81 catches sat there for good; none on the right).
+    { kind: 'guide', points: [[-5, 6.6], [-4.2, 6], [-4.05, 3.6], [-2.1, 2]], restitution: 0.3 },
     { kind: 'guide', points: [[3.25, 5.6], [3.25, 3.6], [1.3, 2]], restitution: 0.3 },
     { kind: 'guide', points: [[3.25, 3.6], [3.25, 0]], restitution: 0.3 },
     // The orbit: a wall that guides a ball round the upper table, up the left side, over the top and down the right.
@@ -45,19 +47,23 @@ export const PYRAMID: Table = {
     // The fourth bumper stands on the dish (y0), toward its uphill rim, the gap there narrower than a ball, so a ball is
     // never uphill of it: on a flat dish one rested against its uphill side, and a coned floor pinned one at the uphill rim.
     { id: 'bumper-4', x: -3.6, z: 14.8, radius: 0.35, kick: 7, points: 200, y0: 0.8 },
-    // The small sun-disc bumper above the right sling, where the left flipper's shots cross (the slope bends them down: at
-    // 6.3 they passed under it), leaving a ball's width and more to the right sling's top corner (0.67) and to the right
-    // inlane's mouth (0.81).
-    { id: 'bumper-sun', x: 2.05, z: 5.9, radius: 0.35, kick: 7, points: 100 },
+    // The small sun-disc bumper capping the right inlane's guide, where balls come down the right side (off the right
+    // ramp's end and out of the right orbit) and the inlane and the outlane part: sealed to the guide's top, 0.7 to the
+    // shooter lane's wall, clear of the kickback's shot up the outlane (at x 3.25, 0.25 across, it clipped it), and its
+    // base clear of the double-score ladder's first lamp. Above the right sling (2.05, 5.9) it stood in the left
+    // flipper's commonest shot, the one round the right orbit, and no left flip got past z 10.
+    { id: 'bumper-sun', x: 3.12, z: 5.88, radius: 0.3, kick: 7, points: 100 },
   ],
   slings: [
     { id: 'sling-left', a: [-2.8, 4.8], b: [-2.2, 3.2], kick: 7, points: 10 },
     { id: 'sling-right', a: [2, 4.8], b: [1.4, 3.2], kick: 7, points: 10 },
   ],
   targets: [
-    // The scarab target on the pyramid's upper-left face, 0.12 out from the middle of its face. (The lower faces carry
-    // banks of flip plaques, below.) The order of this list is the snapshot's and the sim's target numbering.
-    { id: 'target-scarab', x: -1.195, z: 7.895, width: 0.6, points: 500 },
+    // The two drop targets, the scarab and the eye, side by side in the open right of the pyramid and in front of the
+    // Horus bank, square to the left flipper's steeper shots (from about (-0.9, 3)), 0.62 apart: the stage's camera sees
+    // their faces as well as the Horus bank's. On the pyramid's upper faces it saw only their backs. The order of this
+    // list is the snapshot's and the sim's target numbering.
+    { id: 'target-scarab', x: 1.323, z: 8.139, width: 0.55, points: 500, angle: -26.57 },
     // The Ra bank: three flip targets along the right orbit's inner wall, facing the left flipper. They are 0.5 wide, 0.54
     // apart, from 9.2 to 10.78: standing (no longer dropping), the top plaque (to 11.0) held a ball under the upper
     // flipper's base, and a bottom one moved lower closed the gap to the Horus bank's end.
@@ -71,8 +77,8 @@ export const PYRAMID: Table = {
     { id: 'target-horus-1', x: 0.983, z: 9.468, width: 0.6, points: 300, angle: -29.31, flip: true },
     { id: 'target-horus-2', x: 1.55, z: 9.15, width: 0.6, points: 300, angle: -29.31, flip: true },
     { id: 'target-horus-3', x: 2.117, z: 8.832, width: 0.6, points: 300, angle: -29.31, flip: true },
-    // The eye target on the pyramid's upper-right face, 0.12 out from the middle of its face.
-    { id: 'target-eye', x: 0.395, z: 7.895, width: 0.6, points: 500 },
+    // The eye target, the scarab's partner (above).
+    { id: 'target-eye', x: 1.877, z: 7.861, width: 0.55, points: 500, angle: -26.57 },
     // The Ankh bank on the pyramid's lower-left face (facing the right flipper) and the Eye bank on its lower-right face
     // (facing the left): three plaques along each face from the front corner, close to the face (0.14 out) and slid 0.18
     // toward the front corner, 0.5 wide. Across the whole face at 0.6, the top one stood out into the shot up the left
@@ -119,21 +125,24 @@ export const PYRAMID: Table = {
     { side: 'right', pivot: [2.85, 11.7], length: 1, restDeg: 210, upDeg: 150 },
   ],
   ramps: [
-    // Up the left lane, curling left as it climbs, into the dish's south gap. Its mouth is flared, at (-2.75, 8) where the
-    // right flipper's shots 27 degrees left of straight up arrive (measured with real flips; the steeper ones, 32, are the
-    // left orbit's). Pointing straight up the table no flip went up it, and bent away from the shot's line a flip lost its
-    // speed on the rails. The mouth sits above the pyramid's left corner, 0.9 clear of it; at (-2.95, 8.4) the shorter,
-    // steeper ramp lost half the shots up it. It rises on a smooth profile from the playfield, because a kink in a ramp's
+    // Up the left lane, curling left as it climbs, into the dish's south gap. Its mouth is at (-2.954, 8.175), on the right
+    // flipper's shots 27 degrees left of straight up (measured with real flips; the steeper ones, 32, are the left
+    // orbit's), and it first points up that line (110 degrees, curving to 99 by the dish) so a shot comes in along it.
+    // Straight from (-2.75, 8) to the dish it pointed 18 degrees off the shot, and its mouth's flare (0.45) narrowed at 19
+    // degrees a side: a shot struck the far rail at about 37 degrees and zigzagged up between the rails, losing its speed
+    // (7 of 10 of the layout test's shots made the dish, 11 of a 5 x 5 grid). The flare is 0.2 now. Pointing straight up
+    // the table no flip went up it. The mouth sits above the pyramid's left corner, clear of it; at (-2.95, 8.4) the old
+    // straight ramp lost half the shots up it. It rises on a smooth profile from the playfield, because a kink in a ramp's
     // slope takes a ball's speed like a step.
     {
-      id: 'ramp-left', width: 0.8, flare: 0.45, rail: 0.45,
+      id: 'ramp-left', width: 0.8, flare: 0.2, rail: 0.45,
       path: [
-        [-2.75, 8, 0], [-2.8, 8.311, 0.008], [-2.85, 8.622, 0.031],
-        [-2.9, 8.934, 0.066], [-2.95, 9.245, 0.112], [-3, 9.556, 0.167],
-        [-3.05, 9.867, 0.229], [-3.1, 10.178, 0.295], [-3.15, 10.489, 0.365],
-        [-3.2, 10.801, 0.435], [-3.25, 11.112, 0.505], [-3.3, 11.423, 0.571],
-        [-3.35, 11.734, 0.633], [-3.4, 12.045, 0.688], [-3.45, 12.356, 0.734],
-        [-3.5, 12.668, 0.769], [-3.55, 12.979, 0.792], [-3.6, 13.29, 0.8],
+        [-2.954, 8.175, 0], [-3.044, 8.465, 0.008], [-3.113, 8.761, 0.031],
+        [-3.167, 9.06, 0.066], [-3.21, 9.361, 0.112], [-3.245, 9.662, 0.167],
+        [-3.275, 9.965, 0.229], [-3.302, 10.267, 0.295], [-3.326, 10.57, 0.365],
+        [-3.349, 10.873, 0.435], [-3.372, 11.176, 0.505], [-3.396, 11.479, 0.571],
+        [-3.422, 11.782, 0.633], [-3.45, 12.084, 0.688], [-3.481, 12.386, 0.734],
+        [-3.516, 12.688, 0.769], [-3.555, 12.989, 0.792], [-3.6, 13.29, 0.8],
       ],
     },
     // The right S-ramp: a raised gold wireform from the dish's east gap, across the top over the orbit, S-curving down the

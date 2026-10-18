@@ -153,7 +153,7 @@ export class PinballSim {
   private readonly ballByCollider = new Map<number, Ball>();
   private readonly flippers: FlipperState[] = [];
   /** Each target: a drop target is `down` (its collider off); a flip target stays up, `turned` to its back. */
-  private readonly targets: { collider: RAPIER.Collider; down: boolean; turned: boolean }[] = [];
+  private readonly targets: { collider: RAPIER.Collider; down: boolean; turned: boolean; a: [number, number]; b: [number, number] }[] = [];
   /** Matched banks, and when their plaques turn back to the front. */
   private readonly bankResets = new Map<string, number>();
   private readonly lastKick = new Map<string, number>();
@@ -293,7 +293,7 @@ export class PinballSim {
         this.segment([g.x - ex, g.z - ez], [g.x + ex, g.z + ez], TARGET_HALF).setFriction(WALL_FRICTION).setRestitution(TARGET_RESTITUTION),
         { kind: 'target', id: g.id, index },
       );
-      this.targets.push({ collider, down: false, turned: false });
+      this.targets.push({ collider, down: false, turned: false, a: [g.x - ex, g.z - ez], b: [g.x + ex, g.z + ez] });
     });
 
     for (const r of t.rollovers) this.sensor(this.post(r.x, r.z, ROLLOVER_R), { kind: 'rollover', id: r.id });
@@ -583,6 +583,21 @@ export class PinballSim {
       const g = this.targets[i];
       g.down = false;
       g.collider.setEnabled(true);
+    });
+  }
+
+  /** Whether a ball stands where a drop target that is down would rise (a target raised into a ball would wedge it). */
+  ballAtDropTarget(): boolean {
+    const reach = TABLE.ballRadius + TARGET_HALF + 0.05;
+    return this.targets.some((g, i) => {
+      if (!g.down || this.table.targets[i].flip) return false;
+      const dx = g.b[0] - g.a[0], dz = g.b[1] - g.a[1];
+      for (const ball of this.items.values()) {
+        const p = ball.body.translation();
+        const t = Math.max(0, Math.min(1, ((p.x - g.a[0]) * dx + (p.z - g.a[1]) * dz) / (dx * dx + dz * dz)));
+        if (Math.hypot(p.x - g.a[0] - t * dx, p.z - g.a[1] - t * dz) < reach) return true;
+      }
+      return false;
     });
   }
 

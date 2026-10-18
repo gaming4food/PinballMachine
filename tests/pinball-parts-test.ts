@@ -308,14 +308,16 @@ test("the picture's unseen shapes hide what the picture hides (under the right r
     return ray.intersectObjects(unseen, false).some((h) => h.distance < dist - 0.02);
   };
   const R = TABLE.ballRadius;
-  // Under the right ramp (in the right orbit lane, at the right spinner), and the scarab drop target behind the pyramid.
+  // Under the right ramp (in the right orbit lane, at the right spinner), and behind the pyramid's far (upper-left) face,
+  // where the scarab drop target stood when the stage could not see it.
   assert.ok(hidden(3.7, R, 10), 'a ball under the right ramp is hidden');
-  assert.ok(hidden(-1.195, 0.26, 7.895), "the scarab target, behind the pyramid's far face, is hidden");
+  assert.ok(hidden(-1.195, 0.26, 7.895), "behind the pyramid's far face is hidden");
   // In the open: on the playfield, in the lanes and the inlanes, on the ramps' and the dish's floors.
   for (const [x, y, z] of [[-0.4, R, 1], [-3.65, R, 4.4], [2.75, R, 4.4], [4.6, R, 3], [-0.4, R, 14.05], [-2.4, R, 12.95], [-3.2, 0.44 + R, 10.8], [0.5, 0.795 + R, 14.29], [-3.6, 0.8 + R, 13.8]]) {
     assert.ok(!hidden(x, y, z), `a ball at (${x}, ${y.toFixed(2)}, ${z}) is seen`);
   }
-  // The live parts: each flipper along its length (at rest and up), every flip plaque, the main spinner.
+  // The live parts: each flipper along its length (at rest and up), every target (the flip plaques and the two drop
+  // targets), the main spinner.
   for (const f of TABLE_IN_USE.flippers) {
     for (const deg of [f.restDeg, f.upDeg]) {
       for (const k of [0, 0.5, 1]) {
@@ -324,7 +326,7 @@ test("the picture's unseen shapes hide what the picture hides (under the right r
       }
     }
   }
-  for (const t of TABLE_IN_USE.targets) if (t.flip) assert.ok(!hidden(t.x, 0.26, t.z), `${t.id} is seen`);
+  for (const t of TABLE_IN_USE.targets) assert.ok(!hidden(t.x, 0.26, t.z), `${t.id} is seen`);
   assert.ok(!hidden(TABLE_IN_USE.spinner.x, 0.5, TABLE_IN_USE.spinner.z), 'the main spinner is seen');
 });
 

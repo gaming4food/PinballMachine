@@ -71,10 +71,11 @@ failure is real and fails again: read the step and find out why.
   the magnet 250. The four rollovers up the centre lane light a lamp each; all four lit pay 1,000 and go out. Four banks
   of three turning plaques (Horus, Ra, Ankh and Eye): a hit turns a plaque to its back, and a bank with all three
   turned is matched, pays 5,000, is titled on the stage (HORUS MATCHED and so on), and turns back a second later.
-- **The lock and the kickback.** The lock lights when both drop targets (the scarab and the eye, on the pyramid's upper
-  faces) are down; they come back up (the plaques keep their turns). A ball into the lit lock is held there and
-  multiball brings 2 more balls in (from the line, then the house's, which pay nobody); the held ball is let go when
-  the others are down to one. All 3 top rollovers light the kickback, which kicks a ball out of the right outlane once.
+- **The lock and the kickback.** The lock lights when both drop targets (the scarab and the eye, right of the pyramid in
+  front of the Horus bank) are down; they come back up a second later, once no ball stands where one rises (the plaques
+  keep their turns). A ball into the lit lock is held there and multiball brings 2 more balls in (from the line, then
+  the house's, which pay nobody); the held ball is let go when the others are down to one. All 3 top rollovers light
+  the kickback, which kicks a ball out of the right outlane once.
 - **Second chances.** A ball that drains within 5 s of its first launch, or under a bought ball saver, comes straight
   back with its points. A ball that stays put 4 s gets the table nudged (a ball a saucer or the magnet holds isn't
   stuck); one still stuck after 3 nudges is taken off and launched again up the plunger lane for the same owner, with

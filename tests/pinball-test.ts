@@ -459,7 +459,7 @@ step("a matched bank pays its bonus to the ball's owner", () => {
   assert.equal(lastFeed(), 'Lou matched the Ra bank! +10,000');
 });
 
-step('both drop targets light the lock and raise only the drop targets', () => {
+step('both drop targets light the lock and come back up a second later, raising only the drop targets', () => {
   const mo = viewer('mo', 'Mo');
   const ball = freshBall(mo);
   const turned = game.sim.targetsTurned();
@@ -477,11 +477,33 @@ step('both drop targets light the lock and raise only the drop targets', () => {
   assert.equal(game.state().lockLit, false);
   hitPart({ kind: 'target', id: 'target-eye', ball });
   assert.equal(game.state().lockLit, true, 'both drop targets down light the lock');
+  assert.equal(drops, 0, 'they stay down a moment, so the stages show the second one drop');
+  run(1.1);
   assert.equal(drops, 1, 'the drop targets were raised');
   assert.equal(resets, 0, 'the plaques were left as they were');
   assert.equal(game.sim.targetsTurned(), turned);
   delete sim.resetDropTargets;
   delete sim.resetTargets;
+});
+
+step('the drop targets wait to come back up while a ball stands where one rises', () => {
+  const ole = viewer('ole', 'Ole');
+  const ball = freshBall(ole);
+  const sim = game.sim as any;
+  const drops = TABLE_IN_USE.targets.flatMap((t, i) => (t.flip ? [] : [i]));
+  const bits = drops.reduce((b, i) => b | (1 << i), 0);
+  // Both down, as the physics drops them, and their hits to the game.
+  for (const i of drops) {
+    sim.targets[i].down = true;
+    sim.targets[i].collider.setEnabled(false);
+    hitPart({ kind: 'target', id: TABLE_IN_USE.targets[i].id, ball });
+  }
+  const eye = TABLE_IN_USE.targets[drops[1]];
+  hold(ball, eye.x, eye.z, 1.5);
+  assert.equal(game.sim.targetsDown(), bits, 'not raised into the ball standing on one');
+  put(ball, -0.4, 9);
+  run(2 * DT);
+  assert.equal(game.sim.targetsDown(), 0, 'up once the ball has gone');
 });
 
 step('the saucer and the magnet score', () => {

@@ -198,13 +198,32 @@ const checks: [string, () => string][] = [
     const shots = fire(-0.1, 3.0, -23, 44, 3, onDish, atLeftRampTop);
     const atTop = shots.filter((s) => s.seen).length, onTheDish = count(shots);
     const each = shots.map((s) => (s.ok ? 'D' : s.seen ? 'T' : '-')).join('');
-    // The table's real rate on this fixed spread is 7/10 (13-14 of 25 on a 5x5 grid across ±5%); the plan's 9/10 was the spike's lucky draws.
-    // The bar sits exactly at that measured 7/10 on purpose: it is a tripwire. The shots have no random in them, so the
-    // rate moves only when the physics or the table does. A failure here means one of them changed: investigate what
-    // did (the ramp, the flippers, the pyramid, the sim), don't lower the bar.
-    assert.ok(atTop >= 7, `only ${atTop}/10 reached the left ramp's top end (per shot, D dish, T top only, - neither: ${each})`);
-    assert.ok(onTheDish >= 7, `only ${onTheDish}/10 reached the dish (per shot: ${each})`);
-    return `${atTop}/10 reached its top end, ${onTheDish}/10 the dish (per shot: ${each})`;
+    // And a 5 x 5 grid across the same ±5% (vx's factor by vz's), each to the dish.
+    fresh(7);
+    const F = [0.95, 0.975, 1, 1.025, 1.05];
+    let grid = 0;
+    for (const a of F) {
+      for (const b of F) {
+        reset();
+        const id = add(-0.1, 3.0, -23 * a, 44 * b);
+        for (let i = 0; i < 3 / DT; i++) {
+          sim.step();
+          const p = pos(id);
+          if (!p) break;
+          if (onDish(p)) { grid++; break; }
+        }
+      }
+    }
+    // The table's rate on this fixed spread is 9/10, and 20 of 25 on the grid (it was 7/10 and 11/25 with the mouth's
+    // wide flare and the ramp pointing 18 degrees off the shot's line, 2026-10-17). The misses are the steepest shots,
+    // about 115 degrees, which clip the Ankh bank's top plaque before they reach the mouth.
+    // The bars sit exactly at those measured rates on purpose: they are tripwires. The shots have no random in them, so
+    // the rates move only when the physics or the table does. A failure here means one of them changed: investigate what
+    // did (the ramp, the flippers, the pyramid, the sim), don't lower the bars.
+    assert.ok(atTop >= 9, `only ${atTop}/10 reached the left ramp's top end (per shot, D dish, T top only, - neither: ${each})`);
+    assert.ok(onTheDish >= 9, `only ${onTheDish}/10 reached the dish (per shot: ${each})`);
+    assert.ok(grid >= 20, `only ${grid}/25 of the grid reached the dish`);
+    return `${atTop}/10 reached its top end, ${onTheDish}/10 the dish (per shot: ${each}); ${grid}/25 of the grid the dish`;
   }],
   ['the dish and the right ramp', () => {
     fresh(7);

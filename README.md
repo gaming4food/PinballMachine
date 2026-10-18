@@ -20,11 +20,11 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
 - The table is the pyramid table (`src/shared/pyramid.ts`): 16.7 long, a wide pyramid in the middle, a wireform ramp up
   the left to a raised dish with its own bumper, and a gold ramp from the dish across the top and down the right.
   There are four banks of three turning plaques (Horus, Ra, Ankh and Eye): a hit turns a plaque to its back, and a bank
-  with all three turned is matched, pays 5,000 and turns back a second later. Two drop targets, the scarab and the eye
-  on the pyramid's upper faces, light the lock once both are down. The scarab saucer and the Eye of Ra magnet each hold
-  a slow ball a moment and kick it out; there is a spinner on each orbit, the sun bumper, rollovers up the centre lane
-  (all four lit pay 1,000) and an upper-right flipper that moves with `right`. The three top lanes light the kickback,
-  which kicks a ball out of the right outlane once. 900 points make a coin (`RULES.pointsPerCoin`).
+  with all three turned is matched, pays 5,000 and turns back a second later. Two drop targets, the scarab and the eye,
+  right of the pyramid in front of the Horus bank, light the lock once both are down. The scarab saucer and the Eye of
+  Ra magnet each hold a slow ball a moment and kick it out; there is a spinner on each orbit, the sun bumper, rollovers
+  up the centre lane (all four lit pay 1,000) and an upper-right flipper that moves with `right`. The three top lanes
+  light the kickback, which kicks a ball out of the right outlane once. 900 points make a coin (`RULES.pointsPerCoin`).
 - `src/` is the machine (the game and its Rapier physics in `src/server/`, the table as data in `src/shared/pyramid.ts`
   with its types in `table.ts`, the rules in `src/shared/pinball.ts`, the scene, scoreboard and sounds in `src/stage/`,
   the table's picture and the plaques' in `src/assets/`, the card in `src/panel/`), and `tests/` its tests.
