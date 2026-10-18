@@ -1,7 +1,8 @@
 // Tests the pinball's scoreboard over the stage (PinballHud, stage/pinball-hud.ts): the balls on the table with their
 // owners and scores, the next 3 in line, the words to type (which the layout's Play commands switch hides, as the
-// claw's), a ball's result, and the big titles: MULTIBALL!, BALL SAVED!, DOUBLE SCORE! and a ball's result, each as
-// the stage draws its time. Built in Node from fake elements, as the claw's turn box is tested.
+// claw's), a ball's result, and the big titles: MULTIBALL!, BALL SAVED!, DOUBLE SCORE!, a bank's when its plaques match
+// (HORUS MATCHED, RA MATCHED, ANKH MATCHED and EYE MATCHED) and a ball's result, each as the stage draws its time.
+// Built in Node from fake elements, as the claw's turn box is tested.
 // Usage: npm run pinball-hud-test
 import assert from 'node:assert/strict';
 import type { PinballHypeMsg, PinballState } from '../src/shared/pinball';

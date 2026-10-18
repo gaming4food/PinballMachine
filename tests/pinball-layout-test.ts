@@ -4,7 +4,7 @@
 // Each check stands alone: a table of its own, and the seeded random started again (seed 7; seed 3 for the drops round
 // the upper flipper), so a failing check can be run again to look into, whatever the others do. The aimed shots (the
 // orbits, the lock, the left ramp, the right spinner, the centre lane) have no random in them: ten shots each, with a
-// fixed spread across ±5% of the aim (SPREAD). It runs for a minute or so, and prints one line per check.
+// fixed spread across ±5% of the aim (SPREAD). It runs in well under a minute, and prints one line per check.
 // Usage: npm run pinball-layout-test (or npx tsx tests/pinball-layout-test.ts)
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';

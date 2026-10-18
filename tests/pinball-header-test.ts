@@ -1,6 +1,6 @@
 // Tests the stage's reading of the pinball's snapshot header (stage/pinball-header.ts) against the header as the
-// server writes it (server/sim.ts's snapshot): the time, how many balls, both flippers' angles, the lit inserts, the
-// drop targets down and the spinner's turn, each from its own place. Usage: npm run pinball-header-test
+// server writes it (server/sim.ts's snapshot): the time, how many balls, the three flippers' angles, the lit inserts,
+// the targets down and turned and both spinners' turns, each from its own place. Usage: npm run pinball-header-test
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
 import { PinballSim } from '../src/server/sim';
