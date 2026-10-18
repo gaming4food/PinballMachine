@@ -441,10 +441,36 @@ for k_ in range(16):
     prism('drain ray', [(CX + 0.52 * math.cos(a_ - 0.05), 0.32 + 0.52 * math.sin(a_ - 0.05)), (CX + 0.78 * math.cos(a_), 0.32 + 0.78 * math.sin(a_)),
                         (CX + 0.52 * math.cos(a_ + 0.05), 0.32 + 0.52 * math.sin(a_ + 0.05))], 0, 0.004, GOLD)
 
+# A wall whose end stands inside a floor bumper's base (the sun bumper caps the right inlane's guide) is drawn only to
+# the base's edge, with no post at that end, so the bumper isn't seen skewered on the post; the physics keeps the whole
+# wall. Returns the points to draw and, for each end, whether it was cut.
+def trim_at_bumpers(name, pts):
+    pts = [list(p) for p in pts]
+    cut = [False, False]
+    for e_, (end, nxt) in enumerate(((0, 1), (-1, -2))):
+        for b in T['bumpers']:
+            if b.get('y0', 0.0):
+                continue
+            R_ = b['radius'] * 1.28
+            dx_, dy_ = pts[end][0] - b['x'], pts[end][1] - b['z']
+            if dx_ * dx_ + dy_ * dy_ >= R_ * R_:
+                continue
+            # Where the wall's last run, from its end toward the next point, leaves the base's circle.
+            ex_, ey_ = pts[nxt][0] - pts[end][0], pts[nxt][1] - pts[end][1]
+            a_, b_, c_ = ex_ * ex_ + ey_ * ey_, dx_ * ex_ + dy_ * ey_, dx_ * dx_ + dy_ * dy_ - R_ * R_
+            t_ = (-b_ + math.sqrt(b_ * b_ - a_ * c_)) / a_
+            if t_ < 1:
+                pts[end] = [pts[end][0] + t_ * ex_, pts[end][1] + t_ * ey_]
+                cut[e_] = True
+                print(f"{name} drawn to {b['id']}'s base: its end at ({pts[end][0]:.3f}, {pts[end][1]:.3f}), no post")
+    return pts, cut
+
+
 # Walls by kind. Each is drawn as thick as its physics (0.16), so the ball meets what it's seen to meet.
 for i, w in enumerate(walls[1:], 1):
     kind = w.get('kind', 'guide')
     pts = w['points']
+    cut = [False, False]
     if kind in ('pyramid', 'slingback'):
         continue  # the sculpted pyramid and the slingshots are drawn below
     if kind == 'orbit':
@@ -452,12 +478,13 @@ for i, w in enumerate(walls[1:], 1):
         twin_rails(f'orbit {i}', pts)
         posts = [pts[0], pts[-1]]
     else:
+        pts, cut = trim_at_bumpers(f'{kind} {i}', pts)
         wall(f'{kind} {i}', pts, 0.16, H, GOLD)
         if len(pts) > 2 or abs(pts[0][1] - pts[-1][1]) > 3:
             wire(f'guide rail {i}', pts, H + 0.06, 0.025, CHROME)
         posts = [pts[0], pts[-1]]
     for k_, (x, y) in enumerate(posts):
-        if y > 0.5:
+        if y > 0.5 and not cut[k_]:
             top_ = 0.66 if kind == 'orbit' else 0.5
             cylinder('post', x, y, 0.08, 0, top_, BRASS, 24)
             dome('post led', x, y, 0.075, top_, 0.08, BLUE_LAMP if k_ % 2 == 0 else AMBER_LAMP)
@@ -802,7 +829,9 @@ for p_, t_ in zip(sp_.points, ts_):
 cu_.bevel_depth = 0.022; ob_ = bpy.data.objects.new('outer spring', cu_); ob_.data.materials.append(STEEL); link(ob_)
 # Lit inserts: ladders up both sides of the pyramid, arrows up both orbits, a column under the pyramid, and the ankh,
 # scarab and falcon plaques under the bumpers (decoration: printed pictures set in the playfield, no targets, and
-# nothing lights them in play).
+# nothing lights them in play). The left ladder starts two lamps lower than the right (5.55, not 6.75), so its top lamp
+# is clear of the left ramp's mouth: from 6.75 its top two lay under the ramp's side and wires. pinball-parts.ts puts
+# the double-score glows on the same places.
 def arrow(x, y, s, m):
     prism('insert ring', [(x - s * 1.45, y - s * 1.15), (x + s * 1.45, y - s * 1.15), (x, y + s * 1.35)], 0, 0.002, GOLD)
     prism('insert bezel', [(x - s * 1.25, y - s), (x + s * 1.25, y - s), (x, y + s * 1.15)], 0, 0.004, BEZEL)
@@ -825,7 +854,7 @@ def roundel(x, y, r, m):
     else:
         cylinder('roundel', x, y, r, 0, 0.007, m, 48)
 for k in range(5):
-    for lx, z0 in ((-3.62, 6.75), (2.82, 6.55)):
+    for lx, z0 in ((-3.62, 5.55), (2.82, 6.55)):
         if k % 2 == 0:
             arrow(lx, z0 + k * 0.6, 0.23, AMBER_LAMP)
         else:

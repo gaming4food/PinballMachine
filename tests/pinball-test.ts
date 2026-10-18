@@ -478,8 +478,10 @@ step('both drop targets light the lock and come back up a second later, raising 
   hitPart({ kind: 'target', id: 'target-eye', ball });
   assert.equal(game.state().lockLit, true, 'both drop targets down light the lock');
   assert.equal(drops, 0, 'they stay down a moment, so the stages show the second one drop');
-  run(1.1);
-  assert.equal(drops, 1, 'the drop targets were raised');
+  run(0.9);
+  assert.equal(drops, 0, 'still down most of a second later');
+  run(0.2);
+  assert.equal(drops, 1, 'the drop targets were raised a second after the second dropped');
   assert.equal(resets, 0, 'the plaques were left as they were');
   assert.equal(game.sim.targetsTurned(), turned);
   delete sim.resetDropTargets;

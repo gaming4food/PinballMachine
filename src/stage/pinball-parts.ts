@@ -369,12 +369,13 @@ export class TableParts {
 
     // The glows over the picture's lamps, where build_table.py puts them, about one and a half times each lamp's size:
     // the top lanes' rollover lamps, the lock's ring, the kickback's two roundels above it, the ladders up both sides
-    // of the pyramid (double score), the centre lane's four lamps, and the ball saver over the sun disc round the drain.
+    // of the pyramid (double score; the left one starts lower, clear of the left ramp's mouth), the centre lane's four
+    // lamps, and the ball saver over the sun disc round the drain.
     table.rollovers.slice(0, 3).forEach((r, i) => this.addGlow(`rollover${i}`, rolloverBits[i], r.x, LAMP_Y, r.z, 0.8, AMBER, true));
     this.addGlow('lock', LIT.lock, table.lock.x, LAMP_Y, table.lock.z, table.lock.radius * 3.2, AMBER, true);
     for (const z of [4, 4.7]) this.addGlow('kickback', LIT.kickback, table.kickback.x, LAMP_Y, z, 0.75, BLUE, true);
     for (let k = 0; k < 5; k++) {
-      for (const [x, z0] of [[-3.62, 6.75], [2.82, 6.55]]) this.addGlow('double', LIT.double, x, LAMP_Y, z0 + k * 0.6, 1, k % 2 ? BLUE : AMBER, true);
+      for (const [x, z0] of [[-3.62, 5.55], [2.82, 6.55]]) this.addGlow('double', LIT.double, x, LAMP_Y, z0 + k * 0.6, 1, k % 2 ? BLUE : AMBER, true);
     }
     [LIT.centre0, LIT.centre1, LIT.centre2, LIT.centre3].forEach((bit, k) => this.addGlow(`centre${k}`, bit, CX, LAMP_Y, 2.9 + k * 0.62, 0.9, k % 2 ? BLUE : AMBER, true));
     this.addGlow('saver', LIT.saver, CX, LAMP_Y, DRAIN_Z, 1.9, AMBER, true);

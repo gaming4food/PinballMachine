@@ -51,7 +51,8 @@ export const PYRAMID: Table = {
     // ramp's end and out of the right orbit) and the inlane and the outlane part: sealed to the guide's top, 0.7 to the
     // shooter lane's wall, clear of the kickback's shot up the outlane (at x 3.25, 0.25 across, it clipped it), and its
     // base clear of the double-score ladder's first lamp. Above the right sling (2.05, 5.9) it stood in the left
-    // flipper's commonest shot, the one round the right orbit, and no left flip got past z 10.
+    // flipper's commonest shot, the one round the right orbit: none of the sim test's ten left flips got past z 12 (6 do
+    // now), nor 13% of a sweep of real flips (30% now).
     { id: 'bumper-sun', x: 3.12, z: 5.88, radius: 0.3, kick: 7, points: 100 },
   ],
   slings: [
@@ -127,7 +128,8 @@ export const PYRAMID: Table = {
   ramps: [
     // Up the left lane, curling left as it climbs, into the dish's south gap. Its mouth is at (-2.954, 8.175), on the right
     // flipper's shots 27 degrees left of straight up (measured with real flips; the steeper ones, 32, are the left
-    // orbit's), and it first points up that line (110 degrees, curving to 99 by the dish) so a shot comes in along it.
+    // orbit's). Its first stretch points 107 degrees, nearer the shots as they reach it (117 to 121) than the old
+    // ramp's 99, and it bends to 94 halfway up and back to 99 at the dish.
     // Straight from (-2.75, 8) to the dish it pointed 18 degrees off the shot, and its mouth's flare (0.45) narrowed at 19
     // degrees a side: a shot struck the far rail at about 37 degrees and zigzagged up between the rails, losing its speed
     // (7 of 10 of the layout test's shots made the dish, 11 of a 5 x 5 grid). The flare is 0.2 now. Pointing straight up

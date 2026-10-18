@@ -138,10 +138,11 @@ export class PinballGame implements Machine {
   private multiball = false;
   private lockLit = false;
   private kickbackLit = false;
-  /** The drop targets down and the top rollovers lit since the lock or the kickback last lit, by id. */
+  /** The drop targets hit since both last went down, by id (the second clears it, and both stay down DROPS_SHOW). */
   private readonly targetsHit = new Set<string>();
   /** When both drop targets, down, come back up (DROPS_SHOW after the second dropped); Infinity: none is waiting to. */
   private dropsUpAt = Infinity;
+  /** The top lanes' rollovers lit since all three last lit (which lights the kickback), by id. */
   private readonly rolloversLit = new Set<string>();
   /** The centre lane's lamps lit, by rollover id (centre-1 to centre-4). */
   private readonly centreLit = new Set<string>();
