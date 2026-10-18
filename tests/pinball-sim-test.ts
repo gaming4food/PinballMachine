@@ -941,6 +941,14 @@ const checks: [string, () => void][] = [
       touchWhere(sim, second, mouth, "tomb's mouth");
       assert.equal(sim.heldBy(second), null, 'not while it holds another');
       assert.equal(sim.heldBy(first), 'tomb', 'and it keeps the first');
+      // The hold alone keeps it to one: with the held ball moved off the held spot, no ball stands within two radii
+      // of the spot to refuse the second there, and still the second isn't caught.
+      const held = sim.items.get(first)!.body;
+      held.setTranslation({ x: 2, y: R, z: 3 }, true);
+      held.setNextKinematicTranslation({ x: 2, y: R, z: 3 });
+      assert.equal(sim.heldBy(first), 'tomb', "moved, the first is still the tomb's");
+      touchWhere(sim, second, mouth, "tomb's mouth");
+      assert.equal(sim.heldBy(second), null, 'nor with the held spot clear: it holds one at a time');
       sim.remove(first);
       touchWhere(sim, second, mouth, "tomb's mouth");
       assert.equal(sim.heldBy(second), 'tomb', 'with the first gone, it catches the second');
