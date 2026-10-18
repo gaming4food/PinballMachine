@@ -91,6 +91,24 @@ test('a drop target going down sounds once; the bank coming back up is silent', 
   assert.deepEqual(heard, ['target:2', 'target:0']);
 });
 
+test('every target on the table sounds when it goes down, past the first eight', () => {
+  const { c, heard } = cues();
+  c.targets(0);
+  c.targets(1 << 7);
+  c.targets((1 << 7) | (1 << 13));
+  assert.deepEqual(heard, ['target:7', 'target:13']);
+});
+
+test('a flip plaque turning to its back sounds as a target; turning back (its bank matched) is silent', () => {
+  const { c, heard } = cues();
+  c.targets(0, 0);
+  c.targets(0, 1 << 10);
+  c.targets(0, 1 << 10);
+  c.targets(0, (1 << 10) | (1 << 4));
+  c.targets(0, 0);
+  assert.deepEqual(heard, ['target:10', 'target:4']);
+});
+
 test("targets already down when the page opens aren't hits", () => {
   const { c, heard } = cues();
   c.targets(0b0011);

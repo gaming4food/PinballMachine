@@ -1,10 +1,13 @@
-// The pinball on the stage (spec section 2): until the owner's picture comes, the stand-in table drawn in three.js
-// (table-mesh.ts), with the live parts over it (pinball-parts.ts: the flippers at the header's angles, bumper caps that
-// flash on a hit, drop targets that drop by the bitmask, the spinner, the lit inserts), the chrome balls with their
-// owners' name tags and scores, a coin burst on a ball's payout, and the "+N name" popups. Lit with the stage's neon
-// environment and drawn through the stage's render passes (bloom, supersampling), with the city behind, as the claw's
-// stage is (the claw's claw.ts is the model). The camera looks down the table from the player's end at about 40°, the
-// table standing in the middle of the frame like the claw's portrait cabinet. The server runs the physics; this only
+// The pinball on the stage (spec section 2): the table is the Blender picture (src/assets/pinball.png, rendered through
+// this stage's own camera, stageCamera; blender/README.md), drawn full-frame behind the 3D scene and shaking with it,
+// with the live parts over it (pinball-parts.ts: the three flippers at the header's angles, the flip plaques turning
+// and the drop targets dropping by its bits, both spinners, glows over the lamps and bumpers), the chrome balls (at
+// their heights, so up the ramps and on the dish) with their owners' name tags and scores, a coin burst on a ball's
+// payout, and the "+N name" popups. The picture's solid shapes are in the depth buffer, unseen (table-mesh.ts's
+// pictureDepth), so a ball behind the pyramid or under the right ramp is hidden by it. If the picture fails to load,
+// the stand-in table (table-mesh.ts) is drawn instead. Lit with the stage's neon environment and drawn through the
+// stage's render passes (bloom, supersampling), with the city behind, as the claw's stage is (the claw's claw.ts is the
+// model). The camera looks down the table from the player's end at about 40°. The server runs the physics; this only
 // draws the snapshots.
 //
 // The scoreboard over it is PinballHud (pinball-hud.ts), the sounds pinball-sounds.ts, the header's reading
@@ -21,10 +24,12 @@ import {
   FrameSizeBloomPass,
   FULL_QUALITY,
   HEIGHT,
+  INVERSE_ACES_GLSL,
   type Look,
   type MachineScene,
   nameFxClass,
   neonEnvironment,
+  pictureUniforms,
   type RenderQuality,
   type ScoreMsg,
   type StageNet,
@@ -33,6 +38,7 @@ import {
   type Track,
   WIDTH,
 } from '@kit/stage';
+import picture from '../assets/pinball.png';
 import { pinballHypeOf, type PinballState, pinballStateOf } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { CoinBurst } from './coin-burst';
@@ -40,7 +46,7 @@ import { type PinballHeader, readPinballHeader } from './pinball-header';
 import { ballSaved } from './pinball-hud';
 import { TableParts } from './pinball-parts';
 import { type DrawnBall, PinballSoundCues, PinballVoice } from './pinball-sounds';
-import { CYAN, PINK, standInTable } from './table-mesh';
+import { CYAN, PINK, pictureDepth, standInTable } from './table-mesh';
 import './pinball.css';
 
 export { ballSaved, PinballHud, TITLE_SECONDS } from './pinball-hud';
@@ -123,6 +129,21 @@ export function stageCamera(table: Table, width: number, height: number): { matr
   return { matrix: [...camera.matrixWorld.elements], fovY: CAMERA_FOV, viewY };
 }
 
+/**
+ * A camera set as the stage sets its own (stageCamera, for a frame `width` × `height`): placed and aimed, and moved in
+ * the frame by its view offset. Returns the offset (pixels), which shaking the view moves it from.
+ */
+export function fitStageCamera(camera: THREE.PerspectiveCamera, width: number, height: number): number {
+  const fit = stageCamera(TABLE_IN_USE, width, height);
+  camera.fov = fit.fovY;
+  camera.aspect = width / height;
+  camera.matrix.fromArray(fit.matrix);
+  camera.matrix.decompose(camera.position, camera.quaternion, camera.scale);
+  camera.updateMatrixWorld(true);
+  camera.setViewOffset(width, height, 0, fit.viewY, width, height);
+  return fit.viewY;
+}
+
 /** A ball as drawn: its chrome sphere and its name tag. */
 interface BallView {
   mesh: THREE.Mesh;
@@ -139,6 +160,13 @@ export class PinballScene implements MachineScene {
   private readonly composer: EffectComposer;
   private backdropComposer: EffectComposer | null = null;
   private backdrop: TexturePass | null = null;
+  /** The table's picture, full-frame in its own scene behind the 3D one: it shakes with the 3D view (shake). */
+  private readonly plateScene = new THREE.Scene();
+  private readonly plateCamera = new THREE.OrthographicCamera(-WIDTH / 2, WIDTH / 2, HEIGHT / 2, -HEIGHT / 2, -10, 10);
+  private readonly plate: THREE.Mesh;
+  /** The stand-in table (drawn only if the picture fails to load), and the picture's unseen shapes (drawn with it). */
+  private readonly standIn: THREE.Group;
+  private readonly depth: THREE.Group;
   private readonly labelRenderer: CSS2DRenderer;
   private readonly city: City | null;
   /**
@@ -214,10 +242,53 @@ export class PinballScene implements MachineScene {
     this.city = withCity ? new City(h) : null;
     this.scene.environment = neonEnvironment(this.renderer, look.env);
     this.scene.environmentIntensity = look.envIntensity;
-    if (!this.city && !transparent) this.scene.background = new THREE.Color(look.background);
+
+    // The picture, full-frame (it was rendered at the stage's size through its camera), drawn through inverseAces so the
+    // stage's tone mapping gives it back as it was rendered. Hidden until it loads; if it can't, the stand-in table.
+    const map = new THREE.TextureLoader().load(
+      picture,
+      () => {
+        this.plate.visible = true;
+      },
+      undefined,
+      () => {
+        console.warn(`pinball: the table's picture (${picture}) didn't load; drawing the stand-in table`);
+        this.plate.visible = false;
+        this.standIn.visible = true;
+        this.depth.visible = false;
+        this.parts.usePicture(false);
+      },
+    );
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.anisotropy = 8;
+    this.plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(WIDTH, HEIGHT),
+      new THREE.ShaderMaterial({
+        uniforms: pictureUniforms(map, look.exposure),
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D uMap;
+          varying vec2 vUv;
+          ${INVERSE_ACES_GLSL}
+          void main() {
+            vec4 texel = texture2D(uMap, vUv);
+            gl_FragColor = vec4(inverseAces(texel.rgb), texel.a);
+          }`,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    this.plate.visible = false;
+    this.plateScene.add(this.plate);
 
     tiltTable(this.table);
-    this.table.add(standInTable(TABLE_IN_USE, look, TABLE.width, TABLE.length), this.parts.group, this.burst.group);
+    this.standIn = standInTable(TABLE_IN_USE, look, TABLE.width, TABLE.length);
+    this.standIn.visible = false;
+    this.depth = pictureDepth(TABLE_IN_USE, TABLE.width, TABLE.length);
+    this.table.add(this.standIn, this.depth, this.parts.group, this.burst.group);
     this.scene.add(this.table);
     this.table.updateMatrixWorld(true);
     this.addLights();
@@ -229,8 +300,12 @@ export class PinballScene implements MachineScene {
     this.composer = new EffectComposer(this.renderer, target);
     this.composer.setPixelRatio(1);
     this.composer.setSize(w * ss, h * ss);
+    // The picture over the city, behind the 3D table (with nothing behind, over the look's background).
+    const platePass = cityOnly ? null : new RenderPass(this.plateScene, this.plateCamera);
+    if (platePass && this.city) platePass.clear = false;
+    else if (platePass && !transparent) this.plateScene.background = new THREE.Color(look.background);
     let backdrop = this.composer;
-    if (ss > 1 && this.city) {
+    if (ss > 1 && (this.city || platePass)) {
       const backdropTarget = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: quality.msaa });
       backdropTarget.texture.minFilter = backdropTarget.texture.magFilter = THREE.NearestFilter;
       backdrop = this.backdropComposer = new EffectComposer(this.renderer, backdropTarget);
@@ -242,13 +317,12 @@ export class PinballScene implements MachineScene {
       this.composer.addPass(this.backdrop);
     }
     this.city?.addPasses(backdrop);
+    if (platePass) backdrop.addPass(platePass);
     if (!cityOnly) {
+      // Over the city and the picture, keeping them.
       const machine = new RenderPass(this.scene, this.camera);
-      // Over the city, keeping it; with nothing behind, clearing to the background.
-      if (this.city) {
-        machine.clear = false;
-        machine.clearDepth = true;
-      }
+      machine.clear = false;
+      machine.clearDepth = true;
       this.composer.addPass(machine);
     }
     const { strength, radius, threshold } = look.bloom;
@@ -270,17 +344,13 @@ export class PinballScene implements MachineScene {
 
   /** The camera where stageCamera puts it: its place and aim, and its place in the frame (a view offset). */
   private fitCamera(): void {
-    const fit = stageCamera(TABLE_IN_USE, WIDTH, HEIGHT);
-    this.camera.matrix.fromArray(fit.matrix);
-    this.camera.matrix.decompose(this.camera.position, this.camera.quaternion, this.camera.scale);
-    this.camera.updateMatrixWorld(true);
-    this.viewY = fit.viewY;
-    this.shake(0, 0);
+    this.viewY = fitStageCamera(this.camera, WIDTH, HEIGHT);
   }
 
-  /** The view moved (dx, dy) frame pixels (dy down) from where fitCamera put it; (0, 0) puts it back. */
+  /** The view and the picture moved (dx, dy) frame pixels (dy down) from where fitCamera put them; (0, 0) puts them back. */
   private shake(dx: number, dy: number): void {
     this.camera.setViewOffset(WIDTH, HEIGHT, -dx, this.viewY - dy, WIDTH, HEIGHT);
+    this.plate.position.set(dx, -dy, 0);
   }
 
   private addLights(): void {
@@ -314,7 +384,7 @@ export class PinballScene implements MachineScene {
     }
   }
 
-  /** Each pinball snapshot's header: the flippers, the lit inserts, the targets and the spinner (SNAP_TYPE_PINBALL). */
+  /** Each pinball snapshot's header: the flippers, the lit lamps, the targets and the spinners (SNAP_TYPE_PINBALL). */
   snapshotHeader(view: DataView, _simTime: number): void {
     this.samples.push(readPinballHeader(view));
     if (this.samples.length > MAX_SAMPLES) this.samples.shift();
@@ -426,14 +496,12 @@ export class PinballScene implements MachineScene {
     // The table's live parts, from the header at this time.
     const h = this.headerAt(t);
     if (h) {
-      // The third flipper and the second spinner are in h.flippers[2] and h.spinners[1], for the stage to draw (Task 6).
-      this.parts.setFlipper('left', h.flippers[0]);
-      this.parts.setFlipper('right', h.flippers[1]);
-      this.parts.setSpinner(h.spinners[0]);
-      this.parts.setTargets(h.targetsDown);
+      this.parts.setFlippers(h.flippers);
+      this.parts.setSpinners(h.spinners);
+      this.parts.setTargets(h.targetsDown, h.targetsTurned, t);
       this.parts.setLit(h.lit);
       this.cues.flippers(t, h.flippers[0], h.flippers[1]);
-      this.cues.targets(h.targetsDown);
+      this.cues.targets(h.targetsDown, h.targetsTurned);
     }
     this.parts.update(dt);
 
@@ -537,6 +605,7 @@ export class PinballScene implements MachineScene {
   reset(): void {
     this.samples.length = 0;
     this.cues.reset();
+    this.parts.reset();
     for (const id of [...this.balls.keys()]) this.dropBall(id);
     this.drains.length = 0;
     this.payouts.length = 0;

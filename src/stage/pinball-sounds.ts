@@ -1,9 +1,9 @@
 // The pinball's sounds. Each plays the sound files picked for it (pinball-sound-picks.ts), or is made on the stage's
 // synth (PinballVoice, below; the synth is the kit's StageSynth), as the claw's are. When each plays (PinballSoundCues)
 // is decided from what the stage can see, since the game sends its hits only as state and snapshots:
-// - the table as the stage draws it: a flipper starting up is a flip, a drop target going down (the header's bits) a
-//   target, a ball coming into a bumper's or a sling's reach a bumper's pop or a sling's kick (inferred from where the
-//   ball is drawn: the header has no hit events);
+// - the table as the stage draws it: a flipper starting up is a flip, a drop target going down or a flip plaque
+//   turning to its back (the header's bits) a target, a ball coming into a bumper's or a sling's reach a bumper's pop
+//   or a sling's kick (inferred from where the ball is drawn: the header has no hit events);
 // - a 'spawn' is a launch, a ball gone below the drain a drain, and a drained ball back at once a saved one;
 // - multiball: a press's moment (pinballHype) at its time, or the state turning it on when the lock starts it.
 // Tested without a sound card: npm run pinball-sounds-test.
@@ -17,7 +17,7 @@ export interface PinballCueSink {
   flip(side: 'left' | 'right'): void;
   bumper(id: string): void;
   sling(id: string): void;
-  /** A drop target went down: its place in the bank. */
+  /** A target was hit (a drop target went down, or a flip plaque turned to its back): its place in the table's targets. */
   target(index: number): void;
   drain(): void;
   launch(): void;
@@ -55,8 +55,8 @@ function segmentDistance(x: number, z: number, a: readonly [number, number], b: 
 export class PinballSoundCues {
   /** Each flipper's angle last looked at, and whether it was going up. */
   private readonly last = new Map<'left' | 'right', { angle: number; rising: boolean }>();
-  /** The targets down last looked at; null before the first look. */
-  private lastTargets: number | null = null;
+  /** The targets down and turned last looked at; null before the first look. */
+  private lastTargets: { down: number; turned: number } | null = null;
   /** For each ball seen, the parts it's meeting now. */
   private readonly meeting = new Map<number, Set<string>>();
   /** Multiball state last heard (null before the first), the press moments waiting, and the last one's time. */
@@ -83,13 +83,16 @@ export class PinballSoundCues {
     }
   }
 
-  /** The drop targets down (bit i for target i): each newly down sounds; the bank's reset is silent. */
-  targets(bits: number): void {
+  /**
+   * The drop targets down and the flip plaques turned to their backs (bit i for target i): a target newly down, or a
+   * plaque newly turned, is a hit and sounds; one coming back up, or turning back to its front, is silent.
+   */
+  targets(down: number, turned = 0): void {
     const was = this.lastTargets;
-    this.lastTargets = bits;
+    this.lastTargets = { down, turned };
     if (was === null) return;
-    const fresh = bits & ~was;
-    for (let i = 0; i < 8; i++) if (fresh & (1 << i)) this.sink.target(i);
+    const fresh = (down & ~was.down) | (turned & ~was.turned);
+    for (let i = 0; i < this.table.targets.length; i++) if (fresh & (1 << i)) this.sink.target(i);
   }
 
   /**
