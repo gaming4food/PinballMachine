@@ -49,7 +49,7 @@ the stage and the control panel.
   expecting `found 0 in 3250 runs`. Run it after a change to the table or the physics.
 - `npm run pinball-play`: plays unattended balls (auto-save only) and prints the average and median points, coins and
   seconds a ball (`balls=N`, `seed=N`; the top of `tests/pinball-play.ts` says how). It's how `RULES.pointsPerCoin` was
-  tuned (900 points a coin, about 9 coins a ball). It's for tuning, not a test.
+  tuned (870 points a coin, about 9 coins a ball). It's for tuning, not a test.
 - `npm run picture`: builds the table's picture in Blender (below); `-- hero` makes the promotional one instead.
 - `npm run typecheck`.
 

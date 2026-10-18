@@ -24,7 +24,7 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   right of the pyramid in front of the Horus bank, light the lock once both are down. The scarab saucer and the Eye of
   Ra magnet each hold a slow ball a moment and kick it out; there is a spinner on each orbit, the sun bumper, rollovers
   up the centre lane (all four lit pay 1,000) and an upper-right flipper that moves with `right`. The three top lanes
-  light the kickback, which kicks a ball out of the right outlane once. 900 points make a coin (`RULES.pointsPerCoin`).
+  light the kickback, which kicks a ball out of the right outlane once. 870 points make a coin (`RULES.pointsPerCoin`).
 - `src/` is the machine (the game and its Rapier physics in `src/server/`, the table as data in `src/shared/pyramid.ts`
   with its types in `table.ts`, the rules in `src/shared/pinball.ts`, the scene, scoreboard and sounds in `src/stage/`,
   the table's picture and the plaques' in `src/assets/`, the card in `src/panel/`), and `tests/` its tests.
