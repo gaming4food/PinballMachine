@@ -1,14 +1,15 @@
 // The pinball on the stage (spec section 2): the table is the Blender picture (src/assets/pinball.png, rendered through
 // this stage's own camera, stageCamera; blender/README.md), drawn full-frame behind the 3D scene and shaking with it,
 // with the live parts over it (pinball-parts.ts: the three flippers at the header's angles, the flip plaques turning
-// and the drop targets dropping by its bits, both spinners, glows over the lamps and bumpers), the chrome balls (at
-// their heights, so up the ramps and on the dish) with their owners' name tags and scores, a coin burst on a ball's
-// payout, and the "+N name" popups. The picture's solid shapes are in the depth buffer, unseen (table-mesh.ts's
-// pictureDepth), so a ball behind the pyramid or under the right ramp is hidden by it. If the picture fails to load,
-// the stand-in table (table-mesh.ts) is drawn instead. Lit with the stage's neon environment and drawn through the
-// stage's render passes (bloom, supersampling), with the city behind, as the claw's stage is (the claw's claw.ts is the
-// model). The camera looks down the table from the player's end at about 40°. The server runs the physics; this only
-// draws the snapshots.
+// and the drop targets dropping by its bits, the quest's toys by its bits and toy bits (the pop-ups and the mummy
+// rising and sinking, the tomb's door sliding up into the pyramid, the diverter's gate swinging), both spinners, glows
+// over the lamps and bumpers), the chrome balls (at their heights, so up the ramps and on the dish) with their owners'
+// name tags and scores, a coin burst on a ball's payout, and the "+N name" popups. The picture's solid shapes are in
+// the depth buffer, unseen (table-mesh.ts's pictureDepth), so a ball behind the pyramid or under the right ramp is
+// hidden by it, and a ball the tomb holds at its doorway is seen. If the picture fails to load, the stand-in table
+// (table-mesh.ts) is drawn instead. Lit with the stage's neon environment and drawn through the stage's render passes
+// (bloom, supersampling), with the city behind, as the claw's stage is (the claw's claw.ts is the model). The camera
+// looks down the table from the player's end at about 40°. The server runs the physics; this only draws the snapshots.
 //
 // The scoreboard over it is PinballHud (pinball-hud.ts), the sounds pinball-sounds.ts, the header's reading
 // pinball-header.ts.
@@ -222,7 +223,11 @@ export class PinballScene implements MachineScene {
         voice.sling();
         this.parts.flashSling(id);
       },
-      target: () => voice.target(),
+      target: (index) => {
+        voice.target();
+        // The mummy stays up when hit, so a ball meeting it is its hit (pinball-sounds.ts): it rocks back.
+        if (TABLE_IN_USE.targets[index]?.rise === 'hold') this.parts.rockMummy();
+      },
       drain: () => voice.drain(),
       launch: () => voice.launch(),
       multiball: () => voice.multiball(),
@@ -385,7 +390,10 @@ export class PinballScene implements MachineScene {
     }
   }
 
-  /** Each pinball snapshot's header: the flippers, the lit lamps, the targets and the spinners (SNAP_TYPE_PINBALL). */
+  /**
+   * Each pinball snapshot's header: the flippers, the lit lamps, the targets, the spinners and the toys
+   * (SNAP_TYPE_PINBALL).
+   */
   snapshotHeader(view: DataView, _simTime: number): void {
     this.samples.push(readPinballHeader(view));
     if (this.samples.length > MAX_SAMPLES) this.samples.shift();
@@ -500,6 +508,7 @@ export class PinballScene implements MachineScene {
       this.parts.setFlippers(h.flippers);
       this.parts.setSpinners(h.spinners);
       this.parts.setTargets(h.targetsDown, h.targetsTurned, t);
+      this.parts.setToys(h.toys);
       this.parts.setLit(h.lit);
       this.cues.flippers(t, h.flippers[0], h.flippers[1]);
       this.cues.targets(h.targetsDown, h.targetsTurned);

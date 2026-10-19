@@ -1,15 +1,18 @@
 // The pinball's sounds. Each plays the sound files picked for it (pinball-sound-picks.ts), or is made on the stage's
 // synth (PinballVoice, below; the synth is the kit's StageSynth), as the claw's are. When each plays (PinballSoundCues)
 // is decided from what the stage can see, since the game sends its hits only as state and snapshots:
-// - the table as the stage draws it: a flipper starting up is a flip, a drop target going down or a flip plaque
-//   turning to its back (the header's bits) a target, a ball coming into a bumper's or a sling's reach a bumper's pop
-//   or a sling's kick (inferred from where the ball is drawn: the header has no hit events);
+// - the table as the stage draws it: a flipper starting up is a flip, one of the lock's drop targets going down or a
+//   flip plaque turning to its back (the header's bits) a target, a ball coming into a bumper's or a sling's reach a
+//   bumper's pop or a sling's kick, a pop-up going down with a ball at it a target (the game puts them away too, with
+//   none), and a ball meeting the mummy while it stands (it stays up when hit, so no bit changes) a target (inferred
+//   from where the ball is drawn: the header has no hit events);
 // - a 'spawn' is a launch, a ball gone below the drain a drain, and a drained ball back at once a saved one;
 // - multiball: a press's moment (pinballHype) at its time, or the state turning it on when the lock starts it.
 // Tested without a sound card: npm run pinball-sounds-test.
 import type { StageSynth } from '@kit/stage';
 import { type PinballHypeMsg, type PinballState } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
+import { TARGET_THICK, targetFrame } from './pinball-parts';
 import { PINBALL_SOUNDS, type PinballMoment, type PinballPicks } from './pinball-sound-picks';
 
 /** What the cues tell: each moment, with which part it was (the scene flashes a bumper's cap with it). */
@@ -17,7 +20,10 @@ export interface PinballCueSink {
   flip(side: 'left' | 'right'): void;
   bumper(id: string): void;
   sling(id: string): void;
-  /** A target was hit (a drop target went down, or a flip plaque turned to its back): its place in the table's targets. */
+  /**
+   * A target was hit (a drop target or a pop-up knocked down, a flip plaque turned to its back, or the standing mummy
+   * met by a ball): its place in the table's targets.
+   */
   target(index: number): void;
   drain(): void;
   launch(): void;
@@ -37,6 +43,12 @@ const RISING = 0.5;
 /** A ball this close to a part's face (beyond touching) is meeting it; it must get this much further away to leave. */
 const REACH = 0.08;
 const LEAVE = 0.25;
+/**
+ * A ball (as last drawn) this close to a pop-up's face (beyond touching) as it goes down knocked it down: the frame
+ * before, it was at most a frame's travel short of it, and bounced back after. The game putting one away has no ball at
+ * it.
+ */
+const KNOCKED = 1;
 /** A press's multiball moment this long past is let go, not played late (the claw's titles' STALE_SECONDS). */
 const STALE = 2;
 /** The state turning multiball on within this long of a press's moment is that press, already heard. */
@@ -52,6 +64,16 @@ function segmentDistance(x: number, z: number, a: readonly [number, number], b: 
   return Math.hypot(x - (a[0] + k * dx), z - (a[1] + k * dz));
 }
 
+/** A rising target as the cues see it: its place in the table's targets, its id, and its body's footprint. */
+interface Riser {
+  index: number;
+  id: string;
+  /** Its face's middle line, along its width, and half its thickness across it. */
+  a: [number, number];
+  b: [number, number];
+  half: number;
+}
+
 export class PinballSoundCues {
   /** Each flipper's angle last looked at, and whether it was going up. */
   private readonly last = new Map<'left' | 'right', { angle: number; rising: boolean }>();
@@ -64,11 +86,39 @@ export class PinballSoundCues {
   private readonly pending: number[] = [];
   private lastMoment = -Infinity;
   private t = -Infinity;
+  /**
+   * The rising targets (shared/table.ts Target.rise): the pop-ups, which drop when hit, and the mummy, which stays up
+   * and is hit again and again. The game raises them and puts them away as well, so a bit of theirs going down is no
+   * hit of itself (only the lock's drop targets' are): a pop-up's is when a ball is at it, and the mummy's hits are
+   * heard as a ball meets it while it stands (balls).
+   */
+  private readonly popups: Riser[];
+  private readonly held: Riser[];
+  private readonly risingBits: number;
+  /** The balls as last drawn: where they were as a pop-up went down. */
+  private drawn: DrawnBall[] = [];
 
   constructor(
     private readonly sink: PinballCueSink,
     private readonly table: Table = TABLE_IN_USE,
-  ) {}
+  ) {
+    const risers = (rise: 'drop' | 'hold') =>
+      table.targets.flatMap((t, index): Riser[] => {
+        if (t.rise !== rise) return [];
+        const { u } = targetFrame(table, t);
+        const ex = (u[0] * t.width) / 2;
+        const ez = (u[1] * t.width) / 2;
+        return [{ index, id: t.id, a: [t.x - ex, t.z - ez], b: [t.x + ex, t.z + ez], half: (t.depth ?? TARGET_THICK) / 2 }];
+      });
+    this.popups = risers('drop');
+    this.held = risers('hold');
+    this.risingBits = [...this.popups, ...this.held].reduce((bits, r) => bits | (1 << r.index), 0);
+  }
+
+  /** How far a ball's surface is from a rising target's (beyond touching it). */
+  private gap(r: Riser, ball: DrawnBall): number {
+    return segmentDistance(ball.x, ball.z, r.a, r.b) - TABLE.ballRadius - r.half;
+  }
 
   /** The flippers as drawn, at simulation time t: one starting up is a flip (the first look is only a look). */
   flippers(_t: number, left: number, right: number): void {
@@ -84,20 +134,24 @@ export class PinballSoundCues {
   }
 
   /**
-   * The drop targets down and the flip plaques turned to their backs (bit i for target i): a target newly down, or a
-   * plaque newly turned, is a hit and sounds; one coming back up, or turning back to its front, is silent.
+   * The targets down and the flip plaques turned to their backs (bit i for target i): a drop target newly down, or a
+   * plaque newly turned, is a hit and sounds; one coming back up, or turning back to its front, is silent. A pop-up
+   * newly down is a hit when a ball (as last drawn) is at it, and otherwise the game putting it away, which is silent;
+   * the mummy going down is silent too (its hits are heard as a ball meets it: balls).
    */
   targets(down: number, turned = 0): void {
     const was = this.lastTargets;
     this.lastTargets = { down, turned };
     if (was === null) return;
-    const fresh = (down & ~was.down) | (turned & ~was.turned);
-    for (let i = 0; i < this.table.targets.length; i++) if (fresh & (1 << i)) this.sink.target(i);
+    const newlyDown = down & ~was.down;
+    let hits = (newlyDown & ~this.risingBits) | (turned & ~was.turned);
+    for (const p of this.popups) if (newlyDown & (1 << p.index) && this.drawn.some((ball) => this.gap(p, ball) < KNOCKED)) hits |= 1 << p.index;
+    for (let i = 0; i < this.table.targets.length; i++) if (hits & (1 << i)) this.sink.target(i);
   }
 
   /**
-   * The balls as drawn: one coming within reach of a bumper or a sling is its hit, once, until it has left (the first
-   * look at a ball is only a look).
+   * The balls as drawn: one coming within reach of a bumper, a sling or the standing mummy is its hit, once, until it
+   * has left (the first look at a ball is only a look).
    */
   balls(balls: readonly DrawnBall[]): void {
     const R = TABLE.ballRadius;
@@ -120,9 +174,19 @@ export class PinballSoundCues {
           if (before && !before.has(s.id)) this.sink.sling(s.id);
         }
       }
+      for (const h of this.held) {
+        // Down (or before the first look at the targets) it has no face to meet: a ball rolls over its slot.
+        if (!this.lastTargets || this.lastTargets.down & (1 << h.index)) continue;
+        const d = this.gap(h, ball);
+        if (d < REACH || (before?.has(h.id) && d < LEAVE)) {
+          now.add(h.id);
+          if (before && !before.has(h.id)) this.sink.target(h.index);
+        }
+      }
       this.meeting.set(ball.id, now);
     }
     for (const id of this.meeting.keys()) if (!seen.has(id)) this.meeting.delete(id);
+    this.drawn = [...balls];
   }
 
   /**
@@ -133,6 +197,7 @@ export class PinballSoundCues {
     this.last.clear();
     this.lastTargets = null;
     this.meeting.clear();
+    this.drawn = [];
     this.multiballOn = null;
     this.pending.length = 0;
     this.lastMoment = -Infinity;

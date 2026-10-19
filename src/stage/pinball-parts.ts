@@ -2,8 +2,12 @@
 // snapshot's header and the stage's cues, in the picture's own look (blender/build_table.py's live parts, the same
 // sizes): the three flippers at their angles; a plaque per flip target, its emblem in front and the sun disc behind,
 // that turns 180° about its pin when its bit sets (and back when it clears); the two drop targets, which sink when down;
-// both spinners' plates at their turns; and soft additive glows over the picture's lamps and bumpers, lit by the
-// header's bits (shared/pinball.ts LIT) and the bumper and sling cues.
+// the quest's toys: the three pop-ups (drawn as the drop targets are) and the mummy (a gold sarcophagus with its face
+// on its front), which rise out of their slots and sink back into them by their bits, the mummy rocking back when a
+// ball hits it, the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's gate,
+// which swings over and back (the header's toy bits, shared/pinball.ts TOY); both spinners' plates at their turns; and
+// soft additive glows over the picture's lamps and bumpers, lit by the header's bits (shared/pinball.ts LIT) and the
+// bumper and sling cues.
 //
 // Without the picture (it failed to load) the stand-in look is drawn instead (`usePicture(false)`): the bumper caps
 // and sling rubbers that flash, and the inserts, over the stand-in table (table-mesh.ts).
@@ -14,11 +18,12 @@ import ankh31 from '../assets/plaques/ankh-31.png';
 import eye22 from '../assets/plaques/eye-22.png';
 import falcon31 from '../assets/plaques/falconplaque-31.png';
 import falcon62 from '../assets/plaques/falconplaque-62.png';
+import mummyArt from '../assets/plaques/mummy.png';
 import scarab62 from '../assets/plaques/scarab-62.png';
 import sundisc14 from '../assets/plaques/sundisc-14.png';
-import { LIT } from '../shared/pinball';
-import { FLIPPER_SHAPE, flipperHull, type Flipper, type Table, type Target } from '../shared/table';
-import { CX, CYAN, PINK, segmentBox } from './table-mesh';
+import { DIVERTER_SPEED, LIT, TOY } from '../shared/pinball';
+import { FLIPPER_SHAPE, flipperHull, type Diverter, type Flipper, type Ramp, type Table, type Target } from '../shared/table';
+import { CX, CYAN, DOOR_TUCK, doorway, PINK, segmentBox, WALL_THICK } from './table-mesh';
 
 const YELLOW = 0xffd23f;
 const GREEN = 0x39ff6a;
@@ -30,15 +35,49 @@ const CAP_SCALE = 0.82;
 const CAP_THICK = 0.03;
 /** How many points round each of a drawn flipper's rounds (the physics' collider has 12; more look rounder). */
 const FLIPPER_ROUND = 24;
-/** A target: its gold body's thickness and height; the emblem's bottom and top. */
-const TARGET_THICK = 0.2;
+/**
+ * A target: its gold body's thickness and height where its table says nothing (Target.depth and height, as the
+ * physics' TARGET_DEPTH; the sounds read the thickness too); its emblem's bottom, and how far under the target's top
+ * the emblem's top is.
+ */
+export const TARGET_THICK = 0.2;
 const TARGET_HEIGHT = 0.52;
 const EMBLEM_Y0 = 0.06;
-const EMBLEM_Y1 = 0.48;
-/** How far a drop target sinks, and how fast (units a second); how long a plaque's turn takes (s). */
-const TARGET_DROP = 0.56;
+const EMBLEM_UNDER_TOP = 0.04;
+/**
+ * How far past its own height a drop target or a rising one sinks (so it's out of sight under the playfield), and how
+ * fast a drop target or a pop-up moves (units a second); how long a plaque's turn takes (s).
+ */
+const SINK_PAST = 0.04;
 const TARGET_SPEED = 6;
 const TURN_SECONDS = 0.15;
+/**
+ * The mummy as the picture's build draws it: a gold box with a lid's lip LID tall round its top, LID_LIP wider all
+ * round; its face (the mummy's art) MUMMY_FACE.inset in from each end, from MUMMY_FACE.y0 up to MUMMY_FACE.underTop
+ * under its top. Heavier than a pop-up, it rises out of its slot and sinks back over MUMMY_SECONDS.
+ */
+const LID = 0.07;
+const LID_LIP = 0.02;
+const MUMMY_FACE = { inset: 0.05, y0: 0.05, underTop: 0.11 };
+const MUMMY_SECONDS = 0.6;
+/**
+ * A hit rocks the mummy back, its top away from the ball, as far as ROCK_DEG: it sways back and forth every ROCK_PERIOD
+ * seconds, dying away (by e every 1/ROCK_DECAY s), and stands still again after ROCK_SECONDS.
+ */
+const ROCK_DEG = 6;
+const ROCK_PERIOD = 0.35;
+const ROCK_DECAY = 4;
+const ROCK_SECONDS = 1.2;
+/**
+ * The tomb's door as the picture's build draws it, shut: a lapis slab across the doorway (table-mesh.ts's doorway), as
+ * thick as the physics' door (from its face back across the mouth's line), reaching DOOR_TUCK into the pillars at each
+ * end, as tall as the doorway; and sealed on its front with the scarab, a square SEAL_INSET in from the jambs' faces
+ * each side, its middle SEAL_Y of the way up. Open, it slides up into the pyramid, as far as it is tall, over
+ * DOOR_SECONDS.
+ */
+const SEAL_INSET = 0.05;
+const SEAL_Y = 0.55;
+const DOOR_SECONDS = 0.3;
 /** The spinners' bar height, and their plates' bottom. */
 const SPINNER_BAR = 0.62;
 const SPINNER_PLATE_Y0 = 0.2;
@@ -81,7 +120,24 @@ const EMBLEMS: Record<string, string> = {
   'target-eye-1': eye22,
   'target-eye-2': eye22,
   'target-eye-3': eye22,
+  // The quest's pop-ups carry the gold falcon on blue, as the drop targets' emblems are, not the Horus bank's white
+  // plaque just above them.
+  'target-popup-1': falcon62,
+  'target-popup-2': falcon62,
+  'target-popup-3': falcon62,
 };
+
+/** Which part of a piece of art a face shows: across it (u) and up it (v), from and to. */
+interface Crop {
+  u: [number, number];
+  v: [number, number];
+}
+/** An emblem's printed middle (build_table.py's crop, every target's emblem and back alike). */
+const EMBLEM_CROP: Crop = { u: [0.16, 0.84], v: [0.12, 0.88] };
+/** The mummy's face: its art's middle, as wide for its height as the face (build_table.py's MUMMY_UV). */
+const MUMMY_CROP: Crop = { u: [0.06, 0.94], v: [0, 1] };
+/** The door's seal: the scarab's plaque, just inside its square (build_table.py's tomb seal). */
+const SEAL_CROP: Crop = { u: [0.1, 0.9], v: [0.1, 0.9] };
 
 /** The flippers' cream rubber and the spinners' blue enamel (build_table.py's, linear colours). */
 const linear = (r: number, g: number, b: number) => new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColorSpace);
@@ -99,12 +155,16 @@ export const GOLD = new THREE.MeshStandardMaterial({ color: GOLD_COLOR, metalnes
 const CREAM = new THREE.MeshStandardMaterial({ color: linear(0.92, 0.86, 0.72), roughness: 0.35, metalness: 0.05 });
 const BLUE_ENAMEL = new THREE.MeshStandardMaterial({ color: linear(0.02, 0.12, 0.75), roughness: 0.22, metalness: 0.1 });
 
-/** A piece of art, loaded once (in Node, where there's no page to load it into, a blank texture). */
+/**
+ * A piece of art, loaded once (in Node, where there's no page to load it into, a blank texture). It's named by its
+ * picture's file, so a test can tell which art a face shows.
+ */
 const textures = new Map<string, THREE.Texture>();
 function art(url: string): THREE.Texture {
   let tex = textures.get(url);
   if (!tex) {
     tex = typeof document === 'undefined' ? new THREE.Texture() : new THREE.TextureLoader().load(url);
+    tex.name = url;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 8;
     textures.set(url, tex);
@@ -126,15 +186,17 @@ function emblemMaterial(url: string, glow: number): THREE.MeshStandardMaterial {
 }
 
 /**
- * An emblem's face, `width` wide, standing on the playfield and facing local +z, showing the art's printed middle. Its
- * art runs right to left along local +x: the table's turn into the world (tiltTable) mirrors z, which would otherwise
- * show it mirrored.
+ * A printed face, `width` wide, standing on the playfield from y0 to y1 and facing local +z, showing `crop` of its art.
+ * Its art runs right to left along local +x: the table's turn into the world (tiltTable) mirrors z, which would
+ * otherwise show it mirrored.
  */
-function emblemGeometry(width: number): THREE.PlaneGeometry {
-  const geo = new THREE.PlaneGeometry(width, EMBLEM_Y1 - EMBLEM_Y0);
-  geo.translate(0, (EMBLEM_Y0 + EMBLEM_Y1) / 2, 0);
+function faceGeometry(width: number, y0: number, y1: number, crop: Crop): THREE.PlaneGeometry {
+  const geo = new THREE.PlaneGeometry(width, y1 - y0);
+  geo.translate(0, (y0 + y1) / 2, 0);
   const uv = geo.attributes.uv as THREE.BufferAttribute;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.84 - uv.getX(i) * 0.68, 0.12 + uv.getY(i) * 0.76);
+  const [u0, u1] = crop.u;
+  const [v0, v1] = crop.v;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, u1 - uv.getX(i) * (u1 - u0), v0 + uv.getY(i) * (v1 - v0));
   return geo;
 }
 
@@ -182,9 +244,9 @@ function glowMap(): THREE.DataTexture {
 /**
  * A target's frame on the playfield, as the physics and the picture's build stand it: `u` along its face, `n` out of
  * its face toward the play. One with an angle runs that way, facing the flippers; any other stands along the wall
- * nearest it, facing away from that wall.
+ * nearest it, facing away from that wall. (The sounds read it too, for where a ball meets the mummy.)
  */
-function targetFrame(table: Table, t: Target): { u: [number, number]; n: [number, number] } {
+export function targetFrame(table: Table, t: Target): { u: [number, number]; n: [number, number] } {
   if (t.angle !== undefined) {
     const a = THREE.MathUtils.degToRad(t.angle);
     const u: [number, number] = [Math.cos(a), Math.sin(a)];
@@ -209,12 +271,39 @@ function targetFrame(table: Table, t: Target): { u: [number, number]; n: [number
   return { u: [(best.b[0] - best.a[0]) / ul, (best.b[1] - best.a[1]) / ul], n: [(t.x - best.foot[0]) / nl, (t.z - best.foot[1]) / nl] };
 }
 
-/** A target as drawn: its pivot (at its place, turned to its face), its rest turn, and its turn or drop under way. */
+/**
+ * A ramp's floor height at p, in (x, z): its centre line's height at the point on it nearest p, where the physics
+ * stands the diverter's gate (server/sim.ts's floorHeight; pinball-parts-test holds the drawn gate to the physics').
+ */
+function floorAt(r: Ramp, p: readonly [number, number]): number {
+  let best = Infinity;
+  let y = r.path[0][2];
+  for (let i = 0; i + 1 < r.path.length; i++) {
+    const [ax, az, ay] = r.path[i];
+    const [bx, bz, by] = r.path[i + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const k = Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - az) * dz) / (dx * dx + dz * dz)));
+    const d = Math.hypot(p[0] - ax - k * dx, p[1] - az - k * dz);
+    if (d < best) {
+      best = d;
+      y = ay + k * (by - ay);
+    }
+  }
+  return y;
+}
+
+/** `now` moved toward `goal` by `step` at most (so it ends on the goal, never past it). */
+const toward = (now: number, goal: number, step: number) => (Math.abs(goal - now) <= step ? goal : now + Math.sign(goal - now) * step);
+
+/**
+ * A target as drawn: its pivot (at its place, turned to its face), its rest turn, and its turn, drop or rise under way.
+ */
 export interface TargetView {
   pivot: THREE.Group;
-  /** Its gold body, the emblems on its faces. */
+  /** Its gold body (under the mummy's lid), the emblems on its faces. */
   body: THREE.Mesh;
-  /** A flip plaque (it turns), or a drop target (it sinks). */
+  /** A flip plaque (it turns), or a drop or rising target (it sinks out of sight when down). */
   plaque: boolean;
   /** The pivot's turn about y at rest: its local +x along its face, its local +z out of its front toward the play. */
   rest: number;
@@ -222,8 +311,16 @@ export interface TargetView {
   from: number;
   to: number;
   start: number;
-  /** A drop target's height (0 up, -TARGET_DROP down). */
+  /** A drop or rising target's height: 0 up, -drop down. */
   y: number;
+  /** How far it sinks when down, out of sight under the playfield: its own height and SINK_PAST. */
+  drop: number;
+  /** How fast it rises and sinks, units a second. */
+  speed: number;
+  /** One that stays up when hit (the mummy), which a hit rocks instead (rockMummy). */
+  hold: boolean;
+  /** How long ago its rock began (s); Infinity when it stands still. */
+  rocked: number;
 }
 
 /**
@@ -250,6 +347,13 @@ export class TableParts {
   readonly flippers: { f: Flipper; mesh: THREE.Group; body: THREE.Mesh; cap: THREE.Mesh; pin: THREE.Mesh }[] = [];
   /** Every target, in the table's order (the header's bit numbering). */
   readonly targets: TargetView[] = [];
+  /**
+   * The tomb's door, on a table with a tomb: its group (at the middle of the door's face, on the playfield), its lapis
+   * slab and its scarab seal, how tall it is and how far it has slid up.
+   */
+  readonly door: { group: THREE.Group; body: THREE.Mesh; seal: THREE.Mesh; height: number; lift: number } | null = null;
+  /** The diverter's gate, on a table with one: turned about its hinge (pivot), its gold body, and its angle now. */
+  readonly gate: { pivot: THREE.Group; body: THREE.Mesh; spec: Diverter; angle: number } | null = null;
   /** The spinners' plates: the main spinner, then the table's others. */
   readonly spinners: { pivot: THREE.Group }[] = [];
   readonly glows: Glow[] = [];
@@ -257,9 +361,13 @@ export class TableParts {
   private readonly flashes = new Map<string, { flash: number; peak: number; mat: THREE.MeshStandardMaterial; rest: number; hot: number }>();
   /** Each stand-in insert, by the LIT bit that lights it. */
   private readonly inserts: { bit: number; mat: THREE.MeshStandardMaterial }[] = [];
+  /** The targets down: before the first header, the rising ones (they start down, as on the table). */
   private down = 0;
   /** The plaques turned last set; null before the first (a plaque already turned then is shown turned, not turning). */
   private turned: number | null = null;
+  /** The toys' bits last set, and whether the next set is the first (shown as it is, not moving there). */
+  private toys = 0;
+  private toysFresh = true;
   private lit = 0;
   private clock = 0;
 
@@ -284,9 +392,10 @@ export class TableParts {
     this.setFlippers(table.flippers.map((f) => f.restDeg));
 
     // The targets: a gold body with its emblem toward the play; a flip plaque has the sun disc on its back and a gold
-    // pin over it, and turns about the pin.
+    // pin over it, and turns about the pin; the mummy is a gold box with a lid and its face on its front. A rising
+    // target starts down, out of sight, as it does on the table: until the first header says otherwise, none stands up.
     const sunBack = emblemMaterial(sundisc14, 0.8);
-    for (const t of table.targets) {
+    for (const [i, t] of table.targets.entries()) {
       const { u, n } = targetFrame(table, t);
       // The pivot's local +x along its face and +z along n: a turn of φ about y takes +x to (cos φ, 0, -sin φ) and +z
       // to (sin φ, 0, cos φ), so with n = (-u.z, u.x), φ = atan2(-u.z, u.x); with n the other way, u is turned round.
@@ -294,26 +403,96 @@ export class TableParts {
       const rest = Math.atan2(-along[1], along[0]);
       const pivot = new THREE.Group();
       pivot.position.set(t.x, 0, t.z);
+      // Turned to face first, then (the mummy's rock) tipped about its own face's line.
+      pivot.rotation.order = 'YXZ';
       pivot.rotation.y = rest;
-      const body = new THREE.Mesh(new THREE.BoxGeometry(t.width, TARGET_HEIGHT, TARGET_THICK), GOLD);
-      body.position.y = TARGET_HEIGHT / 2;
+      const thick = t.depth ?? TARGET_THICK;
+      const height = t.height ?? TARGET_HEIGHT;
+      const hold = t.rise === 'hold';
+      let body: THREE.Mesh;
+      if (hold) {
+        body = new THREE.Mesh(new THREE.BoxGeometry(t.width, height - LID, thick), GOLD);
+        body.position.y = (height - LID) / 2;
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(t.width + 2 * LID_LIP, LID, thick + 2 * LID_LIP), GOLD);
+        lid.position.y = height - LID / 2;
+        lid.castShadow = true;
+        const face = new THREE.Mesh(faceGeometry(t.width - 2 * MUMMY_FACE.inset, MUMMY_FACE.y0, height - MUMMY_FACE.underTop, MUMMY_CROP), emblemMaterial(mummyArt, 0.5));
+        face.position.z = thick / 2 + 0.003;
+        pivot.add(body, lid, face);
+      } else {
+        body = new THREE.Mesh(new THREE.BoxGeometry(t.width, height, thick), GOLD);
+        body.position.y = height / 2;
+        const face = new THREE.Mesh(faceGeometry(t.width - 0.08, EMBLEM_Y0, height - EMBLEM_UNDER_TOP, EMBLEM_CROP), emblemMaterial(EMBLEMS[t.id] ?? ankh31, 0.5));
+        face.position.z = thick / 2 + 0.003;
+        pivot.add(body, face);
+      }
       body.castShadow = true;
-      const face = new THREE.Mesh(emblemGeometry(t.width - 0.08), emblemMaterial(EMBLEMS[t.id] ?? ankh31, 0.5));
-      face.position.z = TARGET_THICK / 2 + 0.003;
-      pivot.add(body, face);
       if (t.flip) {
-        const back = new THREE.Mesh(emblemGeometry(t.width - 0.08), sunBack);
+        const back = new THREE.Mesh(faceGeometry(t.width - 0.08, EMBLEM_Y0, height - EMBLEM_UNDER_TOP, EMBLEM_CROP), sunBack);
         back.rotation.y = Math.PI;
-        back.position.z = -(TARGET_THICK / 2 + 0.003);
+        back.position.z = -(thick / 2 + 0.003);
         const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.12, 16), GOLD);
-        pin.position.y = TARGET_HEIGHT + 0.06;
+        pin.position.y = height + 0.06;
         const cap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), GOLD);
-        cap.position.y = TARGET_HEIGHT + 0.12;
+        cap.position.y = height + 0.12;
         pivot.add(back, pin, cap);
       }
       g.add(pivot);
-      this.targets.push({ pivot, body, plaque: t.flip === true, rest, from: 0, to: 0, start: -Infinity, y: 0 });
+      const drop = height + SINK_PAST;
+      const view: TargetView = {
+        pivot,
+        body,
+        plaque: t.flip === true,
+        rest,
+        from: 0,
+        to: 0,
+        start: -Infinity,
+        y: t.rise ? -drop : 0,
+        drop,
+        speed: hold ? drop / MUMMY_SECONDS : TARGET_SPEED,
+        hold,
+        rocked: Infinity,
+      };
+      this.place(view);
+      this.targets.push(view);
+      if (t.rise) this.down |= 1 << i;
     }
+
+    // The tomb's door, shut, in the doorway the picture carves (table-mesh.ts's doorway): a lapis slab sealed with the
+    // scarab on its front, which faces down the table (a half turn about y, its art then reading the right way round).
+    const way = doorway(table);
+    if (way) {
+      const group = new THREE.Group();
+      group.position.set((way.x0 + way.x1) / 2, 0, way.front);
+      const thick = WALL_THICK; // from the door's face back across the mouth's line, as far again: the physics' door
+      const body = new THREE.Mesh(new THREE.BoxGeometry(way.x1 - way.x0 + 2 * DOOR_TUCK, way.height, thick), BLUE_ENAMEL);
+      body.position.set(0, way.height / 2, thick / 2);
+      body.castShadow = true;
+      const s = (way.x1 - way.x0) / 2 - SEAL_INSET;
+      const sealY = way.height * SEAL_Y;
+      const seal = new THREE.Mesh(faceGeometry(2 * s, sealY - s, sealY + s, SEAL_CROP), emblemMaterial(scarab62, 0.5));
+      seal.rotation.y = Math.PI;
+      seal.position.z = -0.003;
+      group.add(body, seal);
+      g.add(group);
+      this.door = { group, body, seal, height: way.height, lift: 0 };
+    }
+
+    // The diverter's gate, at rest: gold, as thick as a wall and as tall as its ramp's rails, out from its hinge, and
+    // standing on the ramp's floor there, as the physics stands it.
+    const dv = table.diverter;
+    const ramp = dv && table.ramps.find((r) => r.id === dv.ramp);
+    if (dv && ramp) {
+      const pivot = new THREE.Group();
+      pivot.position.set(dv.pivot[0], floorAt(ramp, dv.pivot), dv.pivot[1]);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(dv.length, ramp.rail, WALL_THICK), GOLD);
+      body.position.set(dv.length / 2, ramp.rail / 2, 0);
+      body.castShadow = true;
+      pivot.add(body);
+      g.add(pivot);
+      this.gate = { pivot, body, spec: dv, angle: dv.restDeg };
+    }
+    this.placeToys();
 
     // The spinners: gold posts each side of the lane and a gold bar across them, the blue plate hanging from the bar.
     for (const sp of [table.spinner, ...table.spinners]) {
@@ -410,6 +589,22 @@ export class TableParts {
     this.glows.push(glow);
   }
 
+  /** A drop or rising target where its height says: sunk out of sight when it's all the way down. */
+  private place(t: TargetView): void {
+    t.pivot.position.y = t.y;
+    t.pivot.visible = t.y > -t.drop + 0.01;
+  }
+
+  /** The door at its lift (out of sight once it's all the way up, in the pyramid) and the gate at its angle. */
+  private placeToys(): void {
+    if (this.door) {
+      this.door.group.position.y = this.door.lift;
+      this.door.group.visible = this.door.lift < this.door.height;
+    }
+    // A turn of φ about y takes +x to (cos φ, 0, -sin φ): the table's angle a is a turn of -a.
+    if (this.gate) this.gate.pivot.rotation.y = -THREE.MathUtils.degToRad(this.gate.angle);
+  }
+
   /** Over the picture (its glows), or over the stand-in table (its caps, rubbers and inserts). */
   usePicture(on: boolean): void {
     this.standIn.visible = !on;
@@ -425,16 +620,23 @@ export class TableParts {
   }
 
   /**
-   * The targets: `down`, the drop targets down (they sink in update, or rise back up); `turned`, the flip plaques
-   * turned to their backs (bit i for target i). A plaque whose bit changes turns 180° about its pin over TURN_SECONDS
-   * from `now` (sim time); at the first call (and the first after reset), each is shown as it is.
+   * The targets: `down`, the drop targets down and the rising ones standing down (they sink in update, or rise back
+   * up); `turned`, the flip plaques turned to their backs (bit i for target i). A plaque whose bit changes turns 180°
+   * about its pin over TURN_SECONDS from `now` (sim time). At the first call (and the first after reset), each is shown
+   * as it is: a page opening on the toys down shows none standing for the moment it would take to sink.
    */
   setTargets(down: number, turned: number, now: number): void {
     this.down = down;
     const was = this.turned;
     this.turned = turned;
     this.targets.forEach((t, i) => {
-      if (!t.plaque) return;
+      if (!t.plaque) {
+        if (was === null) {
+          t.y = down & (1 << i) ? -t.drop : 0;
+          this.place(t);
+        }
+        return;
+      }
       const goal = turned & (1 << i) ? Math.PI : 0;
       if (was === null) {
         t.from = t.to = goal;
@@ -452,6 +654,25 @@ export class TableParts {
   private turnAt(t: TargetView, now: number): number {
     const k = Math.max(0, Math.min(1, (now - t.start) / TURN_SECONDS));
     return t.from + (t.to - t.from) * k * k * (3 - 2 * k);
+  }
+
+  /**
+   * The toys' bits (shared/pinball.ts TOY): the tomb open, its door sliding up into the pyramid over DOOR_SECONDS, or
+   * shut, the door sliding back down; the diverter's gate over, or at rest, swinging there at DIVERTER_SPEED as the
+   * physics' gate does. They move in update; at the first call (and the first after reset) they're shown as they are.
+   */
+  setToys(bits: number): void {
+    this.toys = bits;
+    if (!this.toysFresh) return;
+    this.toysFresh = false;
+    if (this.door) this.door.lift = bits & TOY.tombOpen ? this.door.height : 0;
+    if (this.gate) this.gate.angle = bits & TOY.diverterOver ? this.gate.spec.overDeg : this.gate.spec.restDeg;
+    this.placeToys();
+  }
+
+  /** A ball hit the mummy (it stays up when hit, so the stage hears it as a ball meeting it): it rocks back. */
+  rockMummy(): void {
+    for (const t of this.targets) if (t.hold) t.rocked = 0;
   }
 
   /** The spinners' turns, in radians: the main spinner, then the others. */
@@ -475,22 +696,31 @@ export class TableParts {
     this.flashBumper(id);
   }
 
-  /** A fresh hello: the next targets are shown as they are, not turning. */
+  /** A fresh hello: the next targets and toys are shown as they are, not turning or moving there. */
   reset(): void {
     this.turned = null;
+    this.toysFresh = true;
   }
 
-  /** Each frame: the flashes show and die away, the drop targets move toward up or down, the lamps glow or blink. */
+  /**
+   * Each frame: the flashes show and die away, the drop targets and the rising ones move toward up or down, the mummy
+   * rocks, the door and the gate move toward their bits, the lamps glow or blink.
+   */
   update(dt: number): void {
     this.clock += dt;
     this.targets.forEach((t, i) => {
       if (t.plaque) return;
-      const goal = this.down & (1 << i) ? -TARGET_DROP : 0;
-      const step = TARGET_SPEED * dt;
-      t.y = Math.abs(goal - t.y) <= step ? goal : t.y + Math.sign(goal - t.y) * step;
-      t.pivot.position.y = t.y;
-      t.pivot.visible = t.y > -TARGET_DROP + 0.01;
+      t.y = toward(t.y, this.down & (1 << i) ? -t.drop : 0, t.speed * dt);
+      this.place(t);
+      if (!t.hold) return;
+      // Rocked back first (a turn about its face's line that takes its top away from the play), swaying and dying away.
+      t.rocked += dt;
+      const k = t.rocked;
+      t.pivot.rotation.x = k < ROCK_SECONDS ? -THREE.MathUtils.degToRad(ROCK_DEG) * Math.exp(-k * ROCK_DECAY) * Math.sin((2 * Math.PI * k) / ROCK_PERIOD) : 0;
     });
+    if (this.door) this.door.lift = toward(this.door.lift, this.toys & TOY.tombOpen ? this.door.height : 0, (this.door.height / DOOR_SECONDS) * dt);
+    if (this.gate) this.gate.angle = toward(this.gate.angle, this.toys & TOY.diverterOver ? this.gate.spec.overDeg : this.gate.spec.restDeg, DIVERTER_SPEED * dt);
+    this.placeToys();
     const blink = Math.sin(this.clock * Math.PI * 4) > 0;
     const blinks = (bit: number) => bit === LIT.saver || bit === LIT.lock;
     for (const ins of this.inserts) {

@@ -23,8 +23,8 @@ the stage and the control panel.
 | `src/pages.ts` | The stage side: the scene, the scoreboard drawn over it, the snapshot type and its header. |
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
 | `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, moving the quest's toys, the high scores) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
-| `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the hype moments, `RULES`, chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, and its lit inserts and toy bits). |
-| `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
+| `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the hype moments, `RULES`, chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
+| `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
 | `src/assets/` | The table's picture (`pinball.png`) with its sidecar (`pinball.json`), and the live plaques' pictures (`plaques/`): made by `npm run picture` and `blender/plaques.py`, not by hand. |
 | `src/panel/` | The card: the line, with a Remove button on each viewer (`pinball-card.ts`). |
 | `blender/`, `tools/` | What builds the picture: `tools/picture.ts` (`npm run picture`) exports the table and the stage's camera (`export-scene.ts`), renders them with `blender/build_table.py` and grades the render (`grade.py`). `compose_art.py`, `gen_art.py` and `art/` are the printed art, `plaques.py` the live plaques'. `tools/pinball-stress.ts` is the stress run, and `tools/dev-toys.ts` and `tools/toy.ts` the dev host's toy switch (Running it). |
@@ -92,13 +92,14 @@ failure is real and fails again: read the step and find out why.
   with its points and flippers (the table lost it, not the player, so it isn't drained and paid).
 - **The toys.** The quest's four field toys (the three pop-up targets, the mummy, the tomb and the diverter's gate)
   start down, shut and at rest, and the game moves them when asked (`PinballGame.setToy(toy, up)`, with `toyWanted`):
-  each step, after the physics, it brings about what was asked, and a part a ball is in the way of (a pop-up or the
-  mummy where a ball stands, the door with a ball in the doorway or held in the tomb, the gate with a ball in its sweep,
-  or swinging over, on the left ramp or in the dish, where it would shut the ball in) waits and is tried again next
-  step. A request is a move, not a standing order: a pop-up a ball knocks down stays down until it is asked up again.
-  The mummy goes down on its third hit since it rose; a ball the tomb catches scores the tomb's points; a Reset puts
-  every toy away. Nothing in the city asks for them yet: on the dev host, `npm run dev:toys` turns on the `toy` machine
-  action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
+  each step, after the physics, it brings about what was asked, and a part a ball is in the way of waits and is tried
+  again next step. The ways are: a pop-up or the mummy with a ball where it rises; the door with a ball in the doorway
+  or held in the tomb; the gate, either way, with a ball in its sweep; and the gate, swinging over, with a ball on the
+  left ramp or in the dish (over, it would shut that ball in). A request is a move, not a standing order: a pop-up a
+  ball knocks down stays down until it is asked up again. The mummy goes down on its third hit since it rose; a ball
+  the tomb catches scores the tomb's points; a Reset puts every toy away. Nothing in the city asks for them yet: on the
+  dev host, `npm run dev:toys` turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends
+  it.
 - **Paying.** A drained ball's points make coins (`RULES.pointsPerCoin`): 70% to its owner, and 30% split equally among
   everyone who flipped it, the owner included if they flipped; what's left over goes to the owner. The high scores
   (the best 10 balls) are kept in the save file (`machine-pinball.json`).
@@ -145,9 +146,14 @@ saved ball and a ball's result.
 - **The picture.** The stage draws `src/assets/pinball.png`, rendered in Blender from `TABLE_IN_USE` through the stage's
   own camera (`stageCamera`); `pinball.json` says which table (a hash of its data) and which camera. It leaves out what
   moves, and the stage draws that live over it (`pinball-parts.ts`): the balls, the three flippers, the turning plaques,
-  the two drop targets, both spinners, and glows over the lamps and bumpers. The picture's solid shapes are in the depth
+  the two drop targets, the quest's toys, both spinners, and glows over the lamps and bumpers. The toys are the three
+  pop-ups and the mummy, which rise out of the picture's slots and sink back by the header's bits (the mummy rocks when
+  a ball meets it), the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's gate,
+  which swings over across the left ramp and back (the header's toy bits). The picture's solid shapes are in the depth
   buffer too, unseen (`pictureDepth` in `table-mesh.ts`), so a ball behind the pyramid or under the right ramp is hidden
-  as the picture shows it. The stand-in table in that file is only the fallback if the picture doesn't load.
+  as the picture shows it. The pyramid there is carved for the tomb's doorway as the picture's is, so a ball the tomb
+  holds is seen, and the risen door is hidden. The stand-in table in that file is only the fallback if the picture
+  doesn't load.
 - **After any change to the table or the camera, run `npm run picture`** (about 15 s; Blender 5.2, and Python with
   Pillow and numpy; `blender/README.md` says the rest) **and commit the new `pinball.png` and `pinball.json`.**
   picture-test fails until you do (the picture is of another table or camera, or size), but it can't see a change to

@@ -18,7 +18,7 @@
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { DT } from '@kit/server';
 import { SNAP_STRIDE, type BodyState } from '@kit/shared';
-import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../shared/pinball';
+import { DIVERTER_SPEED, SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../shared/pinball';
 import { FLIPPER_SHAPE, flipperHull, isLockTarget, TABLE, tombMouth, wallsWithTomb, type Diverter, type Dish, type Flipper, type Ramp, type Table, type Target, type Tomb, type Wall } from '../shared/table';
 
 // Passed on for the game and the tests, which import it from here; it's every machine's (@kit/server).
@@ -98,11 +98,6 @@ const LOCK_EJECT = { speed: 8, dir: [0.6, -0.8] as const };
 export const LOCK_IGNORE = 0.75;
 /** The tomb's door won't shut while a ball's surface is within this of where the door's face would be (closeTomb). */
 const TOMB_CLEAR = 0.05;
-/**
- * How fast the diverter's gate swings, degrees per second: slowly, as a gate does, where a flipper swings at
- * FLIPPER_SPEED. A ball it meets on its way is pushed aside at the gate's own speed, never batted.
- */
-const DIVERTER_SPEED = 400;
 /** The gate won't swing while a ball's surface is within this of anywhere it sweeps through (setDiverter). */
 const GATE_CLEAR = 0.05;
 /** A matched bank shows all its backs this long (s) before its plaques turn back to the front. */

@@ -2,29 +2,55 @@
 // (src/assets/pinball.png) fails to load: the playfield, the walls with some height and a neon edge, the bumpers' bodies,
 // the slings' plastics and the plunger lane with its plunger, in a plain frame of side rails and an apron before the
 // drain (the fallback's own: the picture's cabinet has no apron, its playfield runs to the front rail). Only what stays
-// put is here; what moves or lights up (the flippers, the bumper caps, the targets, the spinners, the inserts) is the
-// scene's live parts (pinball-parts.ts).
+// put is here; what moves or lights up (the flippers, the bumper caps, the targets, the quest's toys, the spinners, the
+// inserts) is the scene's live parts (pinball-parts.ts).
 //
 // The other part is pictureDepth, the occluders, drawn only with the picture. They stand in for the picture's own solid
-// shapes, unseen: the playfield, the pyramid, the bumpers, the right ramp's floor and the dish's, so a ball behind or
-// under one is hidden by it as the picture shows it, and a drop target sinks into the playfield; and a shadow catcher
-// takes the live parts' and the balls' shadows.
+// shapes, unseen: the playfield, the pyramid (with the tomb's doorway carved into it), the bumpers, the right ramp's
+// floor and the dish's, so a ball behind or under one is hidden by it as the picture shows it, a drop target or a
+// rising one sinks into the playfield and the tomb's door slides up into the pyramid; and a shadow catcher takes the
+// live parts' and the balls' shadows.
 //
 // Everything is in the table's own coordinates (shared/table.ts): x across, y up off the playfield, z up the table. The
 // scene puts the whole table in a group that turns those into the world's (see PinballScene).
 import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import type { Look } from '@kit/stage';
-import type { Ramp, Table } from '../shared/table';
+import { TABLE, tombMouth, wallsWithTomb, type Ramp, type Table } from '../shared/table';
 
 export const PINK = 0xff2bd6;
 export const CYAN = 0x22e6ff;
 /** The table's middle line (the pyramid's, the bumpers' and the main flippers' axis), as build_table.py's CX. */
 export const CX = -0.4;
 
-/** How tall the walls stand off the playfield, and how thick they're drawn (the physics' are 0.16 thick). */
+/** How tall the walls stand off the playfield, and how thick they're drawn (as thick as the physics' walls). */
 const WALL_HEIGHT = 0.55;
-const WALL_THICK = 0.16;
+export const WALL_THICK = 0.16;
+
+/**
+ * The tomb's doorway as the picture carves it (build_table.py, from the doorway's mouth and pocket), and the door the
+ * live parts hang in it (pinball-parts.ts): `x0` and `x1` the jambs' faces, `front` the shut door's face, `back` the
+ * pocket's far face, `mouth` the mouth's line (z), and `height` the doorway's height (the walls', as tall as the
+ * physics' door). Each face is a wall's half thickness off the line of the physics' wall it is the face of: the mouth's
+ * (tombMouth), where the door stands, and the jambs' that close the pocket behind it (wallsWithTomb). Null on a table
+ * with no tomb.
+ */
+export function doorway(table: Table): { x0: number; x1: number; front: number; back: number; mouth: number; height: number } | null {
+  const mouth = tombMouth(table);
+  // Each jamb runs from its end of the mouth straight up the table to the pocket's far side, then along it.
+  const jamb = wallsWithTomb(table).find((w) => w.kind === 'tomb');
+  if (!mouth || !jamb) return null;
+  const half = WALL_THICK / 2;
+  return {
+    x0: Math.min(mouth.a[0], mouth.b[0]) + half,
+    x1: Math.max(mouth.a[0], mouth.b[0]) - half,
+    front: mouth.a[1] - half,
+    back: jamb.points[1][1] - half,
+    mouth: mouth.a[1],
+    height: TABLE.wallTop,
+  };
+}
 /** The rails each side of the cabinet, outside the outer wall. */
 const RAIL_WIDTH = 0.7;
 /**
@@ -125,11 +151,12 @@ export function standInTable(table: Table, look: Look, width: number, length: nu
   base.position.set(0, -0.16, (length - APRON) / 2);
   group.add(base);
 
-  // The walls: dark bodies, each with a glowing top strip.
+  // The walls: dark bodies, each with a glowing top strip. They stand as the physics stands them (wallsWithTomb, the
+  // outer wall still first): the pyramid's open at the tomb's doorway, where the live door and a held ball are drawn.
   const body = new THREE.MeshStandardMaterial({ color: 0x15102a, roughness: 0.35, metalness: 0.6 });
   const pinkTop = new THREE.MeshStandardMaterial({ color: 0x220018, emissive: PINK, emissiveIntensity: 2.2, roughness: 0.4 });
   const cyanTop = new THREE.MeshStandardMaterial({ color: 0x001a20, emissive: CYAN, emissiveIntensity: 1.8, roughness: 0.4 });
-  table.walls.forEach((wall, i) => {
+  wallsWithTomb(table).forEach((wall, i) => {
     const top = i === 0 ? pinkTop : cyanTop;
     const height = i === 0 ? WALL_HEIGHT * 1.4 : WALL_HEIGHT;
     for (let k = 1; k < wall.points.length; k++) {
@@ -237,10 +264,62 @@ const SLING_HEIGHT = 0.38;
 const LIP_UNDER = 0.05;
 const LIP_OVER = 0.3;
 const DISH_RIM = 0.45;
+/**
+ * The picture's gold frame round the tomb's doorway (build_table.py): a pillar outside each jamb's face, `width` wide
+ * and from `front` in front of the door's face to `back` behind it, as tall as the doorway; and a lintel across them,
+ * `over` past each jamb's face, from `front` in front of the door's face to `back` behind it, `height` tall over the
+ * doorway.
+ */
+const PILLAR = { width: 0.1, front: 0.02, back: 0.1 };
+const LINTEL = { over: 0.13, front: 0.03, back: 0.12, height: 0.1 };
+/** How far the tomb's door reaches into the pillars at each end of the doorway (build_table.py's tomb door). */
+export const DOOR_TUCK = 0.02;
 /** A wall's end this near a flipper's pivot is cut back, so the flipper's round base isn't notched by it. */
 const CLEAR_OF_PIVOT = 0.35;
 /** How dark the live parts' and the balls' shadows fall on the picture. */
 const SHADOW_OPACITY = 0.35;
+
+/** A flat cut through space: what it keeps is where `n · p` is at least `d`. */
+interface Cut {
+  n: THREE.Vector3;
+  d: number;
+}
+
+/**
+ * The corners of the solid that is the hull of `points` with whatever lies outside each of `cuts` cut away: a convex
+ * solid cut flat stays convex, so at each cut its corners are the hull's corners the cut keeps and the points where the
+ * hull's edges cross it. Empty when nothing solid is left.
+ */
+function cutHull(points: THREE.Vector3[], cuts: Cut[]): THREE.Vector3[] {
+  let pts = points;
+  for (const { n, d } of cuts) {
+    const hull = new ConvexHull().setFromPoints(pts);
+    // Each corner and crossing is met once from every face round it: kept once.
+    const next = new Map<string, THREE.Vector3>();
+    const keep = (p: THREE.Vector3) => next.set(p.toArray().map((v) => v.toFixed(9)).join(), p);
+    for (const face of hull.faces) {
+      let edge = face.edge;
+      do {
+        const p = edge.tail().point;
+        const q = edge.head().point;
+        const sp = n.dot(p) - d;
+        const sq = n.dot(q) - d;
+        if (sp >= 0) keep(p);
+        if (sp * sq < 0) keep(p.clone().lerp(q, sp / (sp - sq)));
+        edge = edge.next;
+      } while (edge !== face.edge);
+    }
+    pts = [...next.values()];
+    const size = new THREE.Box3().setFromPoints(pts).getSize(new THREE.Vector3());
+    if (pts.length < 4 || Math.min(size.x, size.y, size.z) < 1e-6) return [];
+  }
+  return pts;
+}
+
+/** A box from (x0, y0, z0) to (x1, y1, z1), in the table's coordinates. */
+function block(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): THREE.BufferGeometry {
+  return new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+}
 
 /** A strip of quads between two rows of points, each row the same length (in the table's coordinates). */
 function strip(a: readonly THREE.Vector3[], b: readonly THREE.Vector3[]): THREE.BufferGeometry {
@@ -274,7 +353,8 @@ function rampEdges(r: Ramp): [THREE.Vector3[], THREE.Vector3[]] {
  * The picture's solid shapes, unseen (they draw only into the depth buffer, before everything else), and a shadow
  * catcher over its playfield: a group in the table's coordinates, to show over the picture (see the header). The
  * shapes are build_table.py's, a little simplified; the outer wall and the orbit are wire rails there, which hide
- * nothing, and the left ramp's sides are clear.
+ * nothing, and the left ramp's sides are clear (so nothing here stands in for them, and the diverter's gate, in the gap
+ * in its rail, is never hidden by them).
  */
 export function pictureDepth(table: Table, width: number, length: number): THREE.Group {
   const group = new THREE.Group();
@@ -339,7 +419,9 @@ export function pictureDepth(table: Table, width: number, length: number): THREE
     hide(geo);
   }
 
-  // The pyramid: its plinth and its body up to the apex, round its wall's corners.
+  // The pyramid: its plinth and its body up to the apex, round its closed outline's corners (the pyramid wall's points,
+  // less the one that closes it: what the picture's build sculpts it from, any number of them).
+  const door = doorway(table);
   for (const w of table.walls) {
     if (w.kind !== 'pyramid') continue;
     const corners = w.points.slice(0, -1);
@@ -347,7 +429,34 @@ export function pictureDepth(table: Table, width: number, length: number): THREE
     const cz = corners.reduce((a, p) => a + p[1], 0) / corners.length;
     const pts = corners.flatMap(([x, z]) => [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, PLINTH, z)]);
     pts.push(new THREE.Vector3(cx, PLINTH + PYRAMID_HEIGHT, cz));
-    hide(new ConvexGeometry(pts));
+    if (!door) {
+      hide(new ConvexGeometry(pts));
+      continue;
+    }
+    // On a table with a tomb, the picture carves its doorway out of the front corner (doorway): the corner cut off
+    // square across the table at the shut door's face, and a recess behind that between the jambs' faces, back to the
+    // pocket's far face and as tall as the doorway. So a ball the tomb holds, just in front of the door's face, is seen
+    // whole, and the door in the doorway. What's left is drawn in four convex pieces: the cut pyramid above the
+    // recess, behind it, and either side of it.
+    const cut = (x: number, y: number, z: number, d: number): Cut => ({ n: new THREE.Vector3(x, y, z), d });
+    const front = cut(0, 0, 1, door.front);
+    const under = cut(0, -1, 0, -door.height);
+    for (const cuts of [[front, cut(0, 1, 0, door.height)], [cut(0, 0, 1, door.back), under], [front, under, cut(-1, 0, 0, -door.x0)], [front, under, cut(1, 0, 0, door.x1)]]) {
+      const piece = cutHull(pts, cuts);
+      if (piece.length) hide(new ConvexGeometry(piece));
+    }
+    // The doorway's gold frame: a pillar outside each jamb's face, and the lintel across them.
+    hide(block(door.x0 - PILLAR.width, door.x0, 0, door.height, door.front - PILLAR.front, door.front + PILLAR.back));
+    hide(block(door.x1, door.x1 + PILLAR.width, 0, door.height, door.front - PILLAR.front, door.front + PILLAR.back));
+    const top = door.height + LINTEL.height;
+    hide(block(door.x0 - LINTEL.over, door.x1 + LINTEL.over, door.height, top, door.front - LINTEL.front, door.front + LINTEL.back));
+    // The door's way up into the pyramid. The open tomb's door slides up out of the doorway, as far as it is tall
+    // (pinball-parts.ts), behind the lintel; the picture's pyramid over the doorway is its sloped face, a little behind
+    // the door, as the corner was cut off only below that. So the lintel's front is carried on up over the door's way
+    // (a hair wider than the door, and back past it), unseen, and the door is hidden as it rises, as if into a slot in
+    // the pyramid: from the camera, only the pyramid's own face lies behind it.
+    const doorBack = door.mouth + WALL_THICK / 2;
+    hide(block(door.x0 - DOOR_TUCK - 0.01, door.x1 + DOOR_TUCK + 0.01, door.height, 2 * door.height + LINTEL.height, door.front - LINTEL.front, doorBack + 0.02));
   }
 
   // The bumpers: their skirts, glass bodies, rims and the domed saucers over them (build_table.py's profile).

@@ -38,14 +38,16 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
 - `blender/` builds the table's picture from that same table data, through the stage's own camera (`build_table.py`,
   its grade and its printed art), and `tools/` runs it (`picture.ts`, with `export-scene.ts`); `tools/pinball-stress.ts`
   is the stress run. The stage draws the picture as its backdrop with the live parts over it: the balls, the three
-  flippers, the turning plaques, the drop targets, both spinners and glows over the lamps and bumpers. Change the table
-  and run `npm run picture` again, then commit the new picture and its sidecar (`blender/README.md` says what it needs).
-  If the picture doesn't load, the stage draws a plain three.js stand-in table instead (`src/stage/table-mesh.ts`).
+  flippers, the turning plaques, the drop targets, the quest's toys (the pop-ups and the mummy rising and sinking, the
+  tomb's door sliding up into the pyramid, the diverter's gate swinging), both spinners and glows over the lamps and
+  bumpers. Change the table and run `npm run picture` again, then commit the new picture and its sidecar
+  (`blender/README.md` says what it needs). If the picture doesn't load, the stage draws a plain three.js stand-in table
+  instead (`src/stage/table-mesh.ts`).
 - The tests: `pinball-sim-test` is the physics part by part. `pinball-layout-test` is every way round the table at its
   rate (the orbits, the left ramp, the dish, the saucers, the banks, the quest's toys up and down; no ball escapes or
-  sticks) and takes about a minute. `pinball-parts-test` is the live parts, and that the stage's camera puts them on the picture's pixels.
-  `picture-test` fails while the picture was made from another table or camera than the stage's, or at another size.
-  `npm run pinball-stress` takes minutes, so it isn't part of `npm test`.
+  sticks) and takes about a minute. `pinball-parts-test` is the live parts, and that the stage's camera puts them on
+  the picture's pixels. `picture-test` fails while the picture was made from another table or camera than the stage's,
+  or at another size. `npm run pinball-stress` takes minutes, so it isn't part of `npm test`.
 - The control panel shows the pinball's card (the line, with a Remove button each), its four hype buttons and its
   Reset (`src/panel.ts`; the buttons are listed in `src/entry.ts`, and the game plays them in `PinballGame.action`):
   Multiball (2 more balls in now), Ball saver (15 s), Double score (30 s) and Nudge. The Reset clears the table and the

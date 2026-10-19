@@ -126,10 +126,17 @@ export const SNAP_PINBALL_HEADER = 47;
 
 /**
  * The toys' bits, as the physics gives them (PinballSim.toys()) and the header's last word carries them: the tomb open,
- * and the diverter's gate set over (its goal: it swings there, and back, at 400 degrees a second, so a stage can swing
- * it as the physics does).
+ * and the diverter's gate set over (its goal: it swings there, and back, at DIVERTER_SPEED, so a stage can swing it as
+ * the physics does).
  */
 export const TOY = { tombOpen: 1 << 0, diverterOver: 1 << 1 } as const;
+
+/**
+ * How fast the diverter's gate swings, degrees per second: slowly, as a gate does, where a flipper swings at the
+ * physics' FLIPPER_SPEED (server/sim.ts). A ball it meets on its way is pushed aside at the gate's own speed, never
+ * batted. The physics swings the gate at it, and the stage its drawn gate (stage/pinball-parts.ts).
+ */
+export const DIVERTER_SPEED = 400;
 
 /** The bits of the header's lit inserts. */
 export const LIT = {

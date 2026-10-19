@@ -1,11 +1,12 @@
 // Tests when the pinball's sounds play (PinballSoundCues, stage/pinball-sounds.ts), from what the stage can see: a
-// flipper starting up, a drop target going down, a ball meeting a bumper or a sling, a launch, a drain, a saved ball,
-// and multiball (from a press's moment, or from the state when the lock starts it, once either way). And that the
-// picks (PINBALL_SOUNDS) name every moment with no files yet, so each plays its synth. No sound card is needed.
+// flipper starting up, a drop target going down, a ball meeting a bumper, a sling or the standing mummy, a launch, a
+// drain, a saved ball, and multiball (from a press's moment, or from the state when the lock starts it, once either
+// way). And that the picks (PINBALL_SOUNDS) name every moment with no files yet, so each plays its synth. No sound card
+// is needed.
 // Usage: npm run pinball-sounds-test
 import assert from 'node:assert/strict';
 import type { PinballState } from '../src/shared/pinball';
-import { TABLE_IN_USE } from '../src/shared/table';
+import { TABLE, TABLE_IN_USE } from '../src/shared/table';
 import './stub-assets';
 
 const { PINBALL_SOUNDS } = await import('../src/stage/pinball-sound-picks');
@@ -137,6 +138,78 @@ test('a ball seen first touching a bumper (a page opening) is no hit; a sling hi
   c.balls([{ id: 5, x: mid[0] + 1.5, z: mid[1] }]);
   c.balls([{ id: 5, x: mid[0] + 0.3, z: mid[1] }]);
   assert.deepEqual(heard, [`sling:${s.id}`]);
+});
+
+test("a ball meeting the mummy's face is a hit", () => {
+  const { c, heard } = cues();
+  const i = TABLE_IN_USE.targets.findIndex((t) => t.rise === 'hold');
+  const m = TABLE_IN_USE.targets[i];
+  assert.equal(m.id, 'target-mummy');
+  /** The rising targets' bits: each stands down until the game raises it. */
+  const rising = TABLE_IN_USE.targets.reduce((bits, t, k) => (t.rise ? bits | (1 << k) : bits), 0);
+  const up = rising & ~(1 << i);
+  // Out of its face (its front, toward the flippers), `d` from its middle line: touching at a ball's radius and half
+  // its depth.
+  const a = (m.angle! * Math.PI) / 180;
+  let [nx, nz] = [-Math.sin(a), Math.cos(a)];
+  if (nx * (-0.4 - m.x) + nz * (2 - m.z) < 0) [nx, nz] = [-nx, -nz];
+  const touch = TABLE.ballRadius + (m.depth ?? 0.2) / 2;
+  const out = (d: number) => [{ id: 1, x: m.x + nx * d, z: m.z + nz * d }];
+  c.targets(rising);
+  c.balls(out(2));
+  c.balls(out(touch + 0.02));
+  assert.deepEqual(heard, [], 'down, there is no face to meet: a ball over its slot is nothing');
+  c.balls(out(2));
+  c.targets(up);
+  assert.deepEqual(heard, [], 'rising is silent');
+  c.balls(out(touch + 0.02));
+  c.balls(out(touch + 0.05));
+  assert.deepEqual(heard, [`target:${i}`], 'met once, while it stays');
+  c.balls(out(2));
+  c.balls(out(touch + 0.03));
+  assert.deepEqual(heard, [`target:${i}`, `target:${i}`], 'met again after leaving');
+  // From behind it too (it stands in a lane; the physics scores a hit on any side).
+  c.balls(out(-2));
+  c.balls(out(-(touch + 0.02)));
+  assert.deepEqual(heard, [`target:${i}`, `target:${i}`, `target:${i}`], 'met from behind');
+  // Its third hit puts it down: the hit was heard as the ball met it, so going down is silent.
+  c.targets(rising);
+  assert.deepEqual(heard, [`target:${i}`, `target:${i}`, `target:${i}`], 'going down is silent');
+  // A page opening with a ball against it: only a look.
+  const fresh = cues();
+  fresh.c.targets(up);
+  fresh.c.balls(out(touch + 0.02));
+  assert.deepEqual(fresh.heard, []);
+});
+
+test('a pop-up knocked down by a ball is a hit; put away by the game, with no ball at it, it goes down silently', () => {
+  const { c, heard } = cues();
+  const i = TABLE_IN_USE.targets.findIndex((t) => t.id === 'target-popup-2');
+  const p = TABLE_IN_USE.targets[i];
+  const rising = TABLE_IN_USE.targets.reduce((bits, t, k) => (t.rise ? bits | (1 << k) : bits), 0);
+  const a = (p.angle! * Math.PI) / 180;
+  let [nx, nz] = [-Math.sin(a), Math.cos(a)];
+  if (nx * (-0.4 - p.x) + nz * (2 - p.z) < 0) [nx, nz] = [-nx, -nz];
+  const touch = TABLE.ballRadius + (p.depth ?? 0.2) / 2;
+  const out = (d: number) => [{ id: 1, x: p.x + nx * d, z: p.z + nz * d }];
+  c.targets(rising);
+  c.balls(out(3));
+  c.targets(rising & ~(1 << i));
+  assert.deepEqual(heard, [], 'raised: silent');
+  // A ball coming at it (as last drawn, a frame short of it) and the pop-up knocked down.
+  c.balls(out(touch + 0.4));
+  c.targets(rising);
+  assert.deepEqual(heard, [`target:${i}`], 'knocked down: a hit');
+  // Raised again, and put away with the ball across the table: no hit.
+  c.balls(out(3));
+  c.targets(rising & ~(1 << i));
+  c.balls(out(3));
+  c.targets(rising);
+  assert.deepEqual(heard, [`target:${i}`], 'put away: silent');
+  // The lock's drop targets go down only when hit, so theirs sound with no ball looked at.
+  const eye = TABLE_IN_USE.targets.findIndex((t) => t.id === 'target-eye');
+  c.targets(rising | (1 << eye));
+  assert.deepEqual(heard, [`target:${i}`, `target:${eye}`]);
 });
 
 test('launches, drains and saves each sound', () => {

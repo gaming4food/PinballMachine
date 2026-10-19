@@ -1,18 +1,21 @@
 // Tests the table's live parts (TableParts, stage/pinball-parts.ts) as the stage draws them over the Blender picture: a
 // plaque per flip target that turns about its pin when its bit sets, the two drop targets, three flippers and two
-// spinners each at its own angle, the lamps' glows by the LIT bits; that the stage's camera, with the parts in the
-// table's place (tiltTable), puts the table's probe points on the picture's pixels (tools/export-scene.ts's probes,
-// which the Blender build matched its camera to within 0.5 px) and the live parts on them; and that the picture's
-// unseen shapes (table-mesh.ts's pictureDepth) hide what the picture hides, and not what it shows. The flippers are drawn
-// in the physics' own shape (shared/table.ts FLIPPER_SHAPE), checked against the physics' colliders.
+// spinners each at its own angle, the lamps' glows by the LIT bits, and the quest's toys (the pop-ups and the mummy
+// rising and sinking by their bits, the mummy rocking when hit, the tomb's door and the diverter's gate by the toy
+// bits); that the stage's camera, with the parts in the table's place (tiltTable), puts the table's probe points on
+// the picture's pixels (tools/export-scene.ts's probes, which the Blender build matched its camera to within 0.5 px)
+// and the live parts on them, the toys where the build draws them; and that the picture's unseen shapes
+// (table-mesh.ts's pictureDepth) hide what the picture hides, and not what it shows: a toy up, or a ball the tomb
+// holds at its doorway. The flippers are drawn in the physics' own shape (shared/table.ts FLIPPER_SHAPE), checked
+// against the physics' colliders.
 // Usage: npm run pinball-parts-test
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { initPhysics } from '@kit/server';
-import { PinballSim } from '../src/server/sim';
-import { LIT } from '../src/shared/pinball';
-import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, isLockTarget, type Table } from '../src/shared/table';
+import { DT, initPhysics } from '@kit/server';
+import { PinballSim, WALL_HALF } from '../src/server/sim';
+import { LIT, TOY } from '../src/shared/pinball';
+import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, isLockTarget, tombMouth, wallsWithTomb, type Table, type Target } from '../src/shared/table';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
 import './stub-assets';
 
@@ -137,17 +140,19 @@ test('a flipper is cream with a gold cap (0.82 of its outline) on its top and a 
   assert.ok(spinnerGold.length >= 6 && spinnerGold.every((m) => (m as THREE.Mesh).material === GOLD), 'the spinners\' posts and bars are gold');
 });
 
-test("the emblems show the art's printed middle (build_table.py's crop: u 0.16 to 0.84, v 0.12 to 0.88), front, back and drop targets", () => {
+test("the emblems show the art's printed middle (build_table.py's crop: u 0.16 to 0.84, v 0.12 to 0.88), front, back, drop targets and pop-ups; the mummy's face its art's middle (u 0.06 to 0.94, v 0 to 1)", () => {
   const parts = new TableParts(TABLE_IN_USE);
   parts.targets.forEach((t, i) => {
+    const spec = TABLE_IN_USE.targets[i];
     const faces = t.pivot.children.filter((c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.PlaneGeometry) as THREE.Mesh[];
-    assert.equal(faces.length, t.plaque ? 2 : 1, `${TABLE_IN_USE.targets[i].id}: its faces`);
+    assert.equal(faces.length, t.plaque ? 2 : 1, `${spec.id}: its faces`);
+    const [u0, u1, v0, v1] = spec.rise === 'hold' ? [0.06, 0.94, 0, 1] : [0.16, 0.84, 0.12, 0.88];
     for (const face of faces) {
       const uv = face.geometry.attributes.uv as THREE.BufferAttribute;
       const us = Array.from({ length: uv.count }, (_, k) => uv.getX(k));
       const vs = Array.from({ length: uv.count }, (_, k) => uv.getY(k));
-      assert.ok(near(Math.min(...us), 0.16, 1e-6) && near(Math.max(...us), 0.84, 1e-6), `u ${Math.min(...us)} to ${Math.max(...us)}`);
-      assert.ok(near(Math.min(...vs), 0.12, 1e-6) && near(Math.max(...vs), 0.88, 1e-6), `v ${Math.min(...vs)} to ${Math.max(...vs)}`);
+      assert.ok(near(Math.min(...us), u0, 1e-6) && near(Math.max(...us), u1, 1e-6), `${spec.id}: u ${Math.min(...us)} to ${Math.max(...us)}`);
+      assert.ok(near(Math.min(...vs), v0, 1e-6) && near(Math.max(...vs), v1, 1e-6), `${spec.id}: v ${Math.min(...vs)} to ${Math.max(...vs)}`);
     }
   });
 });
@@ -169,28 +174,38 @@ test('the glows are smooth: their map is filtered linearly', () => {
   assert.equal(map.minFilter, THREE.LinearFilter);
 });
 
-test("a plaque's emblem reads the right way round on the stage (not mirrored by the table's turn into the world)", () => {
+test("a plaque's emblem reads the right way round on the stage (not mirrored by the table's turn into the world), and so do the toys' faces", () => {
   const camera = new THREE.PerspectiveCamera();
   fitStageCamera(camera, WIDTH, HEIGHT);
   const table = tiltTable(new THREE.Group());
   const parts = new TableParts(TABLE_IN_USE);
+  // The toys up, so their faces are where they're seen.
+  parts.setTargets(0, 0, 0);
+  parts.setToys(0);
   table.add(parts.group);
   table.updateMatrixWorld(true);
-  for (const i of [1, 4, 8, 11]) {
-    // The front emblem: the plane in front of the plaque's body (local z > 0).
-    const face = parts.targets[i].pivot.children.find((c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.PlaneGeometry && c.position.z > 0) as THREE.Mesh;
+  /** The art's left edge (its smallest u) is left of its right edge (its largest u) on the screen. */
+  const readsRight = (face: THREE.Mesh, what: string) => {
     const pos = face.geometry.attributes.position as THREE.BufferAttribute;
     const uv = face.geometry.attributes.uv as THREE.BufferAttribute;
     const screenX = (k: number) => new THREE.Vector3().fromBufferAttribute(pos, k).applyMatrix4(face.matrixWorld).project(camera).x;
-    // The art's left edge (its smallest u) is left of its right edge (its largest u) on the screen.
     let lo = 0;
     let hi = 0;
     for (let k = 0; k < uv.count; k++) {
       if (uv.getX(k) < uv.getX(lo)) lo = k;
       if (uv.getX(k) > uv.getX(hi)) hi = k;
     }
-    assert.ok(screenX(lo) < screenX(hi), `${TABLE_IN_USE.targets[i].id}'s emblem is mirrored`);
+    assert.ok(screenX(lo) < screenX(hi), `${what} is mirrored`);
+  };
+  const toys = TABLE_IN_USE.targets.flatMap((t, i) => (t.rise ? [i] : []));
+  assert.equal(toys.length, 4);
+  for (const i of [1, 4, 8, 11, ...toys]) {
+    // The front emblem: the plane in front of the plaque's body (local z > 0).
+    const face = parts.targets[i].pivot.children.find((c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.PlaneGeometry && c.position.z > 0) as THREE.Mesh;
+    readsRight(face, `${TABLE_IN_USE.targets[i].id}'s emblem`);
   }
+  assert.ok(parts.door, 'the tomb has a door');
+  readsRight(parts.door.seal, "the tomb door's seal");
 });
 
 test('a plaque turns over 0.15 s, and back again when its bit clears', () => {
@@ -328,6 +343,395 @@ test("the picture's unseen shapes hide what the picture hides (under the right r
   }
   for (const t of TABLE_IN_USE.targets) assert.ok(!hidden(t.x, 0.26, t.z), `${t.id} is seen`);
   assert.ok(!hidden(TABLE_IN_USE.spinner.x, 0.5, TABLE_IN_USE.spinner.z), 'the main spinner is seen');
+});
+
+/** The quest's rising targets (the pop-ups and the mummy), by their places in the table's targets, and their bits. */
+const RISING_AT = TABLE_IN_USE.targets.flatMap((t, i) => (t.rise ? [i] : []));
+const RISING = RISING_AT.reduce((bits, i) => bits | (1 << i), 0);
+
+/**
+ * A target's way along its face (u) and out of its front (n), as build_table.py's target_frame stands one at its own
+ * angle (each toy has one): its front toward the flippers, the table's middle line 2 up the table.
+ */
+function frameOf(t: Target): { u: [number, number]; n: [number, number] } {
+  assert.ok(t.angle !== undefined, `${t.id} stands at its own angle`);
+  const a = THREE.MathUtils.degToRad(t.angle);
+  const u: [number, number] = [Math.cos(a), Math.sin(a)];
+  const n: [number, number] = [-u[1], u[0]];
+  return { u, n: n[0] * (-0.4 - t.x) + n[1] * (2 - t.z) < 0 ? [-n[0], -n[1]] : n };
+}
+
+/**
+ * The tomb's doorway as build_table.py carves it and hangs its door there, worked out here from tombMouth and the jambs
+ * wallsWithTomb adds: the jambs' faces (x0, x1), the shut door's face (front, a wall's half thickness in front of the
+ * mouth's line), the pocket's far face (back), the mouth's line, and its height (the walls', the physics' door's).
+ */
+function doorwayOf() {
+  const mouth = tombMouth(TABLE_IN_USE)!;
+  const jamb = wallsWithTomb(TABLE_IN_USE).find((w) => w.kind === 'tomb')!;
+  return {
+    x0: Math.min(mouth.a[0], mouth.b[0]) + WALL_HALF,
+    x1: Math.max(mouth.a[0], mouth.b[0]) - WALL_HALF,
+    front: mouth.a[1] - WALL_HALF,
+    back: jamb.points[1][1] - WALL_HALF,
+    mouth: mouth.a[1],
+    height: TABLE.wallTop,
+  };
+}
+
+/**
+ * The diverter, its ramp, and the floor its gate stands on: the height at the gap's end nearer its hinge
+ * (build_table.py's GATE_Y).
+ */
+function gateOf() {
+  const dv = TABLE_IN_USE.diverter!;
+  const ramp = TABLE_IN_USE.ramps.find((r) => r.id === dv.ramp)!;
+  const { from, to } = ramp.opening!;
+  const off = (k: number) => Math.hypot(ramp.path[k][0] - dv.pivot[0], ramp.path[k][1] - dv.pivot[1]);
+  return { dv, ramp, floor: ramp.path[off(from) < off(to) ? from : to][2] };
+}
+
+/** The stage's camera, and the table placed as the stage places it, the picture's unseen shapes and `parts` in it. */
+function onStage(parts?: InstanceType<typeof TableParts>) {
+  const camera = new THREE.PerspectiveCamera();
+  fitStageCamera(camera, WIDTH, HEIGHT);
+  const table = tiltTable(new THREE.Group());
+  const depth = pictureDepth(TABLE_IN_USE, TABLE.width, TABLE.length);
+  table.add(depth);
+  if (parts) table.add(parts.group);
+  table.updateMatrixWorld(true);
+  const unseen = depth.children.filter((m) => m instanceof THREE.Mesh && m.renderOrder === -1) as THREE.Mesh[];
+  const ray = new THREE.Raycaster();
+  /** Whether an unseen shape stands between the camera and p, a point in the world. */
+  const hiddenAt = (p: THREE.Vector3) => {
+    const dir = p.clone().sub(camera.position);
+    const dist = dir.length();
+    ray.set(camera.position, dir.normalize());
+    return ray.intersectObjects(unseen, false).some((h) => h.distance < dist - 0.02);
+  };
+  const world = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(table.matrixWorld);
+  return { camera, world, unseen, hiddenAt, hidden: (x: number, y: number, z: number) => hiddenAt(world(x, y, z)) };
+}
+
+test('the pop-ups and the mummy start down and rise by their bits', () => {
+  assert.deepEqual(RISING_AT.map((i) => TABLE_IN_USE.targets[i].id), ['target-popup-1', 'target-popup-2', 'target-popup-3', 'target-mummy']);
+  const [, popup2, , mummy] = RISING_AT;
+  const parts = new TableParts(TABLE_IN_USE);
+  const shown = (i: number) => parts.targets[i].pivot.visible;
+  const height = (i: number) => parts.targets[i].pivot.position.y;
+  // Drawn down from the first, and kept down with no header yet: none stands up in the page's first frames.
+  for (const i of RISING_AT) assert.equal(shown(i), false, `${TABLE_IN_USE.targets[i].id} starts out of sight`);
+  for (let k = 0; k < 30; k++) parts.update(1 / 60);
+  for (const i of RISING_AT) assert.equal(shown(i), false, `${TABLE_IN_USE.targets[i].id} stays down with no header`);
+  for (const i of TABLE_IN_USE.targets.flatMap((t, k) => (isLockTarget(t) ? [k] : []))) assert.ok(shown(i) && height(i) === 0, 'the drop targets start up');
+  // The first header, with them down: still down.
+  parts.setTargets(RISING, 0, 0);
+  parts.update(1 / 60);
+  for (const i of RISING_AT) assert.equal(shown(i), false);
+  // A page opening on them up shows them up at once, not rising.
+  const opened = new TableParts(TABLE_IN_USE);
+  opened.setTargets(0, 0, 0);
+  for (const i of RISING_AT) assert.ok(opened.targets[i].pivot.visible && opened.targets[i].pivot.position.y === 0, `${TABLE_IN_USE.targets[i].id} up at once`);
+  // The second pop-up's bit clears: it rises as the drop targets move (0.56 at 6 a second); the rest stay down.
+  parts.setTargets(RISING & ~(1 << popup2), 0, 1);
+  parts.update(0.05);
+  assert.ok(shown(popup2) && near(height(popup2), -0.26, 1e-9), `pop-up 2 on its way up: ${height(popup2)}`);
+  parts.update(0.1);
+  assert.equal(height(popup2), 0, 'pop-up 2 up');
+  for (const i of RISING_AT) if (i !== popup2) assert.equal(shown(i), false, `${TABLE_IN_USE.targets[i].id} stays down`);
+  // The mummy rises over 0.6 s (it's 0.95 tall), and sinks as slowly.
+  const mh = TABLE_IN_USE.targets[mummy].height!;
+  parts.setTargets(RISING & ~(1 << popup2) & ~(1 << mummy), 0, 2);
+  parts.update(0.3);
+  assert.ok(shown(mummy) && Math.abs(height(mummy) + mh / 2) < 0.05, `the mummy halfway up after 0.3 s: ${height(mummy)}`);
+  parts.update(0.29);
+  assert.ok(height(mummy) < 0, `not up before 0.6 s: ${height(mummy)}`);
+  parts.update(0.02);
+  assert.equal(height(mummy), 0, 'the mummy up after 0.6 s');
+  parts.setTargets(RISING & ~(1 << popup2), 0, 3);
+  parts.update(0.3);
+  assert.ok(shown(mummy) && Math.abs(height(mummy) + mh / 2) < 0.05, `the mummy halfway down after 0.3 s: ${height(mummy)}`);
+  parts.update(0.31);
+  assert.equal(shown(mummy), false, 'the mummy down after 0.6 s, out of sight');
+  // A fresh hello: the next header's are shown as they are, at once.
+  parts.reset();
+  parts.setTargets(RISING & ~(1 << mummy), 0, 0);
+  assert.ok(shown(mummy) && height(mummy) === 0, 'the mummy up at once');
+  assert.equal(shown(popup2), false, 'pop-up 2 down at once');
+});
+
+test('the mummy rocks back when hit, and settles', () => {
+  const mummy = RISING_AT[3];
+  const t = TABLE_IN_USE.targets[mummy];
+  const { n } = frameOf(t);
+  const parts = new TableParts(TABLE_IN_USE);
+  parts.setTargets(RISING & ~(1 << mummy), 0, 0);
+  const pivot = parts.targets[mummy].pivot;
+  /** How far the mummy's top has moved out of its front (toward the play), from over its middle. */
+  const lean = () => {
+    parts.group.updateMatrixWorld(true);
+    const top = pivot.localToWorld(new THREE.Vector3(0, t.height!, 0));
+    return (top.x - t.x) * n[0] + (top.z - t.z) * n[1];
+  };
+  assert.ok(near(lean(), 0, 1e-9), `upright: ${lean()}`);
+  parts.rockMummy();
+  let most = 0;
+  for (let k = 0; k < 12; k++) {
+    parts.update(1 / 60);
+    most = Math.min(most, lean());
+  }
+  assert.ok(most < -0.04, `rocked back, away from the play: its top went ${most.toFixed(3)} out of its front`);
+  for (let k = 0; k < 90; k++) parts.update(1 / 60);
+  assert.ok(Math.abs(lean()) < 1e-3, `settled upright: ${lean()}`);
+  const base = pivot.localToWorld(new THREE.Vector3());
+  assert.ok(near(base.x, t.x, 1e-9) && near(base.y, 0, 1e-9) && near(base.z, t.z, 1e-9), 'standing on its slot');
+});
+
+test('the door and the gate follow the toy bits', () => {
+  const parts = new TableParts(TABLE_IN_USE);
+  const { door, gate } = parts;
+  assert.ok(door && gate, 'the table has a tomb and a diverter');
+  const { dv } = gateOf();
+  const H = TABLE.wallTop;
+  const lift = () => door.group.position.y;
+  const deg = () => -THREE.MathUtils.radToDeg(gate.pivot.rotation.y);
+  // Before any header: shut and at rest.
+  assert.ok(lift() === 0 && door.group.visible, 'shut');
+  assert.ok(near(deg(), dv.restDeg, 1e-9), `at rest: ${deg()}`);
+  // A page opening on the tomb open and the gate over shows them so at once.
+  parts.setToys(TOY.tombOpen | TOY.diverterOver);
+  assert.ok(near(lift(), H, 1e-9) && !door.group.visible, `open at once: slid up out of sight (${lift()})`);
+  assert.ok(near(deg(), dv.overDeg, 1e-9), `over at once: ${deg()}`);
+  // Shut, the door slides down over 0.3 s; at rest, the gate swings back at 400 degrees a second.
+  parts.setToys(0);
+  parts.update(0.1);
+  assert.ok(door.group.visible && near(lift(), (H * 2) / 3, 1e-9), `a third of the way down: ${lift()}`);
+  assert.ok(near(deg(), dv.overDeg + 40, 1e-9), `40 degrees back: ${deg()}`);
+  parts.update(0.1);
+  parts.update(0.11);
+  assert.ok(lift() === 0 && near(deg(), dv.restDeg, 1e-9), `shut and at rest: ${lift()}, ${deg()}`);
+  // Open, it slides up over 0.3 s, out of sight at the top. The tomb's bit alone moves only the door.
+  parts.setToys(TOY.tombOpen);
+  parts.update(0.15);
+  assert.ok(door.group.visible && near(lift(), H / 2, 1e-9), `halfway up: ${lift()}`);
+  parts.update(0.16);
+  assert.ok(near(lift(), H, 1e-9) && !door.group.visible, `up, out of sight: ${lift()}`);
+  assert.ok(near(deg(), dv.restDeg, 1e-9), 'the gate stays at rest');
+  // A fresh hello: the next header's shown as they are, at once.
+  parts.reset();
+  parts.setToys(TOY.diverterOver);
+  assert.ok(lift() === 0 && door.group.visible && near(deg(), dv.overDeg, 1e-9), 'shut and over at once');
+});
+
+test("the drawn gate is the physics': on its ramp's floor at its hinge, as long as it, as tall as the rails, and swinging with it", () => {
+  const { dv, ramp } = gateOf();
+  const sim = new PinballSim(TABLE_IN_USE, () => {});
+  const physics = (sim as unknown as { diverter: { angle: number; y: number } }).diverter;
+  const parts = new TableParts(TABLE_IN_USE);
+  const gate = parts.gate!;
+  parts.setToys(0);
+  const at = gate.pivot.position;
+  assert.ok(near(at.x, dv.pivot[0]) && near(at.y, physics.y) && near(at.z, dv.pivot[1]), `its hinge at (${at.x}, ${at.y}, ${at.z})`);
+  const { width, height, depth } = (gate.body.geometry as THREE.BoxGeometry).parameters;
+  assert.ok(near(width, dv.length) && near(height, ramp.rail) && near(depth, 2 * WALL_HALF), `its size: ${width} × ${height} × ${depth}`);
+  assert.ok(near(gate.body.position.x, dv.length / 2) && near(gate.body.position.y, ramp.rail / 2) && near(gate.body.position.z, 0), 'out from its hinge, standing on the floor');
+  const drawn = () => -THREE.MathUtils.radToDeg(gate.pivot.rotation.y);
+  for (const over of [true, false]) {
+    assert.ok(sim.setDiverter(over));
+    parts.setToys(over ? TOY.diverterOver : 0);
+    for (let k = 1; k <= 12; k++) {
+      sim.step();
+      parts.update(DT);
+      assert.ok(near(drawn(), physics.angle, 1e-6), `${over ? 'over' : 'back'}, step ${k}: drawn ${drawn()}, the physics' ${physics.angle}`);
+    }
+    assert.ok(near(drawn(), over ? dv.overDeg : dv.restDeg, 1e-9));
+  }
+});
+
+test('every toy is seen when up', () => {
+  const parts = new TableParts(TABLE_IN_USE);
+  parts.setTargets(0, 0, 0);
+  parts.setToys(0);
+  const { hidden } = onStage(parts);
+  // The pop-ups and the mummy: across their fronts, from their feet to their tops, and along their tops.
+  for (const i of RISING_AT) {
+    const t = TABLE_IN_USE.targets[i];
+    const { u, n } = frameOf(t);
+    const hw = t.width / 2 - 0.03;
+    const hd = (t.depth ?? 0.2) / 2;
+    const h = t.height ?? 0.52;
+    for (const along of [-hw, 0, hw]) {
+      for (const [out, y] of [[hd, 0.05], [hd, h / 2], [hd, h - 0.02], [0, h - 0.01], [-hd + 0.02, h - 0.01]]) {
+        const x = t.x + u[0] * along + n[0] * out;
+        const z = t.z + u[1] * along + n[1] * out;
+        assert.ok(!hidden(x, y, z), `${t.id} at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}) is seen`);
+      }
+    }
+  }
+  // The tomb's door, shut: its front across the doorway.
+  const d = doorwayOf();
+  for (const x of [d.x0 + 0.03, (d.x0 + d.x1) / 2, d.x1 - 0.03]) {
+    for (const y of [0.05, d.height / 2, d.height - 0.05]) assert.ok(!hidden(x, y, d.front - 0.005), `the door at (${x.toFixed(2)}, ${y.toFixed(2)}) is seen`);
+  }
+  // The diverter's gate, at rest and over: along its top and its middle (the left ramp, a wireform with clear sides,
+  // hides nothing).
+  const { dv, ramp, floor } = gateOf();
+  for (const deg of [dv.restDeg, dv.overDeg]) {
+    const a = THREE.MathUtils.degToRad(deg);
+    for (const k of [0.1, 0.5, 0.95]) {
+      for (const y of [floor + ramp.rail - 0.02, floor + ramp.rail / 2]) {
+        assert.ok(!hidden(dv.pivot[0] + Math.cos(a) * dv.length * k, y, dv.pivot[1] + Math.sin(a) * dv.length * k), `the gate at ${deg} degrees, ${k} along, ${y.toFixed(2)} up, is seen`);
+      }
+    }
+  }
+});
+
+test("the door, slid up into the pyramid, is out of sight; shut, its ends are behind the doorway's pillars", () => {
+  const { hidden } = onStage();
+  const d = doorwayOf();
+  // The risen door's front (from the doorway's top up as far again) and its top.
+  for (const x of [d.x0 - 0.01, (d.x0 + d.x1) / 2, d.x1 + 0.01]) {
+    for (const y of [d.height + 0.02, d.height * 1.5, 2 * d.height - 0.02]) assert.ok(hidden(x, y, d.front), `its front at (${x.toFixed(2)}, ${y.toFixed(2)}) is hidden`);
+    for (const z of [d.front + 0.02, d.mouth, d.mouth + WALL_HALF - 0.02]) assert.ok(hidden(x, 2 * d.height, z), `its top at (${x.toFixed(2)}, ${z.toFixed(2)}) is hidden`);
+  }
+  // Shut, it reaches into the pillars each side of the doorway, which stand in front of it in the picture.
+  for (const x of [d.x0 - 0.01, d.x1 + 0.01]) {
+    for (const y of [0.05, d.height / 2, d.height - 0.05]) assert.ok(hidden(x, y, d.front + 0.01), `its end at (${x.toFixed(2)}, ${y.toFixed(2)}) is hidden`);
+  }
+});
+
+test('a ball held in the tomb is seen', () => {
+  const { camera, world, unseen } = onStage();
+  const R = TABLE.ballRadius;
+  const [x, z] = TABLE_IN_USE.tomb!.held;
+  const ball = new THREE.Sphere(world(x, R, z), R);
+  // Every pixel of the stage's frame the ball covers: the ray through it meets the ball before any unseen shape.
+  const centre = ball.center.clone().project(camera);
+  const [cx, cy] = [((centre.x + 1) / 2) * WIDTH, ((1 - centre.y) / 2) * HEIGHT];
+  const ray = new THREE.Raycaster();
+  const at = new THREE.Vector3();
+  let covered = 0;
+  const hidden: string[] = [];
+  for (let py = Math.floor(cy - 40); py <= cy + 40; py++) {
+    for (let px = Math.floor(cx - 40); px <= cx + 40; px++) {
+      ray.setFromCamera(new THREE.Vector2(((px + 0.5) / WIDTH) * 2 - 1, 1 - ((py + 0.5) / HEIGHT) * 2), camera);
+      if (!ray.ray.intersectSphere(ball, at)) continue;
+      covered++;
+      const meets = at.distanceTo(ray.ray.origin);
+      if (ray.intersectObjects(unseen, false).some((h) => h.distance < meets - 1e-4)) hidden.push(`(${px}, ${py})`);
+    }
+  }
+  assert.ok(covered > 300, `the ball covers ${covered} pixels`);
+  assert.deepEqual(hidden, [], `of the ${covered} pixels the held ball covers, these are hidden`);
+});
+
+test("the live toys sit where the picture's build draws them, on its pixels (within 3 px), with its art", () => {
+  // The picture's camera, as tools/export-scene.ts hands it to the build (which matched its own camera to it).
+  const scene = exportScene();
+  const pictureCamera = new THREE.PerspectiveCamera(scene.fovY, scene.width / scene.height, 0.5, 200);
+  pictureCamera.matrixAutoUpdate = false;
+  pictureCamera.matrixWorld.fromArray(scene.cameraMatrix);
+  pictureCamera.matrixWorldInverse.copy(pictureCamera.matrixWorld).invert();
+  pictureCamera.setViewOffset(scene.width, scene.height, 0, scene.viewY, scene.width, scene.height);
+  const tableMatrix = new THREE.Matrix4().fromArray(scene.tableMatrix);
+  const pixel = (p: THREE.Vector3, camera: THREE.Camera): [number, number] => {
+    const q = p.clone().project(camera);
+    return [((q.x + 1) / 2) * WIDTH, ((1 - q.y) / 2) * HEIGHT];
+  };
+  const onPicture = (pts: [number, number, number][]) => pts.map(([x, y, z]) => pixel(new THREE.Vector3(x, y, z).applyMatrix4(tableMatrix), pictureCamera));
+  // The live parts through the stage's camera: the toys up, the door shut, the gate at rest, as the build draws them.
+  const camera = new THREE.PerspectiveCamera();
+  fitStageCamera(camera, WIDTH, HEIGHT);
+  const table = tiltTable(new THREE.Group());
+  const parts = new TableParts(TABLE_IN_USE);
+  parts.setTargets(0, 0, 0);
+  parts.setToys(0);
+  table.add(parts.group);
+  table.updateMatrixWorld(true);
+  /** The corners of every mesh under `o` (its box's, or its face's), in the table's own coordinates. */
+  const drawn = (o: THREE.Object3D) => {
+    const out: THREE.Vector3[] = [];
+    const toTable = new THREE.Matrix4().copy(table.matrixWorld).invert();
+    o.traverse((m) => {
+      if (!(m instanceof THREE.Mesh)) return;
+      m.geometry.computeBoundingBox();
+      const b = m.geometry.boundingBox!;
+      for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) out.push(new THREE.Vector3(x, y, z).applyMatrix4(m.matrixWorld).applyMatrix4(toTable));
+    });
+    return out;
+  };
+  let worst = 0;
+  let count = 0;
+  /**
+   * Each corner the build draws has one drawn on its pixel (within 3 px) and at its place in the table, and each one
+   * drawn is as near one the build draws. The drawn corners go through the stage's camera, the build's through the
+   * picture's.
+   */
+  const same = (what: string, got: THREE.Vector3[], want: [number, number, number][]) => {
+    const onStageFrame = got.map((p) => pixel(p.clone().applyMatrix4(table.matrixWorld), camera));
+    const wanted = want.map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const gap = (p: [number, number], set: [number, number][]) => Math.min(...set.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1])));
+    for (const [from, to, says] of [[onPicture(want), onStageFrame, "the build's"], [onStageFrame, onPicture(want), 'a drawn']] as const) {
+      for (const p of from) {
+        const e = gap(p, to);
+        worst = Math.max(worst, e);
+        count++;
+        assert.ok(e <= 3, `${what}: ${says} corner at (${p[0].toFixed(1)}, ${p[1].toFixed(1)}) is ${e.toFixed(2)} px from the nearest of the other`);
+      }
+    }
+    const off = (p: THREE.Vector3, set: THREE.Vector3[]) => Math.min(...set.map((q) => q.distanceTo(p)));
+    for (const p of wanted) assert.ok(off(p, got) < 1e-6, `${what}: nothing drawn at the build's corner (${p.toArray().map((v) => v.toFixed(3))})`);
+    for (const p of got) assert.ok(off(p, wanted) < 1e-6, `${what}: a corner drawn at (${p.toArray().map((v) => v.toFixed(3))}), where the build has none`);
+  };
+  /** build_table.py's target_box: `hw` each way along a target's face and `hd` across it, from y0 to y1. */
+  const box = (t: Target, hw: number, hd: number, y0: number, y1: number) => {
+    const { u, n } = frameOf(t);
+    const pts: [number, number, number][] = [];
+    for (const a of [-hw, hw]) for (const o of [-hd, hd]) for (const y of [y0, y1]) pts.push([t.x + u[0] * a + n[0] * o, y, t.z + u[1] * a + n[1] * o]);
+    return pts;
+  };
+  /** build_table.py's facing_quad on a target's front: `e` each way along it, just in front of its face, y0 to y1. */
+  const front = (t: Target, e: number, hd: number, y0: number, y1: number) => {
+    const { u, n } = frameOf(t);
+    const pts: [number, number, number][] = [];
+    for (const a of [-e, e]) for (const y of [y0, y1]) pts.push([t.x + u[0] * a + n[0] * (hd + 0.003), y, t.z + u[1] * a + n[1] * (hd + 0.003)]);
+    return pts;
+  };
+  /** The art a face shows (its texture's name is its picture's file). */
+  const artOf = (face: THREE.Mesh) => ((face.material as THREE.MeshStandardMaterial).map?.name ?? '').split('/').pop();
+  for (const i of RISING_AT) {
+    const t = TABLE_IN_USE.targets[i];
+    const hw = t.width / 2;
+    const hd = (t.depth ?? 0.2) / 2;
+    const h = t.height ?? 0.52;
+    const want =
+      t.rise === 'hold'
+        ? [...box(t, hw, hd, 0, h - 0.07), ...box(t, hw + 0.02, hd + 0.02, h - 0.07, h), ...front(t, hw - 0.05, hd, 0.05, h - 0.11)]
+        : [...box(t, hw, hd, 0, h), ...front(t, hw - 0.04, hd, 0.06, h - 0.04)];
+    same(t.id, drawn(parts.targets[i].pivot), want);
+    const face = parts.targets[i].pivot.children.find((c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.PlaneGeometry) as THREE.Mesh;
+    assert.equal(artOf(face), t.rise === 'hold' ? 'mummy.png' : 'falconplaque-62.png', `${t.id}'s art`);
+  }
+  // The tomb's door, shut: a slab across the doorway from the door's face back to the mouth's line and as far again,
+  // tucked 0.02 into the pillars each side, with its scarab seal on its front.
+  const d = doorwayOf();
+  const xm = (d.x0 + d.x1) / 2;
+  const s = (d.x1 - d.x0) / 2 - 0.05;
+  const ym = d.height * 0.55;
+  const door: [number, number, number][] = [];
+  for (const x of [d.x0 - 0.02, d.x1 + 0.02]) for (const y of [0, d.height]) for (const z of [d.front, d.mouth + WALL_HALF]) door.push([x, y, z]);
+  for (const x of [xm - s, xm + s]) for (const y of [ym - s, ym + s]) door.push([x, y, d.front - 0.003]);
+  same("the tomb's door", drawn(parts.door!.group), door);
+  assert.equal(artOf(parts.door!.seal), 'scarab-62.png', "the door's seal");
+  // The diverter's gate, at rest: out from its hinge along the gap, a wall thick, from the floor as tall as the rails.
+  const { dv, ramp, floor } = gateOf();
+  const [ux, uz] = [Math.cos(THREE.MathUtils.degToRad(dv.restDeg)), Math.sin(THREE.MathUtils.degToRad(dv.restDeg))];
+  const gate: [number, number, number][] = [];
+  for (const k of [0, dv.length]) {
+    for (const side of [-1, 1]) for (const y of [floor, floor + ramp.rail]) gate.push([dv.pivot[0] + ux * k + side * uz * WALL_HALF, y, dv.pivot[1] + uz * k - side * ux * WALL_HALF]);
+  }
+  same("the diverter's gate", drawn(parts.gate!.pivot), gate);
+  console.log(`      worst: ${worst.toFixed(3)} px over ${count} corners`);
 });
 
 /** A table with only the given walls, flippers and slings (nothing else unseen), for pictureDepth's own cases. */
