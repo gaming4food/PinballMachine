@@ -1,5 +1,6 @@
 // What the pinball's server, stage and panel all read: the state the server sends, its hype moments and the toys' hit
-// cues, the rules of play (RULES), chat's words, and the snapshot's layout. The table itself is table.ts.
+// cues, the rules of play (RULES), the quest's gods and numbers (QUEST), chat's words, and the snapshot's layout. The
+// table itself is table.ts.
 
 /** The pinball's state as its server sends it, in hello's `machine` and each 'machine' message. */
 export interface PinballState {
@@ -120,6 +121,62 @@ export const RULES = {
   /** The pause between the line's next ball being up ("Ana is up!") and its launch, in seconds. */
   launchDelay: 2,
 } as const;
+
+/** The quest's four gods. Each has a bank of plaques on the table, a mode, and a toy that mode is played on. */
+export type God = 'ra' | 'horus' | 'ankh' | 'eye';
+
+/** The gods in the quest's order: the order they are crossed off in, and the order a match looks for the next god. */
+export const GODS: readonly God[] = ['ra', 'horus', 'ankh', 'eye'];
+
+/**
+ * Each god's colour in the quest: its bank's burst and flash when it is matched, and the burst at its toy (Horus's
+ * pop-ups, Ankh's mummy, the Eye's tomb), as the lamps at the toys wear it (pinball-parts.ts).
+ */
+export const GOD_COLOR: Record<God, number> = { ra: 0xffc23a, horus: 0x4a7dff, ankh: 0x39ff6a, eye: 0xff3344 };
+
+/** The name of each god's mode, as the scoreboard titles it. */
+export const MODE_NAME: Record<God, string> = {
+  ra: 'SUN CHASE',
+  horus: 'FALCON STRIKE',
+  ankh: 'THE MUMMY WAKES',
+  eye: 'TOMB RAID',
+};
+
+/**
+ * The quest's numbers, in seconds and points; the rules are server/quest.ts. They are starting points, tuned with
+ * `npm run pinball-play` and the owner, so the tests read them from here instead of repeating them.
+ */
+export const QUEST = {
+  /** How long a mode runs, in seconds of play: its clock runs only while a ball is in play. */
+  modeSeconds: 30,
+  /** What each goal hit scores, the one that finishes the mode too. */
+  goalPoints: 2500,
+  /** What a finished mode pays the ball that finishes it. Tomb Raid pays its countdown instead (tombPrize). */
+  prize: 25000,
+  /** Tomb Raid's prize counts down over its mode: `from` with all its time left, `to` with none. */
+  tombPrize: { from: 50000, to: 10000 },
+  /**
+   * How many goal hits finish each god's mode: Ra's orbit and ramp shots, Horus's different pop-ups, Ankh's mummy hits
+   * and the Eye's tomb catches. Horus's can't be more than the table's three pop-ups, nor Ankh's more than the mummy's
+   * hits before it goes down (the game's MUMMY_HITS, 3): the mode could never be finished.
+   */
+  goals: { ra: 3, horus: 3, ankh: 3, eye: 1 },
+  /** The finale's jackpots: the first ball the tomb catches pays `first`, and each after it `step` more than before. */
+  jackpot: { first: 50000, step: 25000 },
+  /** In the finale, a pop-up or the mummy that goes down comes back up this many seconds of play later. */
+  finaleRaise: 3,
+};
+
+/**
+ * Tomb Raid's prize with `left` seconds of its mode to go: QUEST.tombPrize.from with all the time left, falling evenly
+ * to QUEST.tombPrize.to with none, to the nearest 1,000. It depends on the time left alone, so the scoreboard can count
+ * it down and show what the winning ball would be paid.
+ */
+export function tombPrize(left: number): number {
+  const { from, to } = QUEST.tombPrize;
+  const timeLeft = Math.min(1, Math.max(0, left / QUEST.modeSeconds));
+  return Math.round((to + (from - to) * timeLeft) / 1000) * 1000;
+}
 
 /** What a chat message asks of the pinball: to join the line, and how many left and right flips. */
 export interface PinballCommands {

@@ -8,11 +8,11 @@
 // table's lamps, rises no lamp more than 3 times in any second. No page or graphics card is needed.
 // Usage: npm run pinball-shows-test
 import assert from 'node:assert/strict';
-import type { PinballCueMsg, PinballHypeMsg } from '../src/shared/pinball';
+import { GOD_COLOR, type PinballCueMsg, type PinballHypeMsg } from '../src/shared/pinball';
 import { TABLE_IN_USE, type Table } from '../src/shared/table';
 import { burst, chase, DARK_BELOW, LIT_ABOVE, LightShowPlayer, strobe, sweep, type LampLight, type Show } from '../src/stage/light-show';
 // The show book is numbers only, so it loads with no stubs.
-import { DrawnClock, GOD_COLOR, PinballShows, type ShowSinks } from '../src/stage/pinball-shows';
+import { DrawnClock, PinballShows, type ShowSinks } from '../src/stage/pinball-shows';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
 import './stub-assets';
 

@@ -8,8 +8,8 @@ It is in development (only the owner's own PC plays it), on the pyramid table, w
 npm install
 npm run dev             # the dev host, standing in for the city: http://localhost:7841/stage.html and /panel.html
 npm run dev:toys        # the same host with the toy switch on; npm run toy -- all up raises the field toys on it
-npm test                # contract-test, table-test, pinball-sim-test, pinball-layout-test, pinball-test,
-                        # pinball-hype-test, pinball-header-test, pinball-hud-test, pinball-sounds-test,
+npm test                # contract-test, table-test, quest-test, pinball-sim-test, pinball-layout-test,
+                        # pinball-test, pinball-hype-test, pinball-header-test, pinball-hud-test, pinball-sounds-test,
                         # light-show-test, pinball-effects-test, pinball-shows-test, pinball-parts-test, picture-test
 npm run typecheck
 npm run pinball-play    # plays unattended balls and prints what a ball scores and pays (balls=N, seed=N,

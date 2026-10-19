@@ -17,17 +17,11 @@
 // Nothing may flash more than 3 times a second, for the viewers a flashing picture can hurt. Each show keeps to that
 // alone (light-show.ts: FLASH_GAP), and the book keeps each moment to it as a whole. Multiball is the one moment of two
 // shows, so it needs care: see MULTIBALL_PAUSE.
-import type { PinballCueMsg, PinballHypeMsg } from '../shared/pinball';
+import { GOD_COLOR, type PinballCueMsg, type PinballHypeMsg } from '../shared/pinball';
 import { TABLE, type Table } from '../shared/table';
 import { burst, chase, strobe, sweep, type Show } from './light-show';
 // Only the type: the parts load three.js and the pictures, which the book has no use for.
 import type { PinballLamps } from './pinball-parts';
-
-/**
- * Each god's colour in the quest: its bank's burst and flash when it is matched, and the burst at its toy (Horus's
- * pop-ups, Ankh's mummy, the Eye's tomb), as the lamps at the toys wear it (pinball-parts.ts).
- */
-export const GOD_COLOR = { ra: 0xffc23a, horus: 0x4a7dff, ankh: 0x39ff6a, eye: 0xff3344 } as const;
 
 /**
  * What the book plays through: the stage's own pieces, or a recording of them in a test. `play` and `flash` are given
