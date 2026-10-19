@@ -155,7 +155,7 @@ test("the emblems show the art's printed middle (build_table.py's crop: u 0.16 t
 test('the plaque pictures are 256 × 256 (made from blender/art by blender/plaques.py)', () => {
   const dir = new URL('../src/assets/plaques/', import.meta.url);
   const files = readdirSync(dir).filter((f) => f.endsWith('.png')).sort();
-  assert.deepEqual(files, ['ankh-31.png', 'eye-22.png', 'falconplaque-31.png', 'falconplaque-62.png', 'scarab-62.png', 'sundisc-14.png']);
+  assert.deepEqual(files, ['ankh-31.png', 'eye-22.png', 'falconplaque-31.png', 'falconplaque-62.png', 'mummy.png', 'scarab-62.png', 'sundisc-14.png']);
   for (const f of files) {
     const png = readFileSync(new URL(f, dir));
     assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [256, 256], `${f}'s size`);

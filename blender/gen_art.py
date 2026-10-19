@@ -69,6 +69,14 @@ JOBS = {
     'sundisc': (14, 'raw', 768, 768, 'Flat square emblem plaque seen straight on: a glowing gold winged sun disc, the disc bright polished gold with '
                                      'rays, outstretched gold feathered wings, inlaid in deep sapphire blue enamel, thin gold border, glossy, centered, '
                                      'symmetrical, crisp detail, no text.'),
+    # Round 15: the face of the quest's mummy, the gold sarcophagus box that rises out of the floor. Its face is nearly
+    # square (0.8 across, 0.95 tall) and a few dozen pixels on the stage, so the lid's upper half fills the picture,
+    # where a whole lid would be a thin strip: what came is the gold mask, its striped headdress and its lapis collar,
+    # which read at that size.
+    'mummy': (15, 'raw', 768, 768, 'Flat artwork seen straight on like a scan, no perspective, no text: the front view of the upper half of a gold '
+                                   'Egyptian sarcophagus lid, a calm golden pharaoh face mask with a striped gold and lapis nemes headdress, arms '
+                                   'crossed on the chest holding a crook and flail, a broad jewelled collar, inlaid with deep lapis lazuli blue, '
+                                   'polished gold leaf, centered, symmetrical, filling the image, deep sapphire blue background, crisp detail.'),
 }
 
 for key, (seed, kind, width, height, prompt) in JOBS.items():

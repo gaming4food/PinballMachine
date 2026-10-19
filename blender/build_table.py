@@ -3,7 +3,8 @@
 # it and checked against known pixels (CAMERA MATCH), rendered with Cycles. Made in the Blender spike; npm run picture
 # runs it (blender/README.md).
 #   stage: the stage's picture, through the stage's camera, transparent, without the live parts the stage draws over
-#          it (the flippers, the flip plaques, the drop targets and the spinners): <out dir>/stage.png
+#          it (the flippers, the flip plaques, the drop targets, the spinners, and the quest's toys: the pop-ups, the
+#          mummy, the tomb's door and the diverter's gate): <out dir>/stage.png
 #   hero:  the promotional picture, the whole cabinet from the front at HERO_ELEV, with the live parts: <out dir>/hero.png
 # The only environment setting is TURNED (a demo for the hero): the ids of flip plaques shown turned, comma-separated.
 # Usage:
@@ -466,13 +467,15 @@ def trim_at_bumpers(name, pts):
     return pts, cut
 
 
-# Walls by kind. Each is drawn as thick as its physics (0.16), so the ball meets what it's seen to meet.
+# Walls by kind, as the physics builds them (scene.json's walls are wallsWithTomb's: the pyramid's cut open for the
+# tomb's doorway, and the doorway's two jambs). Each is drawn as thick as its physics (0.16), so the ball meets what
+# it's seen to meet.
 for i, w in enumerate(walls[1:], 1):
     kind = w.get('kind', 'guide')
     pts = w['points']
     cut = [False, False]
-    if kind in ('pyramid', 'slingback'):
-        continue  # the sculpted pyramid and the slingshots are drawn below
+    if kind in ('pyramid', 'tomb', 'slingback'):
+        continue  # the sculpted pyramid with its doorway, and the slingshots, are drawn below
     if kind == 'orbit':
         # The orbit: a tall polished gold channel wall, a flange over it, and two chrome wire rails (a habitrail look).
         twin_rails(f'orbit {i}', pts)
@@ -508,8 +511,11 @@ for k_ in range(40):
     f_ = d_ / seglen[i_]; a_, b_ = outer[i_], outer[i_ + 1]
     dome('wall led', a_[0] + (b_[0] - a_[0]) * f_, a_[1] + (b_[1] - a_[1]) * f_, 0.065, 0.55, 0.06, BLUE_LAMP)
 
-# The pyramid on the playfield: carved sandstone with a gold capstone, on a black plinth with gold trim. Its footprint is
-# the physics's diamond grown by the wall's half thickness (0.08), so the ball stops where it's seen to.
+# The pyramid on the playfield: carved sandstone with a gold capstone, on a black plinth with gold trim. It is sculpted
+# from its closed outline, scene.json's pyramid (tools/export-scene.ts works it out from the table; the walls have it
+# cut open for the tomb), and its footprint is that outline grown by the wall's half thickness, so the ball stops where
+# it's seen to. On a table with a tomb, the doorway is carved into its front corner, from the doorway's mouth and pocket.
+WALL_HALF = 0.08  # half a wall's thickness, the physics' (src/server/sim.ts WALL_HALF): the walls are drawn 0.16 thick
 SAND = bpy.data.materials.new('carved sandstone'); SAND.use_nodes = True
 _N, _L = SAND.node_tree.nodes, SAND.node_tree.links
 _p = _N['Principled BSDF']
@@ -520,39 +526,102 @@ _p.inputs['Metallic'].default_value = 0.12; _p.inputs['Roughness'].default_value
 _bw = _N.new('ShaderNodeRGBToBW'); _L.new(_im.outputs['Color'], _bw.inputs['Color'])
 _bump = _N.new('ShaderNodeBump'); _bump.inputs['Strength'].default_value = 1.0; _bump.inputs['Distance'].default_value = 0.05
 _L.new(_bw.outputs['Val'], _bump.inputs['Height']); _L.new(_bump.outputs['Normal'], _p.inputs['Normal'])
-for w in walls:
-    if w.get('kind') != 'pyramid':
-        continue
-    corners_ = w['points'][:-1]
-    pcx = sum(p[0] for p in corners_) / 4; pcy = sum(p[1] for p in corners_) / 4
-    def grow(p, d):
-        vx_, vy_ = p[0] - pcx, p[1] - pcy; L_ = math.hypot(vx_, vy_)
-        return (pcx + vx_ * (L_ + d * math.sqrt(2)) / L_, pcy + vy_ * (L_ + d * math.sqrt(2)) / L_)
-    base = [grow(p, 0.08) for p in corners_]
-    prism('pyramid plinth', base, 0, 0.36, BLACK_MATTE, 0.015)
-    prism('pyramid trim', [grow(p, 0.0) for p in corners_], 0.36, 0.42, GOLD, 0.01)
+def carve(ob, boxes):
+    """Cuts boxes, each (x0, x1, y0, y1, z0, z1) in table-local coordinates, out of `ob` for good: a boolean per box
+    after its own modifiers, all applied into its mesh, and the boxes thrown away."""
+    cutters = []
+    for k_, (x0_, x1_, y0_, y1_, z0_, z1_) in enumerate(boxes):
+        c_ = prism('cutter', [(x0_, y0_), (x1_, y0_), (x1_, y1_), (x0_, y1_)], z0_, z1_, DARK_HOLE)
+        md_ = ob.modifiers.new(f'carve {k_}', 'BOOLEAN'); md_.operation = 'DIFFERENCE'; md_.object = c_; md_.solver = 'EXACT'
+        cutters.append(c_)
+    mats_ = list(ob.data.materials)
+    me_ = bpy.data.meshes.new_from_object(ob.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    ob.modifiers.clear(); ob.data = me_
+    if not me_.materials:
+        for m_ in mats_:
+            me_.materials.append(m_)
+    for c_ in cutters:
+        bpy.data.objects.remove(c_)
+
+PYR = S.get('pyramid')
+DOOR = PYR and PYR.get('doorway')
+if PYR:
+    corners_ = [tuple(p) for p in PYR['corners']]
+    n_ = len(corners_)
+    pcx = sum(p[0] for p in corners_) / n_; pcy = sum(p[1] for p in corners_) / n_
+    def grow(k, d):
+        """Corner k with each of the two faces that meet there moved d outward (inward for a negative d), mitred."""
+        q_ = corners_[k]; ns_ = []
+        for a_, b_ in ((corners_[k - 1], q_), (q_, corners_[(k + 1) % n_])):
+            l_ = math.dist(a_, b_); nx_, ny_ = (b_[1] - a_[1]) / l_, (a_[0] - b_[0]) / l_
+            if nx_ * (a_[0] - pcx) + ny_ * (a_[1] - pcy) < 0:
+                nx_, ny_ = -nx_, -ny_
+            ns_.append((nx_, ny_))
+        (n1x, n1y), (n2x, n2y) = ns_
+        s_ = d / (1 + n1x * n2x + n1y * n2y)
+        return (q_[0] + (n1x + n2x) * s_, q_[1] + (n1y + n2y) * s_)
+    base = [grow(k, WALL_HALF) for k in range(n_)]
     PH = PYR_H; cap = 0.2  # height, and the gold capstone's share of it
-    body = [grow(p, -0.05) for p in corners_]
+    body = [grow(k, -0.05) for k in range(n_)]
+    plinth = prism('pyramid plinth', base, 0, 0.36, BLACK_MATTE, 0.015)
+    trim = prism('pyramid trim', [grow(k, 0.0) for k in range(n_)], 0.36, 0.42, GOLD, 0.01)
     bm = bmesh.new(); uvp = bm.loops.layers.uv.new()
     bv = [bm.verts.new((x, y, 0.42)) for x, y in body]
     lift = [bm.verts.new((pcx + (x - pcx) * cap, pcy + (y - pcy) * cap, 0.42 + PH * (1 - cap))) for x, y in body]
-    for k in range(4):
-        f_ = bm.faces.new([bv[k], bv[(k + 1) % 4], lift[(k + 1) % 4], lift[k]])
+    for k in range(n_):
+        f_ = bm.faces.new([bv[k], bv[(k + 1) % n_], lift[(k + 1) % n_], lift[k]])
         for loop, uv_ in zip(f_.loops, ((0, 0), (1, 0), (0.5 + 0.5 * cap, 1 - cap), (0.5 - 0.5 * cap, 1 - cap))):
             loop[uvp].uv = (uv_[0] * 0.9 + 0.05, uv_[1] * 0.9 + 0.05)
     bm.faces.new(bv[::-1])
+    bm.faces.new(lift)  # closed under the capstone, so the doorway can be carved out of it
     me = bpy.data.meshes.new('pyramid body'); bm.to_mesh(me); bm.free()
-    ob = bpy.data.objects.new('pyramid body', me); ob.data.materials.append(SAND); link(ob)
-    md = ob.modifiers.new('bevel', 'BEVEL'); md.width = 0.02; md.segments = 2
+    pyr_body = bpy.data.objects.new('pyramid body', me); pyr_body.data.materials.append(SAND); link(pyr_body)
+    md = pyr_body.modifiers.new('bevel', 'BEVEL'); md.width = 0.02; md.segments = 2
     bm = bmesh.new()
     lv = [bm.verts.new((pcx + (x - pcx) * cap, pcy + (y - pcy) * cap, 0.42 + PH * (1 - cap))) for x, y in body]
     av = bm.verts.new((pcx, pcy, 0.42 + PH))
-    for k in range(4):
-        bm.faces.new([lv[k], lv[(k + 1) % 4], av])
+    for k in range(n_):
+        bm.faces.new([lv[k], lv[(k + 1) % n_], av])
     bm.faces.new(lv[::-1])
     me = bpy.data.meshes.new('capstone'); bm.to_mesh(me); bm.free()
     ob = bpy.data.objects.new('capstone', me); ob.data.materials.append(CAP_GOLD); link(ob)
-    for x, y in base:
+    posts_ = base
+    if DOOR:
+        # The tomb's doorway, in the front corner: the corner is cut off square at the shut door's face (the mouth's
+        # line less a wall's half thickness, where a held ball sits just in front), and a dark recess runs back from it,
+        # as wide as between the jambs' faces and as deep as the pocket, as tall as the physics' walls and door
+        # (TABLE.wallTop). A gold frame stands round it: a pillar each side (where the physics' posts round the mouth's
+        # ends are) and a lintel across them, with the cut-off corner's floor in gold before it for the ball to sit on.
+        (ax_, mz_), (bx_, _) = DOOR['a'], DOOR['b']
+        zf_ = mz_ - WALL_HALF
+        dx0, dx1 = min(ax_, bx_) + WALL_HALF, max(ax_, bx_) - WALL_HALF
+        zb_ = max(p[1] for p in DOOR['pocket']) - WALL_HALF
+        DOOR_H = K['wallTop']
+        far = PH + 1  # past any of the pyramid
+        for ob_ in (plinth, trim, pyr_body):
+            carve(ob_, [(pcx - far, pcx + far, pcy - far, zf_, -1, far), (dx0, dx1, zf_ - 0.1, zb_, -1, DOOR_H)])
+        e_ = 0.002  # the lining lies this far inside the carved faces, so it's what shows
+        lin_ = [(dx0 + e_, zf_, e_), (dx1 - e_, zf_, e_), (dx1 - e_, zb_ - e_, e_), (dx0 + e_, zb_ - e_, e_)]
+        lin_ += [(x_, y_, DOOR_H - e_) for x_, y_, _ in lin_]
+        mesh_obj('doorway inside', lin_, [[0, 1, 2, 3], [4, 7, 6, 5], [3, 2, 6, 7], [0, 3, 7, 4], [1, 5, 6, 2]], DARK_HOLE)
+        for x0_, x1_ in ((dx0 - 0.1, dx0), (dx1, dx1 + 0.1)):
+            prism('doorway pillar', [(x0_, zf_ - 0.02), (x1_, zf_ - 0.02), (x1_, zf_ + 0.1), (x0_, zf_ + 0.1)], 0, DOOR_H, GOLD, 0.008)
+        prism('doorway lintel', [(dx0 - 0.13, zf_ - 0.03), (dx1 + 0.13, zf_ - 0.03), (dx1 + 0.13, zf_ + 0.12), (dx0 - 0.13, zf_ + 0.12)],
+              DOOR_H, DOOR_H + 0.1, GOLD, 0.01)
+        for x_ in (dx0 - 0.05, dx1 + 0.05):
+            dome('doorway led', x_, zf_ + 0.045, 0.06, DOOR_H + 0.1, 0.06, AMBER_LAMP)
+        # The doorstep: the part of the footprint the cut took off, its corners where the grown outline crosses the
+        # cut and those in front of it. Satin gold, as the capstone: a mirror gold floor shows the dark it faces.
+        step_ = []
+        for p_, q_ in zip(base, base[1:] + base[:1]):
+            if p_[1] < zf_:
+                step_.append(p_)
+            if (p_[1] < zf_) != (q_[1] < zf_):
+                f_ = (zf_ - p_[1]) / (q_[1] - p_[1])
+                step_.append((p_[0] + (q_[0] - p_[0]) * f_, zf_))
+        prism('doorstep', step_, 0, 0.006, CAP_GOLD, 0.003)
+        posts_ = [p_ for p_ in base if p_[1] >= zf_]
+    for x, y in posts_:
         cylinder('plinth post', x, y, 0.08, 0, 0.52, BRASS, 24)
         dome('plinth led', x, y, 0.075, 0.52, 0.07, AMBER_LAMP)
     lamp = bpy.data.lights.new('pyramid glow', 'POINT'); lamp.energy = 40; lamp.color = (1.0, 0.75, 0.4)
@@ -615,9 +684,19 @@ def wire3d(name, pts, r, material):
     cu.bevel_depth = r; cu.bevel_resolution = 6; cu.use_fill_caps = True
     ob = bpy.data.objects.new(name, cu); ob.data.materials.append(material); link(ob)
 
+DV = T.get('diverter')
+GATE_Y = None  # the floor's height under the diverter's hinge, where its gate stands (set with its ramp, below)
 for rp in T.get('ramps', []):
     E = ramp_edges(rp)
     L_ = [(l[0], l[1], y_) for l, r_, y_ in E]; R_ = [(r_[0], r_[1], y_) for l, r_, y_ in E]
+    # A ramp with an opening (the diverter's gap) has that side's rail left out between the opening's two path points,
+    # as the physics leaves it out (the rail above the floor; the floor runs on, and so does a wireform's skirt below
+    # it).
+    op = rp.get('opening')
+    gap_side = op and ('l' if op['side'] == 'left' else 'r')
+    def runs(side, P):
+        """A side's rail as the runs of path points it stands along: the whole side, or either side of the gap."""
+        return [P] if side != gap_side else [P[:op['from'] + 1], P[op['to']:]]
     if rp.get('skirt', True):
         C_ = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, a[2]) for a, b in zip(L_, R_)]
         def toward(P, f):
@@ -625,9 +704,16 @@ for rp in T.get('ramps', []):
         bedL, bedR = toward(L_, 0.42), toward(R_, 0.42)
         for side, P, B in (('l', L_, bedL), ('r', R_, bedR)):
             wire3d(rp['id'] + ' bed ' + side, [(x_, y_, z_ - 0.03) for x_, y_, z_ in B], 0.032, BRASS)
-            wire3d(rp['id'] + ' guide ' + side, [(x_, y_, z_ + 0.32) for x_, y_, z_ in P], 0.03, BRASS)
-            strip(rp['id'] + ' acrylic ' + side, [(x_, y_, 0.0) for x_, y_, z_ in P], [(x_, y_, z_ + 0.3) for x_, y_, z_ in P], ACRYLIC)
-        for k_ in range(2, len(E) - 1, 4):
+            for run_ in runs(side, P):
+                wire3d(rp['id'] + ' guide ' + side, [(x_, y_, z_ + 0.32) for x_, y_, z_ in run_], 0.03, BRASS)
+                strip(rp['id'] + ' acrylic ' + side, [(x_, y_, 0.0) for x_, y_, z_ in run_], [(x_, y_, z_ + 0.3) for x_, y_, z_ in run_], ACRYLIC)
+            if side == gap_side:
+                skirt_ = P[op['from']:op['to'] + 1]
+                strip(rp['id'] + ' skirt ' + side, [(x_, y_, 0.0) for x_, y_, z_ in skirt_], [(x_, y_, z_ - 0.03) for x_, y_, z_ in skirt_], ACRYLIC)
+        # A hoop every fourth point, and one at each end of a gap instead of any in it (it would stand across the way
+        # a ball is turned out).
+        hoops = [k_ for k_ in range(2, len(E) - 1, 4) if not (op and op['from'] < k_ < op['to'])]
+        for k_ in sorted(set(hoops + ([op['from'], op['to']] if op else []))):
             (a, b) = L_[k_], R_[k_]; (c, d_) = bedL[k_], bedR[k_]
             wire3d(rp['id'] + ' hoop', [(a[0], a[1], a[2] + 0.32), (a[0], a[1], a[2] - 0.06), (c[0], c[1], c[2] - 0.06),
                                         (d_[0], d_[1], d_[2] - 0.06), (b[0], b[1], b[2] - 0.06), (b[0], b[1], b[2] + 0.32)], 0.02, GOLD)
@@ -640,8 +726,22 @@ for rp in T.get('ramps', []):
         strip(rp['id'] + ' floor', L_, R_, GOLD_FLOOR)
         strip(rp['id'] + ' underside', [(x_, y_, z_ - 0.05) for x_, y_, z_ in L_], [(x_, y_, z_ - 0.05) for x_, y_, z_ in R_], BRASS)
         for side, P in (('l', L_), ('r', R_)):
-            strip(rp['id'] + ' lip ' + side, [(x_, y_, z_ - 0.05) for x_, y_, z_ in P], [(x_, y_, z_ + 0.3) for x_, y_, z_ in P], GOLD)
-            wire3d(rp['id'] + ' bead ' + side, [(x_, y_, z_ + 0.32) for x_, y_, z_ in P], 0.05, GOLD)
+            for run_ in runs(side, P):
+                strip(rp['id'] + ' lip ' + side, [(x_, y_, z_ - 0.05) for x_, y_, z_ in run_], [(x_, y_, z_ + 0.3) for x_, y_, z_ in run_], GOLD)
+                wire3d(rp['id'] + ' bead ' + side, [(x_, y_, z_ + 0.32) for x_, y_, z_ in run_], 0.05, GOLD)
+    if op and DV and DV['ramp'] == rp['id']:
+        # The diverter's hinge: a gold post at the gate's pivot, just outside the rail's line at the end of the gap
+        # nearer it, from under the floor to over the gate (the gate itself is a live part), held to the rail's end
+        # there by a strap at the floor and one at the rail's top. It stands clear of the playfield, where balls roll
+        # past beside the ramp, under it.
+        hx_, hy_ = DV['pivot']
+        edge_ = L_ if gap_side == 'l' else R_
+        ex_, ey_, GATE_Y = min((edge_[op['from']], edge_[op['to']]), key=lambda p_: math.dist((hx_, hy_), p_[:2]))
+        top_ = GATE_Y + rp['rail'] + 0.05
+        cylinder('diverter hinge', hx_, hy_, 0.045, GATE_Y - 0.1, top_, GOLD, 24)
+        dome('diverter hinge cap', hx_, hy_, 0.055, top_, 0.045, GOLD)
+        for zz_ in (GATE_Y - 0.06, GATE_Y + 0.32):
+            wire3d('diverter hinge strap', [(ex_, ey_, zz_), (hx_, hy_, zz_)], 0.02, GOLD)
 for d in T.get('dishes', []):
     cylinder('dish floor', d['x'], d['z'], d['r'], d['y'] - 0.06, d['y'], GOLD_FLOOR, 64, 0.01)
     gaps = d.get('gaps', [])
@@ -671,8 +771,11 @@ _g = FALCON_BRIGHT.node_tree.nodes.new('ShaderNodeGamma'); _g.inputs['Gamma'].de
 FALCON_BRIGHT.node_tree.links.new(_src, _g.inputs['Color'])
 FALCON_BRIGHT.node_tree.links.new(_g.outputs['Color'], _p.inputs['Base Color'])
 FALCON_BRIGHT.node_tree.links.new(_g.outputs['Color'], _p.inputs['Emission Color'])
-for img_, x0_, x1_ in (('panel_left-24.png', -2.55, -2.05), ('panel_right-24.png', 1.25, 1.75)):
-    y0_, y1_ = 6.3, 7.5
+# The gold hieroglyph panels stand in front of the quest's toys, between them and the magnet, mirrored about the middle
+# and their art's own shape: where they stood (6.3 to 7.5, 0.5 across) the mummy's slot and two pop-ups' slots lay
+# across them, and the mummy up hid the left one, its figure's head too.
+for img_, x0_, x1_ in (('panel_left-24.png', -2.0, -1.55), ('panel_right-24.png', 0.75, 1.2)):
+    y0_, y1_ = 5.1, 6.0
     facing_quad('glyph panel', [(x0_, y0_, 0.004), (x1_, y0_, 0.004), (x1_, y1_, 0.004), (x0_, y1_, 0.004)],
                 [(0, 0), (1, 0), (1, 1), (0, 1)], printed_material('glyph panel ' + img_, os.path.join(os.path.dirname(SCENE_JSON), 'art', img_), glow=0.5))
     wire('glyph panel frame', [(x0_, y0_), (x1_, y0_), (x1_, y1_), (x0_, y1_), (x0_, y0_)], 0.006, 0.025, GOLD)
@@ -724,17 +827,20 @@ EMBLEMS = {'target-ankh': 'ankh-62.png', 'target-scarab': 'scarab-62.png', 'targ
            'target-ra-1': 'falconplaque-62.png', 'target-ra-2': 'falconplaque-62.png', 'target-ra-3': 'falconplaque-62.png',
            'target-horus-1': 'falconplaque-31.png', 'target-horus-2': 'falconplaque-31.png', 'target-horus-3': 'falconplaque-31.png',
            'target-eye': 'eye-22.png',
-           **{f'target-ankh-{i}': 'ankh-31.png' for i in (1, 2, 3)}, **{f'target-eye-{i}': 'eye-22.png' for i in (1, 2, 3)}}
+           **{f'target-ankh-{i}': 'ankh-31.png' for i in (1, 2, 3)}, **{f'target-eye-{i}': 'eye-22.png' for i in (1, 2, 3)},
+           # The quest's pop-ups carry the gold falcon on blue, as the drop targets' emblems are, not the Horus bank's
+           # white plaque just above them.
+           **{f'target-popup-{i}': 'falconplaque-62.png' for i in (1, 2, 3)}}
+# The mummy's face (gen_art.py's round 15), on the rising mummy's front.
+MUMMY_ART = 'mummy-15.png'
 TURNED = set(filter(None, os.environ.get('TURNED', '').split(',')))
 SUN_BACK = printed_material('sun disc back', os.path.join(os.path.dirname(SCENE_JSON), 'art', 'sundisc-14.png'), glow=1.4)
-# The live parts: what the stage draws over the picture itself (they move), so the stage's picture leaves them out and
-# the hero's has them: the targets (the flip plaques and the drop targets), the spinners and the flippers.
-LIVE = []
-_before = set(bpy.data.objects)
-for t in T['targets']:
-    x, y, w_ = t['x'], t['z'], t['width']
+
+def target_frame(t):
+    """A target's way along its face (ux, uy) and out of its front (nx, ny), as the physics stands it: at its own angle,
+    its front toward the flippers, or along the wall nearest it, its front away from that wall."""
+    x, y = t['x'], t['z']
     if 'angle' in t:
-        # A target standing at its own angle (not along a wall): its face toward the flippers.
         ux, uy = math.cos(math.radians(t['angle'])), math.sin(math.radians(t['angle']))
         nx_, ny_ = -uy, ux
         if nx_ * (CX - x) + ny_ * (2.0 - y) < 0:
@@ -743,6 +849,26 @@ for t in T['targets']:
         a_, b_, foot = nearest_segment(x, y)
         ux, uy = b_[0] - a_[0], b_[1] - a_[1]; ul = math.hypot(ux, uy); ux, uy = ux / ul, uy / ul
         nx_, ny_ = x - foot[0], y - foot[1]; nl = math.hypot(nx_, ny_) or 1; nx_, ny_ = nx_ / nl, ny_ / nl
+    return ux, uy, nx_, ny_
+
+def target_box(t, half_w, half_d):
+    """A rectangle round a target's middle, half_w each way along its face and half_d each way across it, wound
+    counterclockwise (so a prism of it faces out)."""
+    ux, uy, nx_, ny_ = target_frame(t)
+    pts = [(t['x'] + sx * ux * half_w + sn * nx_ * half_d, t['z'] + sx * uy * half_w + sn * ny_ * half_d)
+           for sx, sn in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    return pts if ux * ny_ - uy * nx_ > 0 else pts[::-1]
+
+# The live parts: what the stage draws over the picture itself (they move), so the stage's picture leaves them out and
+# the hero's has them: the targets (the flip plaques, the drop targets and the quest's rising targets), the spinners,
+# the flippers, the tomb's door and the diverter's gate.
+LIVE = []
+_before = set(bpy.data.objects)
+for t in T['targets']:
+    if t.get('rise'):
+        continue  # the quest's rising targets, each with its slot, below
+    x, y, w_ = t['x'], t['z'], t['width']
+    ux, uy, nx_, ny_ = target_frame(t)
     hw, ht = w_ / 2, 0.1
     quad = [(x - ux * hw - nx_ * ht, y - uy * hw - ny_ * ht), (x + ux * hw - nx_ * ht, y + uy * hw - ny_ * ht),
             (x + ux * hw + nx_ * ht, y + uy * hw + ny_ * ht), (x - ux * hw + nx_ * ht, y - uy * hw + ny_ * ht)]
@@ -763,6 +889,54 @@ for t in T['targets']:
     facing_quad('target emblem', [(fx_ - ux * e, fy_ - uy * e, 0.06), (fx_ + ux * e, fy_ + uy * e, 0.06),
                                   (fx_ + ux * e, fy_ + uy * e, 0.48), (fx_ - ux * e, fy_ - uy * e, 0.48)],
                 [(0.16, 0.12), (0.84, 0.12), (0.84, 0.88), (0.16, 0.88)], m_)
+LIVE += [ob_ for ob_ in bpy.data.objects if ob_ not in _before]
+# The quest's rising targets (the pop-ups and the mummy) rise out of the floor and sink back into it: each has a slot
+# there, a dark gap with a gold rim round it, which stays put and so is in the picture.
+SLOT_GAP, SLOT_RIM = 0.02, 0.04  # the slot's clearance round the target, and its rim's width
+for t in T['targets']:
+    if t.get('rise'):
+        hw, hd = t['width'] / 2, t.get('depth', 0.2) / 2
+        prism('rising slot rim', target_box(t, hw + SLOT_GAP + SLOT_RIM, hd + SLOT_GAP + SLOT_RIM), 0, 0.012, GOLD, 0.004)
+        prism('rising slot', target_box(t, hw + SLOT_GAP, hd + SLOT_GAP), -0.3, 0.014, DARK_HOLE)
+# The rising targets themselves move (the stage draws them), as do the tomb's door and the diverter's gate: live parts,
+# shown up, shut and at rest. A pop-up is drawn as the drop targets are, with its falcon; the mummy is a gold
+# sarcophagus box, its depth deep and its height tall, a lid's lip round its top and the mummy's face on its front.
+_before = set(bpy.data.objects)
+MUMMY_FACE = printed_material('mummy face', os.path.join(os.path.dirname(SCENE_JSON), 'art', MUMMY_ART), glow=0.5)
+MUMMY_UV = [(0.06, 0.0), (0.94, 0.0), (0.94, 1.0), (0.06, 1.0)]  # the art's middle, as wide for its height as the face
+for t in T['targets']:
+    if not t.get('rise'):
+        continue
+    ux, uy, nx_, ny_ = target_frame(t)
+    hw, hd, h_ = t['width'] / 2, t.get('depth', 0.2) / 2, t.get('height', 0.52)
+    fx_, fy_ = t['x'] + nx_ * (hd + 0.003), t['z'] + ny_ * (hd + 0.003)
+    if t['rise'] == 'hold':
+        prism('mummy', target_box(t, hw, hd), 0, h_ - 0.07, GOLD, 0.02)
+        prism('mummy lid', target_box(t, hw + 0.02, hd + 0.02), h_ - 0.07, h_, GOLD, 0.015)
+        e, y0_, y1_, uvs_, m_ = hw - 0.05, 0.05, h_ - 0.11, MUMMY_UV, MUMMY_FACE
+    else:
+        prism('pop-up', target_box(t, hw, hd), 0, h_, GOLD, 0.012)
+        e, y0_, y1_ = hw - 0.04, 0.06, h_ - 0.04
+        uvs_ = [(0.16, 0.12), (0.84, 0.12), (0.84, 0.88), (0.16, 0.88)]
+        m_ = printed_material(t['id'], os.path.join(os.path.dirname(SCENE_JSON), 'art', EMBLEMS[t['id']]), glow=0.5)
+    facing_quad(t['id'] + ' face', [(fx_ - ux * e, fy_ - uy * e, y0_), (fx_ + ux * e, fy_ + uy * e, y0_),
+                                    (fx_ + ux * e, fy_ + uy * e, y1_), (fx_ - ux * e, fy_ - uy * e, y1_)], uvs_, m_)
+if DOOR:
+    # The tomb's door, shut: a lapis slab across the doorway, as thick as the physics' door (a wall across the mouth's
+    # line) and tucked into the pillars at its ends, sealed with the scarab.
+    prism('tomb door', [(dx0 - 0.02, zf_), (dx1 + 0.02, zf_), (dx1 + 0.02, mz_ + WALL_HALF), (dx0 - 0.02, mz_ + WALL_HALF)], 0, DOOR_H, BLUE_ENAMEL, 0.008)
+    s_ = (dx1 - dx0) / 2 - 0.05; xm_ = (dx0 + dx1) / 2; ym_ = DOOR_H * 0.55
+    facing_quad('tomb door seal', [(xm_ - s_, zf_ - 0.003, ym_ - s_), (xm_ + s_, zf_ - 0.003, ym_ - s_), (xm_ + s_, zf_ - 0.003, ym_ + s_), (xm_ - s_, zf_ - 0.003, ym_ + s_)],
+                [(0.1, 0.1), (0.9, 0.1), (0.9, 0.9), (0.1, 0.9)], printed_material('tomb seal', os.path.join(os.path.dirname(SCENE_JSON), 'art', 'scarab-62.png'), glow=0.5))
+if DV and GATE_Y is not None:
+    # The diverter's gate, at rest: a gold gate as thick as a wall and as tall as its ramp's rails, out from its hinge
+    # along the gap in the ramp's rail (the ramp's opening), standing on the ramp's floor where the hinge is.
+    gate_rail = next(r for r in T['ramps'] if r['id'] == DV['ramp'])['rail']
+    gux, guy = math.cos(math.radians(DV['restDeg'])), math.sin(math.radians(DV['restDeg']))
+    (gpx, gpy), gl_ = DV['pivot'], DV['length']
+    gate_ = [(gpx + guy * WALL_HALF, gpy - gux * WALL_HALF), (gpx + gux * gl_ + guy * WALL_HALF, gpy + guy * gl_ - gux * WALL_HALF),
+             (gpx + gux * gl_ - guy * WALL_HALF, gpy + guy * gl_ + gux * WALL_HALF), (gpx - guy * WALL_HALF, gpy + gux * WALL_HALF)]
+    prism('diverter gate', gate_, GATE_Y, GATE_Y + gate_rail, GOLD, 0.012)
 LIVE += [ob_ for ob_ in bpy.data.objects if ob_ not in _before]
 # Rollover lamps in the top lanes (their guides are walls of the layout).
 for r_ in T['rollovers']:

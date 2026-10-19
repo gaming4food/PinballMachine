@@ -85,7 +85,6 @@ P(glyphs, CX, 14.45, 3.6, 1.3, feather=0.15, fade=0.85)
 P(load('horizon-39.png'), CX - 0.15, 9.1, 5.4, 1.75, crop=(150, 40, 618, 196), feather=0.1)   # round 13: a desert horizon of pyramids and palms behind the 3D one, wide enough to show either side of it                    # behind the top lanes
 god = load('god-62.png')
 P(god, -3.1, 7.3, 1.15, 2.55, crop=(250, 180, 560, 740), feather=0.12)    # Horus left of the pyramid, Anubis right, facing it
-P(load('anubis_stand-41.png'), 2.35, 7.3, 1.15, 2.55, crop=(240, 150, 560, 740), feather=0.12, flip=True)
 P(load('pharaoh_walk-41.png'), -3.65, 4.3, 0.8, 1.7, crop=(260, 170, 540, 720), feather=0.12)   # in the inlane bands
 P(load('pharaoh_walk-41.png'), 2.75, 4.3, 0.8, 1.7, crop=(260, 170, 540, 720), feather=0.12, flip=True)
 P(load('isis-82.png'), CX, 13.32, 2.1, 0.66, crop=(60, 150, 708, 520), feather=0.1)             # wings spread over the bumpers
@@ -93,6 +92,11 @@ P(load('wingedscarab-31.png'), CX, 1.3, 4.0, 1.6, crop=(40, 150, 728, 560), feat
 P(glyphs, -4.35, 4.0, 0.85, 3.6, crop=(8, 0, 160, 768), feather=0.08)   # the sealed left outlane
 P(glyphs, -2.35, 6.0, 0.7, 2.6, crop=(160, 0, 310, 768), feather=0.08)     # cartouche columns by the pyramid
 P(glyphs, 1.55, 6.0, 0.7, 2.6, crop=(460, 0, 610, 768), feather=0.08)
+# Anubis faces the pyramid from behind the quest's pop-ups, smaller than Horus: as big as Horus (2.35, 7.3) the third
+# pop-up's slot lay across his feet and the second's across his staff, and the pop-ups up hid his legs. Above them his
+# corner is tight: his feet stand just clear of what the pop-ups up hide, his snout just right of the eye drop target,
+# and his ears just left of the ladder's arrow.
+P(load('anubis_stand-41.png'), 2.425, 7.34, 0.63, 1.4, crop=(240, 150, 560, 740), feather=0.12, flip=True)
 frieze_ = load('frieze-62.png')
 P(frieze_, -2.55, 0.45, 2.7, 1.15, crop=(0, 250, 330, 470), feather=0.1)                # a reclining Anubis each side of the drain
 P(frieze_, 1.75, 0.45, 2.7, 1.15, crop=(438, 250, 768, 470), feather=0.1)

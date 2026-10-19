@@ -2,6 +2,9 @@
 
 The stage draws the table as one picture, `src/assets/pinball.png` (1920 × 1080, transparent round the cabinet), with
 the live parts (the balls, the flippers, the flip plaques, the drop targets and the spinners) drawn over it in three.js.
+The quest's toys move too (the pop-ups, the mummy, the tomb's door and the diverter's gate), so the picture leaves them
+out as well and has what stays put round them: the rising targets' gold-rimmed slots, the doorway in the pyramid's
+front corner, and the gap in the left ramp's rail with the gate's hinge.
 The picture is rendered here, in Blender, from the table data (`TABLE_IN_USE`) and through the stage's own camera
 (`stageCamera` in `src/stage/pinball.ts`), so the two line up. `src/assets/pinball.json` records which table and which
 camera it was made from, and `npm run picture-test` fails when either has changed since.
@@ -38,7 +41,8 @@ than `hero` is refused with a usage message, so a typo can't overwrite the stage
 ## The live plaques' pictures
 
 The stage draws the flip plaques and the drop targets itself, with their emblems from `src/assets/plaques`: the pieces
-of `blender/art` they use, at 256 × 256 (a plaque is about 25 px wide on the stage). Make them again from the art with
+of `blender/art` they use, at 256 × 256 (a plaque is about 25 px wide on the stage), and the mummy's face (`mummy.png`,
+from `mummy-15.png`). Make them again from the art with
 
     python -I blender/plaques.py blender/art src/assets/plaques
 
