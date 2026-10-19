@@ -95,13 +95,14 @@ export const PYRAMID: Table = {
     // be packed alike: the left flipper's first shot in pinball-sim-test then lands on a drop target, not round the
     // right orbit (5 of 10 get up there, where 6 are held).
     // Measured unattended with the toys down (pinball-play, 300 balls, seed 1), the Ankh bank matches 0.377 times a
-    // ball and the Eye bank 0.273, where main's 0.5-wide banks matched 0.357 and 0.393; the quest's bars, three
-    // quarters of today's, are 0.31 and 0.27. One such run is chance as much as layout: over 12 seeds these average
-    // 0.329 and 0.315 (main's, over 6: 0.377 and 0.365), a run going 0.03 either way, and the Ankh bank's fell under
-    // 0.31 in 3 of the 12. A bank's highest plaque holds its matches back (each bank's lowest is hit 0.78 and 0.93
-    // times a ball, its highest 0.43 and 0.46), and the Ankh bank can't come down its face for the doorway; the Eye
-    // bank moved down its face (0.42 wide at 0.66, 1.09 and 1.52) or widened (0.45 at 0.675, 1.135 and 1.595) averaged
-    // the same over 12 seeds (0.319 and 0.316), so both stay as they are.
+    // ball and the Eye bank 0.273, where main's 0.5-wide banks match 0.380 and 0.347 (at 05f4bdd, the same harness and
+    // seed). The quest's bars, 0.31 and 0.27, are three quarters of the spec's 0.42 and 0.36 (main's, over 1,500
+    // balls), not of those. One run is chance as much as layout, so the fair comparison with main is over many seeds:
+    // over 12 these average 0.329 and 0.315, 85% and 88% of main's 0.386 and 0.358 over the same 12, a run going 0.03
+    // either way, and the Ankh bank's fell under 0.31 in 3 of the 12. A bank's highest plaque holds its matches back
+    // (each bank's lowest is hit 0.78 and 0.93 times a ball, its highest 0.43 and 0.46), and the Ankh bank can't come
+    // down its face for the doorway; the Eye bank moved down its face (0.42 wide at 0.66, 1.09 and 1.52) or widened
+    // (0.45 at 0.675, 1.135 and 1.595) averaged the same over 12 seeds (0.319 and 0.316), so both stay as they are.
     { id: 'target-ankh-1', x: -0.935, z: 6.087, width: 0.38, points: 300, angle: 135, flip: true },
     { id: 'target-ankh-2', x: -1.205, z: 6.357, width: 0.38, points: 300, angle: 135, flip: true },
     { id: 'target-ankh-3', x: -1.475, z: 6.627, width: 0.38, points: 300, angle: 135, flip: true },

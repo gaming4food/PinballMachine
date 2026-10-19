@@ -43,7 +43,12 @@ the stage and the control panel.
   city never sets it and shows no button for it.
 - `npm run toy -- <popups|mummy|tomb|diverter|all> <up|down> [port]`: asks a running `dev:toys` host to raise or lower
   those toys (the port is 7841 by default). The table steps only while a stage page is open, so they move once one is;
-  a host from plain `npm run dev` ignores the request.
+  a host from plain `npm run dev` ignores the request. Two things to know when trying them:
+  - A request is a move, not a standing order: a pop-up or the mummy that a ball knocks down stays down until it is
+    asked up again.
+  - With every toy up, the mummy shuts the left ramp (with it up, none of the 77 real flips that go up the ramp gets
+    up it), so `npm run toy -- all up` never shows the gate at work. Raise the gate alone
+    (`npm run toy -- diverter up`) to see it turn the left ramp's shots into the lock.
 - `npm test`: the chain in `package.json`: the contract test (the manifest is complete, and the card), table-test (the
   table as data, `RULES` and chat's words), pinball-sim-test (the physics), pinball-layout-test (every way round the
   table at its rate, the quest's toys up and down: no ball escapes or sticks; `-- <words>` runs only the checks whose
