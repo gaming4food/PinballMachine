@@ -6,12 +6,19 @@ import * as THREE from 'three';
 const LIFE = 1.3;
 const THROW = 4.5;
 const GRAVITY = 11;
-/** The most coins one burst throws, and the most flying at once. */
-const MOST = 26;
-const POOL = 120;
+/**
+ * The most coins one burst throws, and the most flying at once. A burst grows with its payout, so a big one rains:
+ * three of the biggest fit the pool before the oldest coins are thrown again.
+ */
+const MOST = 60;
+const POOL = 180;
 
-/** A gold coin, face on: a disc with a rim and a shine (drawn once for every coin). */
-function coinTexture(): THREE.CanvasTexture {
+/**
+ * A gold coin, face on: a disc with a rim and a shine (drawn once for every coin). Without a page to draw it on (the
+ * tests load this file in Node) it is a blank texture, as pinball-parts.ts's art() has.
+ */
+function coinTexture(): THREE.Texture {
+  if (typeof document === 'undefined') return new THREE.Texture();
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -52,9 +59,9 @@ export class CoinBurst {
     }
   }
 
-  /** A burst for `coins` coins from (x, z) on the playfield. */
+  /** A burst for `coins` coins from (x, z) on the playfield: 8 coins, and one more for each coin paid, up to MOST. */
   burst(coins: number, x: number, z: number): void {
-    const n = Math.max(6, Math.min(MOST, Math.round(6 + coins / 2)));
+    const n = Math.max(8, Math.min(MOST, Math.round(8 + coins)));
     for (let i = 0; i < n; i++) {
       const c = this.coins[this.next];
       this.next = (this.next + 1) % this.coins.length;
