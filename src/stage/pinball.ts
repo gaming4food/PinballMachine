@@ -228,6 +228,9 @@ export class PinballScene implements MachineScene {
         // A ball meeting the mummy is its hit, as it stays up (pinball-sounds.ts): it rocks away from that ball.
         if (TABLE_IN_USE.targets[index]?.rise === 'hold' && ball) this.parts.rockMummy(ball);
       },
+      rise: () => voice.rise(),
+      door: () => voice.door(),
+      gate: () => voice.gate(),
       drain: () => voice.drain(),
       launch: () => voice.launch(),
       multiball: () => voice.multiball(),

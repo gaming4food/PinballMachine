@@ -4,7 +4,7 @@
 // plays its synth, at its pick's volume if it has one.
 
 /** Every moment the pinball makes a sound. */
-export type PinballMoment = 'flip' | 'bumper' | 'sling' | 'target' | 'drain' | 'launch' | 'multiball' | 'saved';
+export type PinballMoment = 'flip' | 'bumper' | 'sling' | 'target' | 'rise' | 'door' | 'gate' | 'drain' | 'launch' | 'multiball' | 'saved';
 
 /**
  * Each moment's files and how loud they play: 1 plays a file as it is, and the synth at its usual level. Several files
@@ -18,6 +18,9 @@ export const PINBALL_SOUNDS: PinballPicks = {
   bumper: { files: [], volume: 1 },
   sling: { files: [], volume: 1 },
   target: { files: [], volume: 1 },
+  rise: { files: [], volume: 1 },
+  door: { files: [], volume: 1 },
+  gate: { files: [], volume: 1 },
   drain: { files: [], volume: 1 },
   launch: { files: [], volume: 1 },
   multiball: { files: [], volume: 1 },
