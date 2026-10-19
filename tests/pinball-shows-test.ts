@@ -423,7 +423,8 @@ test("the table's clock starting again lets go of the old clock's moments and cl
   shows.hype(hype('nudge', 601));
   shows.hype(hype('double', 900));
   shows.cue(cue('target-mummy', true, -2, 6, 650));
-  // The server restarted: the drawn time is back at the start. Everything queued goes, and what plays is cleared, once.
+  // The server restarted: the drawn time is back at the start. The old clock's moments go, and what plays is cleared,
+  // once.
   shows.frame(1);
   assert.deepEqual(calls, [{ kind: 'clear' }], 'cleared once, and nothing played');
   shows.frame(1);
@@ -441,14 +442,13 @@ test("the table's clock starting again lets go of the old clock's moments and cl
   assert.deepEqual(kind('shake'), [{ kind: 'shake', seconds: 0.3 }]);
   assert.equal(kind('clear').length, 1);
 
-  // Every moment queued goes, even one that is already on the new clock (the ruling: everything queued on the old clock
-  // is let go, whatever its time).
-  const early = book();
-  early.shows.frame(600);
-  early.shows.hype(hype('nudge', 3));
-  early.shows.frame(1);
-  early.shows.frame(3);
-  assert.deepEqual(early.calls, [{ kind: 'clear' }]);
+  // A moment more than a second ahead of the new time is the old clock's, whatever it was queued for: it goes too.
+  const ahead = book();
+  ahead.shows.frame(600);
+  ahead.shows.hype(hype('nudge', 3));
+  ahead.shows.frame(1);
+  ahead.shows.frame(3);
+  assert.deepEqual(ahead.calls, [{ kind: 'clear' }]);
 
   // Going back by a second or less is the same clock (the drawn time slips back a little after a pause): the moments
   // stay and nothing is cleared. More than a second is the clock starting again.
@@ -466,6 +466,46 @@ test("the table's clock starting again lets go of the old clock's moments and cl
   assert.equal(slip.kind('clear').length, 1, 'more than a second back (from 99.5) is');
   slip.shows.frame(98.25);
   assert.equal(slip.kind('clear').length, 1, 'and it is cleared once');
+});
+
+test("a moment already on the restarted table's clock, queued before the first frame drawn on it, still plays at its time", () => {
+  const { shows, calls, kind } = book();
+  shows.frame(600);
+  // The old clock's own moment, and three that the restarted server sent just before the first frame drawn on its clock
+  // (the table is at 1 there): one already due, one half a second ahead and one a whole second ahead.
+  shows.hype(hype('nudge', 601));
+  shows.cue(cue('target-popup-1', true, 1.3, 6.5, 0.9));
+  shows.hype(hype('double', 1.5));
+  shows.hype(hype('saver', 2));
+  shows.frame(1);
+  // The sinks are cleared first, so that what plays now is not wiped; then the moment that was due plays, as of its
+  // own time.
+  assert.equal(calls[0].kind, 'clear', 'cleared before anything plays');
+  assert.equal(kind('clear').length, 1, 'and only once');
+  assert.deepEqual(kind('play').map((p) => p.at), [0.9], "the pop-up's burst, begun at its own time");
+  assert.deepEqual(kind('sparks'), [{ kind: 'sparks', x: 1.3, y: 0.35, z: 6.5, color: 0xbcd4ff, count: 14 }]);
+  // The others wait for their times and then play, and the old clock's never does.
+  const made = calls.length;
+  shows.frame(1.4);
+  assert.equal(calls.length, made, 'not before their times');
+  shows.frame(1.5);
+  assert.deepEqual(kind('flash'), [{ kind: 'flash', color: 0xffc23a, strength: 0.4, at: 1.5 }], "double score's flash, at its time");
+  shows.frame(2);
+  assert.deepEqual(kind('play').map((p) => p.at), [0.9, 1.5, 2], "the pop-up's burst, double score's strobe and the saver's sweep");
+  shows.frame(601);
+  shows.frame(700);
+  assert.deepEqual(kind('shake'), [], "the old clock's nudge is gone");
+  assert.equal(kind('clear').length, 1);
+
+  // The edge: exactly a second ahead of the new time is on the new clock, and any more is the old clock's.
+  const edge = book();
+  edge.shows.frame(600);
+  edge.shows.hype(hype('nudge', 2));
+  edge.shows.hype(hype('double', 2.01));
+  edge.shows.frame(1);
+  edge.shows.frame(2);
+  edge.shows.frame(3);
+  assert.deepEqual(edge.calls, [{ kind: 'clear' }, { kind: 'shake', seconds: 0.3 }], 'the nudge at 2 plays; the double at 2.01 is gone');
 });
 
 test('a fresh hello (reset) lets go of everything queued and forgets the old time, clearing what plays', () => {

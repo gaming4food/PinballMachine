@@ -9,9 +9,10 @@
 // when the table does), plays what has come due, in the order of the moments' times: the screen flash drops a flash
 // asked for a time earlier than the last one it let through. A moment drawn more than STALE_SECONDS after its time (a
 // page catching up, a stage opened late) is let go, not played late, as the titles and the sounds let go of theirs.
-// Where the table's clock starts again (the server restarted and the page carried on) every moment queued is let go and
-// what plays is cleared, since a show or a flash held for a time on the old clock would otherwise wait for it on the
-// new one.
+// Where the table's clock starts again (the server restarted and the page carried on) what plays is cleared and the
+// moments queued on the old clock are let go, since a show or a flash held for a time on the old clock would otherwise
+// wait for it on the new one. A moment already on the new clock (one the restarted server sent just before the first
+// frame drawn on its clock) is kept, as the titles and the sounds keep theirs.
 //
 // Nothing may flash more than 3 times a second, for the viewers a flashing picture can hurt. Each show keeps to that
 // alone (light-show.ts: FLASH_GAP), and the book keeps each moment to it as a whole. Multiball is the one moment of two
@@ -54,7 +55,9 @@ export interface ShowSinks {
 const STALE_SECONDS = 2;
 /**
  * The drawn time going back by more than this is the table's clock starting again (the server restarted: the stage is
- * made once per page and the page carries on), as for the titles and the sounds.
+ * made once per page and the page carries on), as for the titles and the sounds. A moment at most this far ahead of the
+ * new time is already on the new clock, as one the restarted server sent just before the first frame drawn on its clock
+ * is, and is kept.
  */
 const CLOCK_BACK = 1;
 /** The most a DrawnClock steps at once, in seconds: a long gap (a hidden page) is one small step, not a leap. */
@@ -148,12 +151,18 @@ export class PinballShows {
    * Each frame, at the time the stage draws: the moments that have come due play, in the order of their times, and
    * those drawn more than STALE_SECONDS late are let go. The caller looks at the player and the flash after this, so a
    * moment due this frame shows in it. Where the time has gone back by more than CLOCK_BACK, the table's clock has
-   * started again: every moment queued goes and the sinks are cleared, once. A time that isn't a number is no frame.
+   * started again: the sinks are cleared, once, and the moments queued on the old clock go. A moment at most CLOCK_BACK
+   * ahead of the new time is already on the new clock (the restarted server sent it just before this frame) and stays.
+   * A time that isn't a number is no frame.
    */
   frame(t: number): void {
     if (!Number.isFinite(t)) return;
     if (t < this.t - CLOCK_BACK) {
-      this.waiting.length = 0;
+      // A moment at most CLOCK_BACK ahead of the new time is taken as already on the new clock, and the rest as the old
+      // clock's. The sinks are cleared before the loop below plays the moments that stay, or their shows would be
+      // cleared with the old clock's.
+      const onNewClock = this.waiting.filter((moment) => moment.at <= t + CLOCK_BACK);
+      this.waiting.splice(0, this.waiting.length, ...onNewClock);
       this.sinks.clear();
     }
     this.t = t;
