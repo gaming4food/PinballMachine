@@ -3,12 +3,18 @@
 // 1.5 a second, never go below the playfield, live 0.45 to 0.8 s and are parked out of sight after, fading as they go;
 // a mote drifts up and never falls; a spark is 0.14 across wherever the stage draws it; and nothing moves while the
 // table's clock stands still. The open tomb's beam fades in and out over 0.4 s with the tomb's bit and sends up motes
-// while it is open. A payout's coin burst (stage/coin-burst.ts) grows with the payout, from a pool of 180. No page or
-// graphics card is needed.
+// while it is open. A payout's coin burst (stage/coin-burst.ts) grows with the payout, from a pool of 180. The screen
+// flash (stage/screen-hits.ts) adds at most FLASH_CAP of its colour to the table's picture, peaks at its time and dies
+// away by a factor of e every 1/7 s; of two at once the brighter shows, a flash asked for less than FLASH_GAP after the
+// last one began is dropped, and its amount goes through a RiseLimit, so the picture never rises more than 3 times a
+// second. No page or graphics card is needed.
 // Usage: npm run pinball-effects-test
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { TABLE, TABLE_IN_USE, type Table } from '../src/shared/table';
+// The flash is numbers only, so it loads with no stubs.
+import { DARK_BELOW, FLASH_GAP, LIT_ABOVE } from '../src/stage/light-show';
+import { FLASH_CAP, ScreenFlash } from '../src/stage/screen-hits';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
 import './stub-assets';
 
@@ -556,6 +562,490 @@ test('a spark is additive, with a map made in code, and 0.14 across wherever the
     const across = ((world(0.07).y - world(-0.07).y) / 2) * tall;
     assert.ok(near(drawn, across, across * 1e-6), `${drawn} pixels across, wanted ${across} (pixel ratio ${ratio}, target ${target})`);
   }
+});
+
+/** The flash is looked at every 1/240 s, finer than any frame the stage draws, so no brightening is missed. */
+const LOOK = 1 / 240;
+const GOLD = 0xffc23a;
+const WHITE = 0xffffff;
+const RED = 0xff3344;
+const BLUE = 0x4a7dff;
+
+/** The times of `n` looks, LOOK apart from 0. */
+const lookTimes = (n: number): number[] => Array.from({ length: n }, (_, i) => i * LOOK);
+
+/** What the flash shows at `t`, kept: at() returns the flash's own object, which its next call fills in again. */
+function look(flash: ScreenFlash, t: number): { color: number; amount: number } {
+  return { ...flash.at(t) };
+}
+
+/** The looks (their places in the list) at which a light is brighter than at the look before; the first has none. */
+function brightenings(amounts: number[]): number[] {
+  const at: number[] = [];
+  let before = 0;
+  amounts.forEach((amount, i) => {
+    if (amount > before) at.push(i);
+    before = amount;
+  });
+  return at;
+}
+
+/** The most of `times` (seconds, in order) that fall within any 1 s, as light-show-test counts a light's rises. */
+function mostInASecond(times: number[]): number {
+  let most = 0;
+  for (let a = 0, b = 0; b < times.length; b++) {
+    while (times[b] - times[a] >= 1) a++;
+    most = Math.max(most, b - a + 1);
+  }
+  return most;
+}
+
+/**
+ * When a light rises, from its levels (0 to 1 of its peak) looked at `times`: going above LIT_ABOVE after being below
+ * DARK_BELOW, which is how a viewer sees a flash, and what RiseLimit holds to 3 a second. A light starts out dark.
+ */
+function riseTimes(levels: number[], times: number[]): number[] {
+  const at: number[] = [];
+  let dark = true;
+  levels.forEach((level, i) => {
+    if (level < DARK_BELOW) dark = true;
+    else if (dark && level > LIT_ABOVE) {
+      dark = false;
+      at.push(times[i]);
+    }
+  });
+  return at;
+}
+
+/** A flash as it is asked for. */
+interface Ask {
+  color: number;
+  strength: number;
+  at: number;
+}
+
+/**
+ * What these flashes would show if every one asked for were let through and nothing held them back: each dies away by a
+ * factor of e every 1/7 s from its start, and the brightest is the one seen. `looks` looks, LOOK apart, from 0.
+ */
+function unheld(asks: Ask[], looks: number): number[] {
+  return Array.from({ length: looks }, (_, i) => {
+    let most = 0;
+    for (const ask of asks) {
+      if (ask.at <= i * LOOK) most = Math.max(most, ask.strength * Math.exp(-7 * (i * LOOK - ask.at)));
+    }
+    return most * FLASH_CAP;
+  });
+}
+
+test('a flash adds at most FLASH_CAP of its colour, at its peak, and is under 1% of the cap 0.7 s on', () => {
+  assert.equal(FLASH_CAP, 0.3);
+  const flash = new ScreenFlash();
+  assert.equal(look(flash, 0).amount, 0, 'nothing is lit before a flash is asked for');
+
+  // Asked for at 2 s at full strength: nothing before its time, then the whole cap in its colour at its peak...
+  flash.flash(GOLD, 1, 2);
+  assert.equal(look(flash, 1.999).amount, 0, 'nothing before its time');
+  const peak = look(flash, 2);
+  assert.equal(peak.color, GOLD);
+  assert.equal(peak.amount, FLASH_CAP, 'the cap, and no more');
+  // ...dying away by a factor of e every 1/7 s, in the same colour...
+  for (let k = 1; k <= 4; k++) {
+    const now = look(flash, 2 + k / 7);
+    assert.equal(now.color, GOLD);
+    assert.ok(near(now.amount, FLASH_CAP * Math.exp(-k), 1e-12), `${k}/7 s on it is ${now.amount}`);
+  }
+  // ...under 1% of the cap 0.7 s on, though not quite nothing yet...
+  const tail = look(flash, 2.7);
+  assert.ok(tail.amount > 0 && tail.amount < 0.01 * FLASH_CAP, `0.7 s on it is ${tail.amount}`);
+  // ...and let go for good within 1.1 s: past that nothing is drawn for it.
+  assert.equal(look(flash, 3.1).amount, 0);
+  assert.equal(look(flash, 50).amount, 0);
+
+  // A flash's strength is its share of the cap: at its peak it adds that much. One asked for above 1 adds the cap.
+  for (const [strength, want] of [[0.5, 0.15], [0.25, 0.075], [0.8, 0.24], [1.5, FLASH_CAP], [1e9, FLASH_CAP]]) {
+    const one = new ScreenFlash();
+    one.flash(RED, strength, 0);
+    const shown = look(one, 0);
+    assert.ok(near(shown.amount, want, 1e-12), `strength ${strength} adds ${shown.amount}, wanted ${want}`);
+    assert.equal(shown.color, RED);
+  }
+
+  // Whatever the strength and the time, the amount is between nothing and the cap.
+  for (const strength of [0.01, 0.3, 0.5, 0.9, 1, 2, 50]) {
+    const one = new ScreenFlash();
+    one.flash(WHITE, strength, 1);
+    for (let i = 0; i < 3 / LOOK; i++) {
+      const { amount } = one.at(0.5 + i * LOOK);
+      assert.ok(amount >= 0 && amount <= FLASH_CAP, `strength ${strength}: ${amount}`);
+    }
+  }
+});
+
+test('flashes asked 10 times a second rise at most 3 times in any second', () => {
+  const looks = Math.round(5 / LOOK);
+  // Asked every tenth of a second, in three colours in turn, at three kinds of strength: full; weak (a flash that is
+  // never above LIT_ABOVE, which RiseLimit's own rule never counts as a rise, and that the picture still shows); and a
+  // mix of half and full and between (the flash re-brightening from half to full).
+  const kinds: [string, (k: number) => number][] = [
+    ['full', () => 1],
+    ['weak', () => 0.4],
+    ['mixed', (k) => [0.5, 1, 0.8, 0.6, 1, 0.4, 0.9][k % 7]],
+  ];
+  for (const [kind, strengthOf] of kinds) {
+    const flash = new ScreenFlash();
+    const asks: Ask[] = [];
+    const amounts: number[] = [];
+    for (let i = 0; i < looks; i++) {
+      if (i % 24 === 0) {
+        const k = i / 24;
+        asks.push({ color: [GOLD, WHITE, RED][k % 3], strength: strengthOf(k), at: i * LOOK });
+        const ask = asks[k];
+        flash.flash(ask.color, ask.strength, ask.at);
+      }
+      amounts.push(flash.at(i * LOOK).amount);
+    }
+    assert.equal(asks.length, 50, `${kind}: asked 10 times a second for 5 s`);
+
+    // The flashes the rule lets through: each at least FLASH_GAP after the start of the last one let through.
+    const accepted: Ask[] = [];
+    for (const ask of asks) {
+      if (accepted.length === 0 || ask.at - accepted[accepted.length - 1].at >= FLASH_GAP) accepted.push(ask);
+    }
+    assert.ok(accepted.length >= 12 && accepted.length <= 15, `${kind}: ${accepted.length} let through in 5 s`);
+
+    // The picture is those flashes and no others: each at its peak at its start, dying away, the brightest seen. (A
+    // flash is let go once it is a thousandth of the cap or less, which is why this is not to the last digit.)
+    const want = unheld(accepted, looks);
+    for (let i = 0; i < looks; i++) {
+      assert.ok(near(amounts[i], want[i], 0.002 * FLASH_CAP), `${kind}: ${amounts[i]} at ${i * LOOK} s, wanted ${want[i]}`);
+      assert.ok(amounts[i] <= FLASH_CAP);
+    }
+
+    // The amount rises only where one of those flashes begins, and nowhere between. They are FLASH_GAP or more apart.
+    const starts = brightenings(amounts);
+    assert.deepEqual(
+      starts,
+      accepted.map((ask) => Math.round(ask.at / LOOK)),
+      `${kind}: the picture brightens where an accepted flash begins and nowhere else`,
+    );
+    for (let k = 1; k < starts.length; k++) {
+      const apart = (starts[k] - starts[k - 1]) * LOOK;
+      assert.ok(apart >= FLASH_GAP, `${kind}: flash ${k} begins ${apart} s after the last`);
+    }
+    const startTimes = starts.map((i) => i * LOOK);
+    assert.ok(mostInASecond(startTimes) <= 3, `${kind}: brightens ${mostInASecond(startTimes)} times in a second`);
+
+    // And by the rule RiseLimit keeps, going lit after being dark: at most 3 a second as well.
+    const rises = riseTimes(amounts.map((amount) => amount / FLASH_CAP), lookTimes(looks));
+    assert.ok(mostInASecond(rises) <= 3, `${kind}: ${mostInASecond(rises)} rises in a second`);
+  }
+
+  // The asks are a real test: let through, they would brighten the picture at every one, 10 times a second, and with
+  // full flashes the dark-to-lit rule would count none of those as a rise (the flash only dips to about half between
+  // two asks), which is why a flash is held by FLASH_GAP as well.
+  const full: Ask[] = Array.from({ length: 50 }, (_, k) => ({ color: GOLD, strength: 1, at: k * 24 * LOOK }));
+  const loose = unheld(full, looks);
+  assert.equal(brightenings(loose).length, 50, 'every ask brightens the picture');
+  assert.ok(mostInASecond(brightenings(loose).map((i) => i * LOOK)) >= 10, 'at least 10 a second');
+  const looseRises = riseTimes(loose.map((amount) => amount / FLASH_CAP), lookTimes(looks));
+  assert.equal(looseRises.length, 1, 'but only the first is a rise');
+});
+
+test('with frames of any length and flashes asked a little after their time, the picture still rises at most 3 times in any second', () => {
+  // The stage draws frames of 1/10 to 1/144 s, none of them even, and plays a moment at the first frame past its time.
+  // So a flash is first drawn some time after it began, which the 1/240 s looks above never show, and RiseLimit
+  // counts its rise from then. Flashes asked at three rates and in strengths from 0.2 to 1, a few frames late, over
+  // 20 s of the table's time each, with the same run every time.
+  let seed = 20261019;
+  const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  let most = 0;
+  let asked = 0;
+  for (const fps of [10, 20, 30, 60, 144]) {
+    for (const rate of [3, 10, 30]) {
+      for (let run = 0; run < 5; run++) {
+        const flash = new ScreenFlash();
+        const levels: number[] = [];
+        const times: number[] = [];
+        for (let t = 0; t < 20; ) {
+          t += (0.5 + random()) / fps;
+          if (random() < rate / fps) {
+            flash.flash(WHITE, 0.2 + 0.8 * random(), t - (3 * random()) / fps);
+            asked++;
+          }
+          const { amount } = flash.at(t);
+          assert.ok(amount >= 0 && amount <= FLASH_CAP, `${amount} at ${t} s`);
+          levels.push(amount / FLASH_CAP);
+          times.push(t);
+        }
+        most = Math.max(most, mostInASecond(riseTimes(levels, times)));
+      }
+    }
+  }
+  assert.ok(asked > 5000, `${asked} flashes asked`);
+  assert.equal(most, 3, `the busiest second had ${most} rises`);
+});
+
+test('of two flashes at once the brighter wins, in its colour; one asked for later starts then; clear() ends it', () => {
+  // Two flashes asked for the same time: the brighter wins, in its colour, whichever was asked first; on a tie the
+  // first keeps it.
+  const together: { asked: [number, number][]; color: number; strength: number }[] = [
+    { asked: [[RED, 0.4], [BLUE, 0.9]], color: BLUE, strength: 0.9 },
+    { asked: [[BLUE, 0.9], [RED, 0.4]], color: BLUE, strength: 0.9 },
+    { asked: [[RED, 0.6], [BLUE, 0.6]], color: RED, strength: 0.6 },
+    { asked: [[RED, 0.3], [GOLD, 0.7], [BLUE, 0.5]], color: GOLD, strength: 0.7 },
+  ];
+  for (const { asked, color, strength } of together) {
+    const flash = new ScreenFlash();
+    for (const [c, s] of asked) flash.flash(c, s, 2);
+    const peak = look(flash, 2);
+    assert.equal(peak.color, color);
+    assert.ok(near(peak.amount, FLASH_CAP * strength, 1e-12), `${peak.amount} at the peak, wanted ${FLASH_CAP * strength}`);
+    // ...and it dies away as that flash does alone.
+    const dying = look(flash, 2 + 1 / 7);
+    assert.equal(dying.color, color);
+    assert.ok(near(dying.amount, (FLASH_CAP * strength) / Math.E, 1e-12));
+  }
+  // Asked for the same time before it comes, they merge as well.
+  const early = new ScreenFlash();
+  early.flash(RED, 0.4, 5);
+  assert.equal(look(early, 1).amount, 0, 'nothing before its time');
+  early.flash(BLUE, 0.9, 5);
+  const merged = look(early, 5);
+  assert.equal(merged.color, BLUE);
+  assert.ok(near(merged.amount, FLASH_CAP * 0.9, 1e-12));
+
+  // One asked for later starts then: nothing of it before, and its own peak at its time, as the one before dies away.
+  const later = new ScreenFlash();
+  later.flash(RED, 1, 0);
+  later.flash(BLUE, 0.8, 0.6);
+  assert.equal(look(later, 0).color, RED);
+  const mid = look(later, 0.3);
+  assert.equal(mid.color, RED);
+  assert.ok(near(mid.amount, FLASH_CAP * Math.exp(-2.1), 1e-12), `red 0.3 s on is ${mid.amount}`);
+  const just = look(later, 0.599);
+  assert.equal(just.color, RED, 'red is still dying away a moment before blue begins');
+  assert.ok(just.amount > 0 && just.amount < mid.amount);
+  const then = look(later, 0.6);
+  assert.equal(then.color, BLUE, 'blue begins at its time');
+  assert.ok(near(then.amount, FLASH_CAP * 0.8, 1e-12), `blue at its peak is ${then.amount}`);
+  // A long way ahead, it waits as long as it is asked to.
+  const far = new ScreenFlash();
+  far.flash(GOLD, 1, 5);
+  assert.equal(look(far, 0).amount, 0);
+  assert.equal(look(far, 4.9).amount, 0);
+  assert.equal(look(far, 5).color, GOLD);
+  assert.equal(look(far, 5).amount, FLASH_CAP);
+
+  // A flash that is still brighter than a later one, dying away, stays the one seen: the later one never shows. It is
+  // still the last flash begun, so one asked for 0.16 s after it is too soon.
+  const hidden = new ScreenFlash();
+  hidden.flash(RED, 1, 0);
+  hidden.flash(BLUE, 0.05, FLASH_GAP); // red is 0.09 of its peak by then, and blue only 0.05
+  hidden.flash(GOLD, 1, FLASH_GAP + 0.16);
+  for (let i = 0; i * LOOK < 1.5; i++) {
+    const shown = look(hidden, i * LOOK);
+    assert.ok(shown.amount === 0 || shown.color === RED, `at ${i * LOOK} s the picture is ${shown.color.toString(16)}`);
+  }
+
+  // A flash asked for less than FLASH_GAP after the last one's start is dropped, and so is one asked for before it. One
+  // asked for FLASH_GAP after is let through.
+  const soon = new ScreenFlash();
+  soon.flash(RED, 0.5, 0);
+  soon.flash(BLUE, 1, 0.2);
+  soon.flash(GOLD, 1, FLASH_GAP - 0.001);
+  soon.flash(WHITE, 0.7, FLASH_GAP);
+  soon.flash(BLUE, 1, 0.1);
+  for (const t of [0.2, FLASH_GAP - 0.001]) {
+    const shown = look(soon, t);
+    assert.equal(shown.color, RED, `the flash asked for too soon does not show at ${t}`);
+    assert.ok(near(shown.amount, FLASH_CAP * 0.5 * Math.exp(-7 * t), 1e-12));
+  }
+  const gap = look(soon, FLASH_GAP);
+  assert.equal(gap.color, WHITE);
+  assert.ok(near(gap.amount, FLASH_CAP * 0.7, 1e-12), `${gap.amount} FLASH_GAP after`);
+
+  // clear() ends the flash showing and any waiting for its time.
+  const cleared = new ScreenFlash();
+  cleared.flash(RED, 1, 1);
+  cleared.flash(BLUE, 1, 4);
+  assert.ok(look(cleared, 1).amount > 0);
+  cleared.clear();
+  assert.equal(look(cleared, 1).amount, 0, 'the flash showing is gone');
+  assert.equal(look(cleared, 4).amount, 0, 'and the one that was waiting');
+});
+
+test("clear() starts the clock again: a flash on the new clock is not dropped or held for the old clock's times", () => {
+  // Dropped? The old flash is weak, so that RiseLimit never counted its rise and holds nothing: only the last flash's
+  // start could drop the one on the new clock, which begins at 0.1 s where the old one began at 100.
+  const weak = new ScreenFlash();
+  weak.flash(GOLD, 0.4, 100);
+  assert.ok(look(weak, 100).amount > 0);
+  weak.clear();
+  weak.flash(RED, 1, 0.1);
+  const fresh = look(weak, 0.1);
+  assert.equal(fresh.color, RED);
+  assert.ok(near(fresh.amount, FLASH_CAP, 1e-12), `a flash on the new clock is ${fresh.amount}`);
+
+  // Held? The old flash first showed 0.09 s late, so RiseLimit counts its rise from 100.09, and by 100.3 it is dark
+  // again. The next flash is asked for more than FLASH_GAP after the old one's start, which the rule allows, so only
+  // RiseLimit could hold it: after clear() it does not.
+  const strong = new ScreenFlash();
+  strong.flash(GOLD, 1, 100);
+  look(strong, 100.09);
+  look(strong, 100.3);
+  strong.clear();
+  strong.flash(RED, 1, 100.35);
+  const freed = look(strong, 100.35);
+  assert.ok(near(freed.amount, FLASH_CAP, 1e-12), `after clear() the next flash is ${freed.amount}, not held`);
+  // Without clear() it is held, which shows that clear() is what let it up.
+  const kept = new ScreenFlash();
+  kept.flash(GOLD, 1, 100);
+  look(kept, 100.09);
+  look(kept, 100.3);
+  kept.flash(RED, 1, 100.35);
+  assert.ok(look(kept, 100.35).amount < FLASH_CAP, 'held without clear()');
+});
+
+test('the amount goes through a RiseLimit: a flash first drawn late holds the next back until FLASH_GAP after it first showed', () => {
+  const flash = new ScreenFlash();
+  flash.flash(GOLD, 1, 0);
+  // It is first drawn 0.09 s late, which is where RiseLimit counts its rise from, and by 0.3 s it is dark again.
+  assert.ok(look(flash, 0.09).amount > LIT_ABOVE * FLASH_CAP);
+  assert.ok(look(flash, 0.3).amount < DARK_BELOW * FLASH_CAP);
+  // The next is asked for FLASH_GAP after the first began, which the rule allows, but that is only 0.25 s after the
+  // first showed: RiseLimit holds it down, to DARK_BELOW of its peak, until FLASH_GAP after that.
+  flash.flash(RED, 1, FLASH_GAP);
+  const held = look(flash, FLASH_GAP);
+  assert.equal(held.color, RED);
+  assert.ok(near(held.amount, DARK_BELOW * FLASH_CAP, 1e-12), `held at ${held.amount}`);
+  assert.ok(near(look(flash, 0.4).amount, DARK_BELOW * FLASH_CAP, 1e-12), 'still held');
+  // Let up, it is where the flash has died away to by then, 0.16 s after its start.
+  const freed = look(flash, 0.5);
+  assert.equal(freed.color, RED);
+  assert.ok(near(freed.amount, FLASH_CAP * Math.exp(-7 * (0.5 - FLASH_GAP)), 1e-12), `let up at ${freed.amount}`);
+
+  // RiseLimit is looked at when nothing is showing too, which is how it sees a light go dark. Here the first flash is
+  // let go before any look sees it dark; the second first shows 0.09 s late at 3.09, and is dark again by 3.3; the
+  // third is asked for more than FLASH_GAP after the second began but only 0.26 s after it showed, so it is held.
+  const gone = new ScreenFlash();
+  gone.flash(GOLD, 1, 0);
+  look(gone, 0.09);
+  assert.equal(look(gone, 3).amount, 0, 'the first flash is gone');
+  gone.flash(RED, 1, 3);
+  look(gone, 3.09);
+  look(gone, 3.3);
+  gone.flash(BLUE, 1, 3.35);
+  assert.ok(near(look(gone, 3.35).amount, DARK_BELOW * FLASH_CAP, 1e-12), 'held, though it was nothing that went dark');
+
+  // So flashes asked as soon as the rule lets them (0.35 s apart), the first of them drawn 0.09 s late, rise at most 3
+  // times in any second. With nothing to hold them the rises would come at 0.09, 0.3525, 0.7025 and 1.0525 s, which is
+  // 4 in 0.96 s.
+  const stream = new ScreenFlash();
+  for (let k = 0; k < 20; k++) stream.flash(GOLD, 1, k * 0.35);
+  const levels: number[] = [];
+  const times: number[] = [];
+  for (let i = 0; 0.09 + i * LOOK < 6; i++) {
+    times.push(0.09 + i * LOOK);
+    levels.push(stream.at(times[i]).amount / FLASH_CAP);
+  }
+  const rises = riseTimes(levels, times);
+  assert.ok(rises.length >= 12, `${rises.length} rises in 6 s: it still flashes`);
+  assert.ok(mostInASecond(rises) <= 3, `${mostInASecond(rises)} rises in a second, at ${rises.slice(0, 5)}`);
+});
+
+test('a long run of flashes holds only the one showing and those still to begin, never a list that grows', () => {
+  const flash = new ScreenFlash();
+  /** How many flashes it holds (private: it is what keeps the list from growing without end). */
+  const held = () => (flash as unknown as { held: unknown[] }).held.length;
+  // 20 minutes of the table's time: a flash asked for as it begins every 0.4 s, in three strengths, looked at 60 times
+  // a second. Of all those it holds the one showing and no more.
+  let most = 0;
+  for (let i = 0; i < 20 * 60 * 60; i++) {
+    const t = i / 60;
+    if (i % 24 === 0) flash.flash(GOLD, [0.3, 0.65, 1][(i / 24) % 3], t);
+    flash.at(t);
+    most = Math.max(most, held());
+  }
+  assert.equal(most, 1, 'the flash showing, and nothing before or after it');
+
+  // Flashes asked for ahead of the clock are held till their time and let go after it.
+  const ahead = new ScreenFlash();
+  const heldAhead = () => (ahead as unknown as { held: unknown[] }).held.length;
+  for (let k = 0; k < 5; k++) ahead.flash(WHITE, 1, 100 + k);
+  for (const [t, want] of [[99, 5], [100.5, 5], [101.5, 4], [104.5, 1], [110, 0]]) {
+    ahead.at(t);
+    assert.equal(heldAhead(), want, `${want} held at ${t}`);
+  }
+});
+
+test('at() refills one object, so nothing is made per frame, and shows the same while the clock stands still', () => {
+  const flash = new ScreenFlash();
+  const first = flash.at(0);
+  assert.equal(first.amount, 0);
+  flash.flash(GOLD, 1, 1);
+  const second = flash.at(1);
+  assert.equal(second, first, 'the same object');
+  assert.equal(second.color, GOLD);
+  assert.equal(second.amount, FLASH_CAP);
+  const kept = { ...second };
+  const third = flash.at(1.2);
+  assert.equal(third, first, 'the same object again');
+  assert.ok(near(third.amount, FLASH_CAP * Math.exp(-1.4), 1e-12), 'filled in again');
+  assert.equal(kept.amount, FLASH_CAP, 'a copy kept is not changed by the next call');
+  // The clock standing still: the table has stopped, and so has the flash.
+  const still = { ...third };
+  for (let k = 0; k < 10; k++) assert.deepEqual({ ...flash.at(1.2) }, still);
+  flash.clear();
+  assert.equal(flash.at(1.2), first, 'and after clear()');
+  assert.equal(first.amount, 0);
+});
+
+test('a flash of no strength, or at a time that is not a number, does nothing and holds up no other', () => {
+  const flash = new ScreenFlash();
+  for (const strength of [0, -1, -Infinity, NaN, 1e-9]) flash.flash(RED, strength, 1);
+  for (const at of [NaN, Infinity, -Infinity]) flash.flash(RED, 1, at);
+  assert.equal(look(flash, 1).amount, 0, 'nothing is lit');
+  // None of them counted as the last flash begun: one a moment after is let through.
+  flash.flash(BLUE, 0.5, 1.05);
+  const shown = look(flash, 1.05);
+  assert.equal(shown.color, BLUE);
+  assert.ok(near(shown.amount, 0.5 * FLASH_CAP, 1e-12));
+  // A clock that is not a number draws nothing, and leaves what is showing as it was.
+  for (const t of [NaN, Infinity, -Infinity]) {
+    assert.equal(flash.at(t).amount, 0, `at ${t}`);
+    assert.equal(flash.at(t).color, 0);
+  }
+  assert.deepEqual(look(flash, 1.05), shown);
+});
+
+test('a flash that has been drawn is not made brighter by one asked for its time later; one not yet drawn still merges', () => {
+  // The flash begins at 5 and is drawn 0.1 s in. A flash for the same time that reaches the stage only now would
+  // brighten it in the middle of its dying away, where no flash begins, so it is dropped.
+  const flash = new ScreenFlash();
+  flash.flash(RED, 0.5, 5);
+  const before = look(flash, 5.1);
+  flash.flash(BLUE, 1, 5);
+  assert.deepEqual(look(flash, 5.1), before, 'the same picture');
+  let last = before.amount;
+  for (let i = 1; i * LOOK < 1.5; i++) {
+    const shown = look(flash, 5.1 + i * LOOK);
+    assert.ok(shown.amount <= last, `it brightened at ${5.1 + i * LOOK}`);
+    assert.ok(shown.amount === 0 || shown.color === RED);
+    last = shown.amount;
+  }
+  // Nor is it let through once the flash has gone: that time is still the last flash's start.
+  flash.flash(BLUE, 1, 5);
+  assert.equal(look(flash, 7).amount, 0);
+
+  // A flash whose time is past but that has not been drawn is not drawn yet: its twin still merges by the brighter.
+  const late = new ScreenFlash();
+  late.at(9);
+  late.flash(RED, 0.5, 8.95);
+  late.flash(BLUE, 1, 8.95);
+  const merged = look(late, 9);
+  assert.equal(merged.color, BLUE);
+  assert.ok(near(merged.amount, FLASH_CAP * Math.exp(-7 * 0.05), 1e-12));
 });
 
 let failed = 0;

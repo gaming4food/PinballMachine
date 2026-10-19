@@ -270,17 +270,27 @@ export class PinballScene implements MachineScene {
     this.plate = new THREE.Mesh(
       new THREE.PlaneGeometry(WIDTH, HEIGHT),
       new THREE.ShaderMaterial({
-        uniforms: pictureUniforms(map, look.exposure),
+        uniforms: {
+          ...pictureUniforms(map, look.exposure),
+          // The screen flash (screen-hits.ts): the colour to add over the picture, and how much of it. At 0 the picture
+          // is drawn as it was rendered.
+          uFlash: { value: new THREE.Color(0, 0, 0) },
+          uFlashAmount: { value: 0 },
+        },
         vertexShader: /* glsl */ `
           varying vec2 vUv;
           void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
         fragmentShader: /* glsl */ `
           uniform sampler2D uMap;
+          uniform vec3 uFlash;
+          uniform float uFlashAmount;
           varying vec2 vUv;
           ${INVERSE_ACES_GLSL}
           void main() {
             vec4 texel = texture2D(uMap, vUv);
-            gl_FragColor = vec4(inverseAces(texel.rgb), texel.a);
+            // The flash is added to the picture as it was rendered, before the tone mapping is run back, and by the
+            // picture's alpha, so it lights the table and not the city that shows through the picture's clear parts.
+            gl_FragColor = vec4(inverseAces(texel.rgb + uFlash * uFlashAmount * texel.a), texel.a);
           }`,
         transparent: true,
         depthWrite: false,
