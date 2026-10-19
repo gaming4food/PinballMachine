@@ -93,8 +93,15 @@ export const PYRAMID: Table = {
     // 25, reached the dish, where the old bank held 9 and 20). So it is packed against the doorway: 0.38 wide, the
     // least planned for a plaque, 0.382 apart from 0.427 to 1.570 along, with under 0.01 to spare. The Eye bank can't
     // be packed alike: the left flipper's first shot in pinball-sim-test then lands on a drop target, not round the
-    // right orbit (5 of 10 get up there, where 6 are held). (Provisional, like the toys below, until the quest's toys
-    // are measured on the table.)
+    // right orbit (5 of 10 get up there, where 6 are held).
+    // Measured unattended with the toys down (pinball-play, 300 balls, seed 1), the Ankh bank matches 0.377 times a
+    // ball and the Eye bank 0.273, where main's 0.5-wide banks matched 0.357 and 0.393; the quest's bars, three
+    // quarters of today's, are 0.31 and 0.27. One such run is chance as much as layout: over 12 seeds these average
+    // 0.329 and 0.315 (main's, over 6: 0.377 and 0.365), a run going 0.03 either way, and the Ankh bank's fell under
+    // 0.31 in 3 of the 12. A bank's highest plaque holds its matches back (each bank's lowest is hit 0.78 and 0.93
+    // times a ball, its highest 0.43 and 0.46), and the Ankh bank can't come down its face for the doorway; the Eye
+    // bank moved down its face (0.42 wide at 0.66, 1.09 and 1.52) or widened (0.45 at 0.675, 1.135 and 1.595) averaged
+    // the same over 12 seeds (0.319 and 0.316), so both stay as they are.
     { id: 'target-ankh-1', x: -0.935, z: 6.087, width: 0.38, points: 300, angle: 135, flip: true },
     { id: 'target-ankh-2', x: -1.205, z: 6.357, width: 0.38, points: 300, angle: 135, flip: true },
     { id: 'target-ankh-3', x: -1.475, z: 6.627, width: 0.38, points: 300, angle: 135, flip: true },
@@ -102,10 +109,25 @@ export const PYRAMID: Table = {
     { id: 'target-eye-2', x: 0.484, z: 6.436, width: 0.42, points: 300, angle: 45, flip: true },
     { id: 'target-eye-3', x: 0.802, z: 6.754, width: 0.42, points: 300, angle: 45, flip: true },
     // The quest's toys, after the fourteen above: the snapshot header's bit for each of those must not move. These
-    // start down (no wall, nothing to hit) and the game raises them. The three pop-ups run up the open floor right of
-    // the pyramid, each stepped down the table and out from the one before, and drop when hit; the mummy stands in the
-    // left lane, taller and thicker than the rest, and stays up when hit, scoring every hit. (All four spots are
-    // provisional: the toys are to be measured on the table, and these placed from the measurements.)
+    // start down (no wall, nothing to hit) and the game raises them; down, they change nothing (an unattended run plays
+    // ball for ball the same wherever they stand). Round each, up and down, none of 60 balls dropped sticks and none of
+    // 120 shots gets off the table (pinball-layout-test). Kept up (pinball-play toys=up, 300 balls, seed 1), the
+    // pop-ups are hit 8.13 times and the mummy 5.09 per 30 s of play, where the quest's modes need 1.5 of each (seeds 2
+    // and 3: 8.62 and 8.64, 4.97 and 5.19).
+    // The three pop-ups run up the open floor right of the pyramid, 0.58 apart, each stepped down the table and out
+    // from the one before, along -30 degrees as the drop targets and the Horus bank above them, and drop when hit. They
+    // stand in the left flipper's commonest shot, round the right orbit (222 of 400 real flips take it; with them up,
+    // none of those gets round), which crosses their row at the third: of the 366 flips that hit a pop-up first, 215
+    // hit the third, 96 the first and 55 the middle one. The shot crosses heading 51 to 53.5 degrees (10 to 90%), 9 off
+    // square to their faces; turned square to it (-39 degrees) or to -35, spaced 0.62, or moved 0.14 up and left, the
+    // split stayed about the same (the most changed, 74/50/242), so they stay as first sketched.
+    // The mummy, taller and thicker than the rest, stands in the left lane across the right flipper's shots up the left
+    // ramp, and stays up when hit, scoring every hit. Of 400 real flips, the 77 that go up the ramp cross its line 0.1
+    // from its middle (10 to 90%: 0.4 either side), heading 116 degrees (the median; square to its face is 120), and
+    // with it up none of them gets up the ramp; the 220 that go round the left orbit pass its left end, and 188 still
+    // do with it up. It is hit by 199 of the 400. Moved down and left along its line it stops more of the orbit's shots
+    // and then fewer of the ramp's (0.15 along: none of the ramp's and 54 of the orbit's get past it; 0.25: 25 and
+    // none; 0.35: 55 and 8), so it stays as sketched.
     { id: 'target-popup-1', x: 1.35, z: 6.75, width: 0.5, points: 500, angle: -30, rise: 'drop' },
     { id: 'target-popup-2', x: 1.85, z: 6.45, width: 0.5, points: 500, angle: -30, rise: 'drop' },
     { id: 'target-popup-3', x: 2.35, z: 6.15, width: 0.5, points: 500, angle: -30, rise: 'drop' },
@@ -154,8 +176,10 @@ export const PYRAMID: Table = {
     // the table no flip went up it. The mouth sits above the pyramid's left corner, clear of it; at (-2.95, 8.4) the old
     // straight ramp lost half the shots up it. It rises on a smooth profile from the playfield, because a kink in a ramp's
     // slope takes a ball's speed like a step.
+    // Its right (east) rail is left out between path points 13 and 16 (counting from 0 at its mouth; z 12.12 to 13.04,
+    // a segment below its top): the diverter's gap, where the diverter's gate stands (diverter, below).
     {
-      id: 'ramp-left', width: 0.8, flare: 0.2, rail: 0.45,
+      id: 'ramp-left', width: 0.8, flare: 0.2, rail: 0.45, opening: { side: 'right', from: 13, to: 16 },
       path: [
         [-2.954, 8.175, 0], [-3.044, 8.465, 0.008], [-3.113, 8.761, 0.031],
         [-3.167, 9.06, 0.066], [-3.21, 9.361, 0.112], [-3.245, 9.662, 0.167],
@@ -171,10 +195,8 @@ export const PYRAMID: Table = {
     // ball on it always leaves it. (An S-hump in the orbit lane itself trapped balls: a pocket against the shooter's gate,
     // and a valley at the hump's foot.) It goes east from the dish and gently down the table from there on: its first run
     // went up the table, and a ball leaving the dish ran out of speed on it and rolled back.
-    // Its right (south) rail is left out between its first and third points, from the dish to x -1.8: the diverter's
-    // gap, where the diverter's gate stands (diverter, below).
     {
-      id: 'ramp-right', width: 0.6, rail: 0.45, skirt: false, opening: { side: 'right', from: 0, to: 2 },
+      id: 'ramp-right', width: 0.6, rail: 0.45, skirt: false,
       path: [
         [-2.55, 14.35, 0.8], [-2.172, 14.345, 0.799], [-1.794, 14.34, 0.799],
         [-1.415, 14.335, 0.798], [-1.037, 14.33, 0.798], [-0.659, 14.32, 0.797],
@@ -225,22 +247,35 @@ export const PYRAMID: Table = {
   // (-0.4, 5.68), just in front of the door's line (a ball's radius and 0.02 in front of the door's face, which is 0.08
   // in front of the line; the jambs' ends are further off), then kicks it out down the table, a little to the left
   // (toward the left flipper, not down the middle into the drain) at 11 units/s. A doorway a ball fits would push the
-  // Ankh bank into the left ramp's shot. wallsWithTomb cuts the pyramid's wall open there and closes a pocket behind
-  // it. (Provisional, as the toys' spots are.)
+  // Ankh bank into the left ramp's shot (and one narrowed to 0.58, the least allowed, would give each bank only 0.014
+  // more of its face). wallsWithTomb cuts the pyramid's wall open there and closes a pocket behind it.
+  // The kick's line passes 0.26 from the Eye of Ra magnet below, at 10.7 units/s, slower than the 12 it holds a ball
+  // under, so the saucers ignore a ball fresh out of the tomb a moment (sim.ts) and the kick stays as it is: of 20
+  // balls caught and kicked out with the flippers in 20 states, all 20 come within a flipper's reach and none drains
+  // without touching a flipper or a sling first (pinball-layout-test). The two share the centre lane: with the tomb
+  // open, of 45 balls rolled up it at 6 to 20 units/s, the magnet takes the 24 at 13 and under and the tomb the 21 from
+  // 14 up. Kept open (pinball-play toys=up, 300 balls, seed 1) it catches 0.95 balls per 30 s of play, where its mode
+  // needs 0.5 (seeds 2 and 3: 1.00 and 0.91).
   tomb: { id: 'tomb', x: -0.4, z: 6.05, width: 0.6, held: [-0.4, 5.68], hold: 1.0, eject: [-0.45, -1], speed: 11, points: 1000 },
-  // The diverter: a gold gate that is the right S-ramp's south rail across its gap, where the ramp leaves the dish. The
-  // ramp's first run is level across the table's slope, so a ball on it leans on that rail, and the ramp is only 0.06
-  // wider than a ball: a gap left open dropped balls (5 of 20 from the dish fell out through the first gap tried, x
-  // -2.17 to -1.42), and a gate standing inside the rail's line left a ball no room (the first one, at rest along the
-  // upper rail, stopped all 20). So the gate is hinged at the gap's far end, a wall's half-thickness out from the edge,
-  // and at rest it lies back along the gap to the dish, the gap's length (0.756), its face on the rail's own line (the
-  // edge runs 0.76 degrees south of east): at rest the ramp runs as before (of a 140-ball grid from the dish, the 81
-  // that ride it today ride it, 2 more that entered against the rail's start, and they take 2.41 s to its end against
-  // 2.39). Swung over 60 degrees, its free end 0.07 short of the upper rail, it stands across the ramp: a ball leaving
-  // the dish meets its face and is turned out through the gap (72 of the 81; the rest roll off through the gap before
-  // they get to it), and drops above the lock (off that edge anywhere from x -2.5 to -1.9 a ball reaches it), all 81
-  // within 1 s. At 45 degrees its free end reached up into the dish's mouth and balls bounced back in off it (none of
-  // 10 reached the lock); swung less than 60, a ball along the upper rail meets the corner of its end rather than its
-  // face. (Provisional, as the toys' spots are.)
-  diverter: { id: 'diverter', ramp: 'ramp-right', pivot: [-1.799, 13.96], length: 0.756, restDeg: 179.24, overDeg: 119.24 },
+  // The diverter: a gold gate that is the left ramp's east (right-hand) rail across its gap (path points 13 to 16, z
+  // 12.12 to 13.04, a segment below the ramp's top end). It was first put on the right S-ramp, where that leaves the
+  // dish, but no ball leaves the dish east (none in 200 played balls), and every ball that gets to the dish comes up
+  // this ramp. It is hinged at the gap's far end, a wall's half-thickness out from the rail's edge, standing on the
+  // ramp's floor there (0.792 up, so its lower end clears the floor by 0.10), and at rest it lies back along the gap,
+  // the gap's length (0.9276), its face on the rail's line at the gap's ends and 0.004 inside it at the two path points
+  // between (the ramp curves; the gate is straight): at rest every one of the layout test's 35 shots up the ramp, 300
+  // random ones and 400 real right-flipper flips ends as it does with no gate. Swung over 60 degrees (in 0.15 s), its
+  // free end 0.033 short of the west rail's line, it stands across the ramp: a ball going up meets its face, is turned
+  // out through the gap and drops into the lock beside the ramp's top. Of the shots that reach it, 27 of the layout
+  // test's 29, 107 of 112 random ones and 72 of 74 real flips go in; of 105 balls rolled up the ramp at 6 to 32
+  // units/s, the 62 that reach it all leave through the gap, 61 into the lock. None gets past it, and no ball leaves
+  // the ramp but through the gap or back down at its mouth (pinball-sim-test). Tried too: the gap from 14 to the top
+  // (the hinge on the dish's rim) did as well (29 of 29, 105 of 112, 72 of 74); from 12 to 15, a third of the balls it
+  // turned out dropped below the lock (20 of 29 went in); a gate four segments long (13 to the top) reached past the
+  // west rail swung 42 degrees or more, and at 41, short of it, turned only 64 of the 74 flips in; swung 55, 65 or 70
+  // degrees, fewer went in (102, 100 and 96 of 112), at 65 and more because shots heading up and west met its face
+  // square near its free end and stopped dead. Over, it shuts the ramp across, and a ball that came down onto its back
+  // from the dish or the ramp above it would be wedged against the west rail (all 40 let go there were), so it won't
+  // swing over while a ball is on its ramp or in the dish (sim.ts).
+  diverter: { id: 'diverter', ramp: 'ramp-left', pivot: [-3.0794, 13.0535], length: 0.9276, restDeg: -83.379, overDeg: -143.379 },
 };

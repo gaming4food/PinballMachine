@@ -2,14 +2,18 @@
 // travelled at its rate, no ball gets off it, and nothing keeps a ball. These are the Blender spike's checks of the
 // layout (spike/blender/validate-layout10.mts and check-upper.mts) turned into assertions, at the spike's thresholds.
 // Each check stands alone: a table of its own, and the seeded random started again (seed 7; seed 3 for the drops round
-// the upper flipper), so a failing check can be run again to look into, whatever the others do. The aimed shots (the
-// orbits, the lock, the left ramp, the right spinner, the centre lane) have no random in them: ten shots each, with a
-// fixed spread across ±5% of the aim (SPREAD). It runs in well under a minute, and prints one line per check.
-// Usage: npm run pinball-layout-test (or npx tsx tests/pinball-layout-test.ts)
+// the upper flipper, and a seed each for the drops and the shots round each of the quest's toys), so a failing check
+// can be run again to look into, whatever the others do. The aimed shots (the orbits, the lock, the left ramp, the
+// right spinner, the centre lane) have no random in them: ten shots each, with a fixed spread across ±5% of the aim
+// (SPREAD). The quest's toys (the pop-ups, the mummy, the tomb and the diverter's gate) are checked up and down: no
+// ball stuck or got off the table round them, the left ramp as it was with them down, the tomb's kick to a flipper,
+// the gate's shots into the lock, and how the magnet and the tomb share the centre lane. It runs in about a minute,
+// and prints one line per check.
+// Usage: npm run pinball-layout-test [-- <words>: only the checks whose names hold them]
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
-import { DT, PinballSim, type Hit } from '../src/server/sim';
-import { TABLE, TABLE_IN_USE as L } from '../src/shared/table';
+import { DT, PinballSim, WALL_HALF, type Hit } from '../src/server/sim';
+import { FLIPPER_SHAPE, flipperTip, TABLE, TABLE_IN_USE as L, wallsWithTomb, type Table, type Target } from '../src/shared/table';
 
 await initPhysics();
 
@@ -114,6 +118,170 @@ function fire(x: number, z: number, vx: number, vz: number, seconds: number, goa
 const count = (shots: { ok: boolean }[]) => shots.filter((s) => s.ok).length;
 const top = (p: P) => p.z > LENGTH - 1.4;
 const has = (pred: (h: Hit) => boolean) => (_p: P, h: Hit[]) => h.some(pred);
+
+// --- The quest's toys ---
+
+const R = TABLE.ballRadius;
+/** The walls as the physics builds them: the tomb's doorway cut into the pyramid, and its jambs. */
+const WALLS = wallsWithTomb(L);
+const RISING = L.targets.filter((t) => t.rise);
+const POPUPS = RISING.filter((t) => t.rise === 'drop');
+const MUMMY = RISING.find((t) => t.rise === 'hold')!;
+const TOMB = L.tomb!;
+const GATE = L.diverter!;
+const GATE_RAMP = L.ramps.find((r) => r.id === GATE.ramp)!;
+
+/** The distance from p to the segment a-b, in (x, z). */
+function segDist(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dz);
+}
+/** A target's face, end to end, as the physics stands it: at its angle, or along the wall nearest it. */
+function faceOf(t: Target): [[number, number], [number, number]] {
+  let ux: number, uz: number;
+  if (t.angle !== undefined) [ux, uz] = [Math.cos((t.angle * Math.PI) / 180), Math.sin((t.angle * Math.PI) / 180)];
+  else {
+    let best = Infinity;
+    [ux, uz] = [0, 1];
+    for (const w of WALLS) for (let i = 0; i + 1 < w.points.length; i++) {
+      const d = segDist([t.x, t.z], w.points[i], w.points[i + 1]);
+      if (d >= best) continue;
+      best = d;
+      const [a, b] = [w.points[i], w.points[i + 1]], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      [ux, uz] = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    }
+  }
+  const h = t.width / 2;
+  return [[t.x - h * ux, t.z - h * uz], [t.x + h * ux, t.z + h * uz]];
+}
+/** The gate's middle line, from its pivot, at an angle. */
+const gateLine = (deg: number): [[number, number], [number, number]] =>
+  [GATE.pivot, [GATE.pivot[0] + GATE.length * Math.cos((deg * Math.PI) / 180), GATE.pivot[1] + GATE.length * Math.sin((deg * Math.PI) / 180)]];
+/**
+ * Whether a ball can be put down at (x, z) on the playfield: not in a solid (inSolid), and clear by a little more than
+ * its radius of every wall (the doorway cut in), every target (each toy as if raised), every bumper, sling and flipper,
+ * and the gate wherever it swings. A ball made inside a collider stays wedged there: not a trap of the table's.
+ */
+function fits(x: number, z: number): boolean {
+  if (inSolid(x, z)) return false;
+  const room = R + 0.03;
+  const p: [number, number] = [x, z];
+  for (const w of WALLS) for (let i = 0; i + 1 < w.points.length; i++) if (segDist(p, w.points[i], w.points[i + 1]) < room + WALL_HALF) return false;
+  for (const t of L.targets) if (segDist(p, ...faceOf(t)) < room + (t.depth ?? 0.2) / 2) return false;
+  for (const b of L.bumpers) if (!b.y0 && Math.hypot(x - b.x, z - b.z) < b.radius + room) return false;
+  for (const s of L.slings) if (segDist(p, s.a, s.b) < room + WALL_HALF) return false;
+  for (const f of L.flippers) if (segDist(p, f.pivot, flipperTip(f)) < room + FLIPPER_SHAPE.baseRadius) return false;
+  return true;
+}
+/** A spot on the gate's ramp, `k` path points up it (fractional) and `across` east of its centre line, on its floor. */
+function onGateRamp(k: number, across: number): P {
+  const P = GATE_RAMP.path, i = Math.min(P.length - 2, Math.floor(k)), u = k - i;
+  const [ax, az, ay] = P[i], [bx, bz, by] = P[i + 1];
+  const l = Math.hypot(bx - ax, bz - az), ex = (bz - az) / l, ez = -(bx - ax) / l;
+  return { x: ax + u * (bx - ax) + across * ex, y: ay + u * (by - ay) + R + 0.02, z: az + u * (bz - az) + across * ez };
+}
+
+/** Every toy up, as the game raises them, with no ball on the table yet: the pop-ups, the mummy, the tomb, the gate. */
+function raiseToys(): void {
+  for (const t of RISING) sim.raiseTarget(t.id);
+  sim.openTomb();
+  assert.ok(sim.setDiverter(true), 'with no ball on the table the gate swings over');
+  for (let i = 0; i < 0.25 / DT; i++) sim.step();
+}
+/** Kept up, as pinball-play's toys=up keeps them: a pop-up knocked down rises again once the ball is clear of it. */
+function keepUp(): void {
+  for (const t of POPUPS) sim.raiseTarget(t.id);
+}
+/** Every toy down again: the pop-ups and the mummy lowered, the tomb shut and the gate back at rest. */
+function lowerToys(): void {
+  for (const t of RISING) sim.lowerTarget(t.id);
+  assert.ok(sim.closeTomb(), 'with no ball on the table the tomb shuts');
+  assert.ok(sim.setDiverter(false), 'and the gate swings back');
+  for (let i = 0; i < 0.25 / DT; i++) sim.step();
+}
+
+/**
+ * Where balls are dropped and fired round each toy, a spot at random each time (up: whether the toys are up). Round
+ * the three pop-ups, the mummy and the tomb's mouth, anywhere a ball fits within 0.9 of them. Round the gate, half up
+ * on its ramp (path points 10 to the top, across the strip a ball's centre has between the rails) and half on the
+ * playfield where a ball the gate turns out drops (round the lock); with the gate over, only below it on the ramp: it
+ * won't swing over while a ball is on its ramp or in the dish above it, and over, none gets past it (pinball-sim-test),
+ * so no ball is ever above it then.
+ */
+const ZONES: { name: string; spot: (up: boolean) => P }[] = [
+  { name: 'the pop-ups', spot: () => inBox(POPUPS, 0.9) },
+  { name: 'the mummy', spot: () => inBox([MUMMY], 0.9) },
+  { name: "the tomb's mouth", spot: () => inBox([{ x: TOMB.x, z: TOMB.z - 0.45 }], 0.9) },
+  {
+    name: 'the gate',
+    spot: (up) => {
+      if (Math.random() < 0.5) return inBox([{ x: -2.5, z: 12.5 }], 0.75);
+      for (;;) {
+        const p = onGateRamp(10 + Math.random() * ((up ? 12.8 : GATE_RAMP.path.length - 1.05) - 10), (Math.random() - 0.5) * 0.22);
+        if (segDist([p.x, p.z], ...gateLine(up ? GATE.overDeg : GATE.restDeg)) > R + WALL_HALF + 0.03) return p;
+      }
+    },
+  },
+];
+/** A spot where a ball fits within `pad` of the box round some parts, on the playfield. */
+function inBox(parts: { x: number; z: number }[], pad: number): P {
+  const xs = parts.map((p) => p.x), zs = parts.map((p) => p.z);
+  const [x0, x1, z0, z1] = [Math.min(...xs) - pad, Math.max(...xs) + pad, Math.min(...zs) - pad, Math.max(...zs) + pad];
+  for (;;) {
+    const x = x0 + Math.random() * (x1 - x0), z = z0 + Math.random() * (z1 - z0);
+    if (fits(x, z)) return { x, y: R, z };
+  }
+}
+
+/** Whether a ball at p touches a flipper as it stands now: within 0.02 of its shape (round at its pivot and tip). */
+function touchesFlipper(p: P): boolean {
+  const angles = sim.flipperAngles();
+  return L.flippers.some((f, i) => {
+    const a = (angles[i] * Math.PI) / 180, reach = f.length - FLIPPER_SHAPE.tipRadius;
+    const ux = Math.cos(a), uz = Math.sin(a), rx = p.x - f.pivot[0], rz = p.z - f.pivot[1];
+    const t = Math.max(0, Math.min(reach, rx * ux + rz * uz));
+    const thick = FLIPPER_SHAPE.baseRadius + ((FLIPPER_SHAPE.tipRadius - FLIPPER_SHAPE.baseRadius) * t) / reach;
+    return Math.hypot(rx - t * ux, rz - t * uz) < thick + R + 0.02;
+  });
+}
+
+/** Up on the gate's ramp past the start of the gap in its rail: the shot has reached the gate. */
+function atTheGate(p: P): boolean {
+  const P = GATE_RAMP.path;
+  for (let i = GATE_RAMP.opening!.from; i + 1 < P.length; i++) {
+    const [ax, az, ay] = P[i], [bx, bz, by] = P[i + 1];
+    const dx = bx - ax, dz = bz - az, u = ((p.x - ax) * dx + (p.z - az) * dz) / (dx * dx + dz * dz);
+    if (u < 0 || u > 1) continue;
+    if (Math.hypot(p.x - ax - u * dx, p.z - az - u * dz) < GATE_RAMP.width / 2 && p.y > ay + u * (by - ay) + R - 0.06) return true;
+  }
+  return false;
+}
+/** The left ramp's shots (the fixed spread, then the 5 x 5 grid), fired on a table: each one's end, and whether it
+ * reached the gate and went into the lock on the way. */
+const GRID = [0.95, 0.975, 1, 1.025, 1.05];
+const RAMP_SHOTS: [number, number][] = [...SPREAD.map(([a, b]) => [a, b] as [number, number]), ...GRID.flatMap((a) => GRID.map((b) => [a, b] as [number, number]))];
+function rampShots(table: Table, prepare: () => void): { dish: boolean; top: boolean; gate: boolean; lock: boolean }[] {
+  return RAMP_SHOTS.map(([fx, fz]) => {
+    // Each on a table of its own, so none depends on where an earlier one left the gate.
+    hits = [];
+    sim = new PinballSim(table, (h) => hits.push(h));
+    prepare();
+    const id = add(-0.1, 3.0, -23 * fx, 44 * fz);
+    const shot = { dish: false, top: false, gate: false, lock: false };
+    for (let i = 0; i < 3 / DT; i++) {
+      sim.step();
+      const p = pos(id);
+      if (!p) break;
+      if (atLeftRampTop(p)) shot.top = true;
+      if (atTheGate(p)) shot.gate = true;
+      if (hits.some((h) => h.kind === 'lock' && h.ball === id)) shot.lock = true;
+      if (onDish(p)) { shot.dish = true; break; }
+    }
+    return shot;
+  });
+}
+const code = (s: { dish: boolean; top: boolean }) => (s.dish ? 'D' : s.top ? 'T' : '-');
 
 const checks: [string, () => string][] = [
   ['60 launches', () => {
@@ -369,8 +537,219 @@ const checks: [string, () => string][] = [
     assert.deepEqual(stuck, [], `${stuck.length} of 120 were still above z 4 after 30 s`);
     return '0/120 still above z 4 after 30 s';
   }],
+  ['60 balls dropped round each toy, up and down: none stuck, none out', () => {
+    // Up is every toy up and kept so (a pop-up knocked down raised again once the ball is clear of it), as play with
+    // the quest's modes will have them; down is the table as it plays today. A ball still on the table after 60 s and
+    // not lying on a flipper is stuck (one lying still on a flipper for a second stays there: nothing flips here).
+    const lines: string[] = [];
+    const bad: string[] = [];
+    ZONES.forEach((zone, z) => {
+      for (const up of [false, true]) {
+        fresh(21 + 2 * z + +up);
+        let drained = 0, onFlipper = 0;
+        for (let n = 0; n < 60; n++) {
+          reset();
+          if (up) raiseToys();
+          const s = zone.spot(up);
+          const id = dropAt(s.x, s.y, s.z, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+          let end = 'stuck', still = 0;
+          for (let i = 0; i < 60 / DT; i++) {
+            sim.step();
+            if (up) keepUp();
+            const p = pos(id);
+            if (!p) { end = 'drained'; break; }
+            if (escaped(p)) { end = 'out'; break; }
+            const v = sim.items.get(id)!.body.linvel();
+            still = onAFlipper(p) && Math.hypot(v.x, v.y, v.z) < 0.05 ? still + 1 : 0;
+            if (still > 1 / DT) { end = 'on a flipper'; break; }
+          }
+          if (end === 'drained') drained++;
+          else if (end === 'on a flipper') onFlipper++;
+          else {
+            const p = pos(id)!;
+            bad.push(`${zone.name} ${up ? 'up' : 'down'}: from (${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)}) ${end} at (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})${sim.heldBy(id) ? `, held by the ${sim.heldBy(id)}` : ''}`);
+          }
+        }
+        lines.push(`${zone.name} ${up ? 'up' : 'down'} ${drained}+${onFlipper}`);
+      }
+    });
+    assert.deepEqual(bad, [], `${bad.length} stuck or out:\n${bad.slice(0, 6).join('\n')}`);
+    return `none stuck, none out (drained + lying on a flipper: ${lines.join(', ')})`;
+  }],
+  ['120 shots from round each toy, up and down: none gets off the table', () => {
+    const lines: string[] = [];
+    const bad: string[] = [];
+    ZONES.forEach((zone, z) => {
+      for (const up of [false, true]) {
+        fresh(41 + 2 * z + +up);
+        let esc = 0;
+        for (let n = 0; n < 120; n++) {
+          reset();
+          if (up) raiseToys();
+          const s = zone.spot(up);
+          const a = Math.random() * Math.PI * 2, v = 5 + Math.random() * 55;
+          const id = dropAt(s.x, s.y, s.z, Math.cos(a) * v, Math.sin(a) * v);
+          for (let i = 0; i < 3 / DT; i++) {
+            sim.step();
+            if (up) keepUp();
+            const p = pos(id);
+            if (!p) break;
+            if (escaped(p)) {
+              esc++;
+              if (bad.length < 5) bad.push(`${zone.name} ${up ? 'up' : 'down'}: from (${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)}) at ${v.toFixed(1)} u/s: at (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})`);
+              break;
+            }
+          }
+        }
+        lines.push(`${zone.name} ${up ? 'up' : 'down'} ${esc}`);
+      }
+    });
+    assert.deepEqual(bad, [], `shots got off the table:\n${bad.join('\n')}`);
+    return `0 of 120 got off the table round each (${lines.join(', ')})`;
+  }],
+  ['the left ramp with the toys down', () => {
+    // Every toy raised and then put away again (the gate swung over and back), and then the tripwire's shots, on one
+    // table as 'the shot up the left ramp' fires them: down, the toys are no part of the ramp's way, and the gate at
+    // rest is its rail.
+    fresh(7);
+    raiseToys();
+    lowerToys();
+    const shots = SPREAD.map(([fx, fz]) => {
+      reset();
+      const id = add(-0.1, 3.0, -23 * fx, 44 * fz);
+      let met = false;
+      for (let i = 0; i < 3 / DT; i++) {
+        sim.step();
+        const p = pos(id);
+        if (!p) break;
+        if (atLeftRampTop(p)) met = true;
+        if (onDish(p)) return 'D';
+      }
+      return met ? 'T' : '-';
+    }).join('');
+    let grid = 0;
+    for (const a of GRID) {
+      for (const b of GRID) {
+        reset();
+        const id = add(-0.1, 3.0, -23 * a, 44 * b);
+        for (let i = 0; i < 3 / DT; i++) {
+          sim.step();
+          const p = pos(id);
+          if (!p) break;
+          if (onDish(p)) { grid++; break; }
+        }
+      }
+    }
+    const dish = [...shots].filter((c) => c === 'D').length;
+    // The tripwire's own bars ('the shot up the left ramp'): investigate a failure, don't lower them.
+    assert.ok(dish >= 9, `only ${dish}/10 reached the dish (per shot: ${shots})`);
+    assert.ok(grid >= 20, `only ${grid}/25 of the grid reached the dish`);
+    return `${dish}/10 reached the dish (per shot: ${shots}); ${grid}/25 of the grid`;
+  }],
+  ['the tomb kicks a ball out to a flipper', () => {
+    // Twenty balls rolled up the centre lane into the open tomb (from a spread of spots across the lane, fast enough
+    // to pass over the magnet), each held and kicked out with the flippers in another state: each up or down at the
+    // kick, and from then on flapping now and then, as the escape check's do. Each is followed from its kick until it
+    // drains or 4 s have passed. Within a flipper's reach is where nearFlipper says (its sweep, and 15 degrees past
+    // it), or touching a flipper: a flipper rising under a ball over its base bats it, or cradles it there, before
+    // it's in the sweep (2 of these 20 kicks, measured 2026-10-18).
+    fresh(7);
+    let near = 0;
+    const each: string[] = [];
+    const bad: string[] = [];
+    for (let n = 0; n < 20; n++) {
+      reset();
+      sim.openTomb();
+      const up = { left: n % 2 === 1, right: n % 4 >= 2 };
+      sim.flip('left', up.left);
+      sim.flip('right', up.right);
+      const v = 15 + (n % 5) * 2;
+      const id = add(TOMB.x + ((n % 7) - 3) * 0.03, 3.6, 0, v);
+      sim.items.get(id)!.body.setAngvel({ x: v / R, y: 0, z: 0 }, true);
+      for (let i = 0; i < 1 / DT && sim.heldBy(id) !== 'tomb'; i++) sim.step();
+      assert.equal(sim.heldBy(id), 'tomb', `ball ${n}: the tomb caught it`);
+      for (let i = 0; i < 2 / DT && sim.heldBy(id) === 'tomb'; i++) sim.step();
+      assert.equal(sim.heldBy(id), null, `ball ${n}: the tomb kicked it out`);
+      hits = [];
+      let reached = false, touched = false, end = 'on the table';
+      for (let i = 0; i < 4 / DT; i++) {
+        for (const side of ['left', 'right'] as const) {
+          if (Math.random() < 0.04) {
+            up[side] = !up[side];
+            sim.flip(side, up[side]);
+          }
+        }
+        sim.step();
+        const p = pos(id);
+        if (!p) { end = 'drained'; break; }
+        const onFlipper = touchesFlipper(p);
+        if (sim.nearFlipper(id) || onFlipper) reached = true;
+        if (onFlipper || hits.some((h) => h.kind === 'sling' && h.ball === id)) touched = true;
+      }
+      near += +reached;
+      each.push(reached ? 'F' : end === 'drained' ? 'd' : '-');
+      if (end === 'drained' && !touched) bad.push(`ball ${n} drained without touching a flipper or a sling`);
+    }
+    assert.deepEqual(bad, [], bad.join('\n'));
+    assert.ok(near >= 18, `only ${near}/20 came within a flipper's reach (per ball, F a flipper, d drained, - neither: ${each.join('')})`);
+    return `${near}/20 came within a flipper's reach, none drained without touching a flipper or a sling (${each.join('')})`;
+  }],
+  ['the gate over sends 9 of 10 left-ramp shots into the lock; at rest the left ramp is as before', () => {
+    // The tripwire's shots up the left ramp, the fixed spread and the grid, each on a table of its own: with the gate
+    // at rest each ends as it does on the table with no gate and no gap in the rail (D the dish, T its top only, -
+    // neither); with it over (and the other toys down: the mummy up stands in this shot), at least 9 in 10 of those
+    // that reach the gate go into the lock, and the shots that make the dish today all reach it.
+    const bare: Table = { ...L, diverter: undefined, ramps: L.ramps.map((r) => (r.id === GATE.ramp ? { ...r, opening: undefined } : r)) };
+    const before = rampShots(bare, () => {}).map(code).join('');
+    const rest = rampShots(L, () => {}).map(code).join('');
+    const over = rampShots(L, () => {
+      assert.ok(sim.setDiverter(true), 'with no ball on the table the gate swings over');
+      for (let i = 0; i < 0.25 / DT; i++) sim.step();
+    });
+    const reached = over.filter((s) => s.gate), locked = reached.filter((s) => s.lock).length;
+    const each = over.map((s) => (s.gate ? (s.lock ? 'L' : 'g') : s.dish ? 'D' : '-')).join('');
+    assert.equal(rest, before, 'at rest, every shot ends as it does with no gate');
+    assert.equal(over.filter((s) => s.dish).length, 0, `with the gate over no shot reaches the dish (${each})`);
+    const dishToday = [...before].filter((c) => c === 'D').length;
+    assert.ok(reached.length >= dishToday, `only ${reached.length} reached the gate, where ${dishToday} make the dish with no gate (${each})`);
+    assert.ok(locked >= 0.9 * reached.length, `only ${locked} of the ${reached.length} that reached the gate went into the lock (per shot, L the lock, g the gate only, - neither: ${each})`);
+    return `at rest as with no gate (${rest.slice(0, 10)} ${rest.slice(10)}); over, ${locked} of the ${reached.length} that reached the gate into the lock (${each.slice(0, 10)} ${each.slice(10)})`;
+  }],
+  ['the magnet and the tomb share the centre lane', () => {
+    // With the tomb open: balls rolled up the centre lane from z 3.6 (across its middle, at 6 to 20 units/s, rolling)
+    // are each the magnet's or the tomb's, the slow ones the magnet's (it holds a ball under 12 units/s) and the fast
+    // ones the tomb's; none goes on past both. (The magnet's own check, above, is with the tomb shut.)
+    fresh(7);
+    const speeds = Array.from({ length: 15 }, (_, k) => 6 + k);
+    const byMagnet: number[] = [], byTomb: number[] = [];
+    const neither: string[] = [];
+    for (const v of speeds) {
+      for (const dx of [-0.06, 0, 0.06]) {
+        reset();
+        sim.openTomb();
+        const id = add(TOMB.x + dx, 3.6, 0, v);
+        sim.items.get(id)!.body.setAngvel({ x: v / R, y: 0, z: 0 }, true);
+        let who = '';
+        for (let i = 0; i < 1.5 / DT && !who && pos(id); i++) {
+          sim.step();
+          const h = hits.find((x) => x.ball === id && (x.kind === 'tomb' || (x.kind === 'saucer' && x.id === MAGNET.id)));
+          if (h) who = h.kind;
+        }
+        if (who === 'tomb') byTomb.push(v);
+        else if (who === 'saucer') byMagnet.push(v);
+        else neither.push(`${v} at ${dx}`);
+      }
+    }
+    assert.deepEqual(neither, [], `rolled up the lane, ${neither.length} went to neither (speed at offset): ${neither.join(', ')}`);
+    const magnetMax = Math.max(...byMagnet), tombMin = Math.min(...byTomb);
+    assert.ok(magnetMax < tombMin, `the magnet took one at ${magnetMax} and the tomb one at ${tombMin}: they don't split by speed`);
+    return `of ${speeds.length * 3} rolled up the lane at 6 to 20 units/s, the magnet took ${byMagnet.length} (up to ${magnetMax}), the tomb ${byTomb.length} (from ${tombMin})`;
+  }],
 ];
 
+// `npm run pinball-layout-test -- <words>` runs only the checks whose names hold them.
+const only = process.argv.slice(2).join(' ');
+if (only) checks.splice(0, checks.length, ...checks.filter(([name]) => name.includes(only)));
 const started = Date.now();
 let failed = 0;
 for (const [name, check] of checks) {

@@ -605,11 +605,12 @@ export class PinballGame implements Machine {
 
   /**
    * Asks for a toy up (the pop-ups or the mummy raised, the tomb open, the gate swung over) or down (put away). The
-   * game moves it from the next step on, and never into a ball: a pop-up or the mummy isn't raised where a ball
-   * stands, the door isn't shut on a ball in the doorway or held there, the gate isn't swung while a ball is in its
-   * sweep. What a ball is in the way of waits, and is tried again every step (moveToys). It is a request to move, not
-   * a standing order: a pop-up a ball knocks down stays down until it is asked up again (a mode that wants all three
-   * down needs it so). The mummy asked up afresh has taken no hits; asked up again while up, it keeps its count.
+   * game moves it from the next step on, and never into a ball: a pop-up or the mummy isn't raised where a ball stands,
+   * the door isn't shut on a ball in the doorway or held there, the gate isn't swung while a ball is in its sweep (nor
+   * over while one is on its ramp or in the dish above, which it would shut in). What a ball is in the way of waits,
+   * and is tried again every step (moveToys). It is a request to move, not a standing order: a pop-up a ball knocks
+   * down stays down until it is asked up again (a mode that wants all three down needs it so). The mummy asked up
+   * afresh has taken no hits; asked up again while up, it keeps its count.
    */
   setToy(toy: Toy, up: boolean): void {
     if (toy === 'mummy' && up && !this.toyUp.mummy) this.mummyHits = 0;

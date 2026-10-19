@@ -7,11 +7,12 @@
 // hit; the rollovers, the spinners, the lock and the kickback are sensors that report; a saucer holds a slow ball a
 // moment and kicks it out; the tomb's door, in the doorway cut into the pyramid's front corner, is a wall until the
 // game opens it, and then the doorway's mouth catches any ball that touches it, holds it a moment and kicks it out; the
-// diverter's gate, a kinematic body as the flippers are, stands in a gap in the right ramp's rail until the game swings
-// it over, slowly, across the ramp, where it turns balls leaving the dish out through the gap; a ball past the drain is
-// taken off and reported. What the hits are worth, whose balls they are and what's lit is the game's (game.ts): this is
-// only the physics. (The ramps, the dish, the flip targets, the saucers and the second spinner were built and proven in
-// the Blender spike, spike/blender/sim-features.mts.)
+// diverter's gate, a kinematic body as the flippers are, stands in a gap in the left ramp's rail until the game swings
+// it over, slowly, across the ramp (once no ball is on the ramp or in the dish above it), where it turns balls going up
+// the ramp out through the gap, down into the lock; a ball past the drain is taken off and reported. What the hits are
+// worth, whose balls they are and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish,
+// the flip targets, the saucers and the second spinner were built and proven in the Blender spike,
+// spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
@@ -206,9 +207,10 @@ export class PinballSim {
   /**
    * The diverter, on a table with one: its gate, a kinematic box hinged at its pivot and standing on its ramp's floor
    * (`y`, the floor's height at the pivot) as high as the ramp's rails (`rail`); its angle now, and its goal (`over`,
-   * or at rest), which it swings toward at DIVERTER_SPEED. It starts at rest.
+   * or at rest), which it swings toward at DIVERTER_SPEED; its ramp, and the dish that ramp runs up into at its far end
+   * (behind the gate's hinge), if any. It starts at rest.
    */
-  private diverter: { spec: Diverter; body: RAPIER.RigidBody; y: number; rail: number; angle: number; over: boolean } | null = null;
+  private diverter: { spec: Diverter; body: RAPIER.RigidBody; y: number; rail: number; angle: number; over: boolean; ramp: Ramp; dish: Dish | null } | null = null;
   /** How many balls the saucers have kicked out (an alternating one mirrors every other). */
   private saucerKicks = 0;
   private nextId = 1;
@@ -389,11 +391,14 @@ export class PinballSim {
 
     // The diverter's gate: a box out from its pivot, as thick as a wall and as tall as its ramp's rails, standing on
     // the ramp's floor and turning about its pivot in the floor's plane, slick as the rails are. At rest it stands
-    // along the gap in the ramp's rail (the ramp's opening), in the rail's place.
+    // along the gap in the ramp's rail (the ramp's opening), in the rail's place. The dish its ramp runs up into at its
+    // far end is the one whose floor the ramp's last point is on.
     const dv = t.diverter;
     const gateRamp = dv && t.ramps.find((r) => r.id === dv.ramp);
     if (dv && gateRamp) {
       const y = floorHeight(gateRamp, dv.pivot);
+      const [ex, ez] = gateRamp.path[gateRamp.path.length - 1];
+      const dish = t.dishes.find((d) => Math.hypot(ex - d.x, ez - d.z) <= d.r) ?? null;
       const body = this.world.createRigidBody(
         RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(dv.pivot[0], y, dv.pivot[1]).setRotation(turnTo(dv.restDeg)),
       );
@@ -404,7 +409,7 @@ export class PinballSim {
           .setRestitution(RAIL.restitution),
         body,
       );
-      this.diverter = { spec: dv, body, y, rail: gateRamp.rail, angle: dv.restDeg, over: false };
+      this.diverter = { spec: dv, body, y, rail: gateRamp.rail, angle: dv.restDeg, over: false, ramp: gateRamp, dish };
     }
 
     for (const f of t.flippers) {
@@ -663,16 +668,36 @@ export class PinballSim {
   /**
    * Sets the diverter's gate swinging over (true) or back to rest (false) and returns true: or, while any ball's centre
    * is within a ball's radius and GATE_CLEAR of where the gate sweeps between the two, returns false and changes
-   * nothing (a gate swung into a ball would shove it or wedge it), so the game tries again next step. Set so already,
+   * nothing (a gate swung into a ball would shove it or wedge it), so the game tries again next step; and it won't
+   * swing over while a ball is up on its ramp or in the dish that ramp runs up into (ballOnGateRamp). Set so already,
    * it stays: true. A table without a diverter has none to swing over (false), and none away from rest (true).
    */
   setDiverter(over: boolean): boolean {
     const gate = this.diverter;
     if (!gate) return !over;
     if (gate.over === over) return true;
-    if (this.ballInSweep()) return false;
+    if (this.ballInSweep() || (over && this.ballOnGateRamp())) return false;
     gate.over = over;
     return true;
+  }
+
+  /**
+   * Whether a ball is up on the gate's ramp (over its floor, anywhere along it) or in the dish the ramp runs up into
+   * at its far end. Over, the gate shuts the ramp across, and a ball beyond it, or one going up that gets past it
+   * while it swings, would come back down onto its back and be wedged between it and the far rail: on the left ramp,
+   * waiting only for its sweep, all 40 balls let go in the dish or on the ramp above it were, and 19 of 700 shots up
+   * the ramp, the gate asked over at each moment of their flight, got past it into the dish. Over, none gets past.
+   */
+  private ballOnGateRamp(): boolean {
+    const { ramp, dish } = this.diverter!;
+    const R = TABLE.ballRadius;
+    for (const ball of this.items.values()) {
+      const p = ball.body.translation();
+      if (dish && Math.hypot(p.x - dish.x, p.z - dish.z) < dish.r && p.y - R > dish.y - 0.05) return true;
+      const near = nearestOnRamp(ramp, [p.x, p.z]);
+      if (near.d < (ramp.width + (ramp.flare ?? 0)) / 2 && p.y - R > near.y - 0.05) return true;
+    }
+    return false;
   }
 
   /**
@@ -1185,6 +1210,11 @@ function halfDepth(g: Target): number {
 
 /** A ramp's floor height at p, in (x, z): its centre line's height at the point on it nearest p. */
 function floorHeight(r: Ramp, p: [number, number]): number {
+  return nearestOnRamp(r, p).y;
+}
+
+/** The point on a ramp's centre line nearest p, in (x, z): how far from p it is, and the floor's height there. */
+function nearestOnRamp(r: Ramp, p: [number, number]): { d: number; y: number } {
   let best = Infinity, y = r.path[0][2];
   for (let i = 0; i + 1 < r.path.length; i++) {
     const [ax, az, ay] = r.path[i], [bx, bz, by] = r.path[i + 1];
@@ -1196,7 +1226,7 @@ function floorHeight(r: Ramp, p: [number, number]): number {
       y = ay + u * (by - ay);
     }
   }
-  return y;
+  return { d: best, y };
 }
 
 /**

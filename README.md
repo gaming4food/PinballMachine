@@ -12,8 +12,10 @@ npm test                # contract-test, table-test, pinball-sim-test, pinball-l
                         # pinball-hype-test, pinball-header-test, pinball-hud-test, pinball-sounds-test,
                         # pinball-parts-test, picture-test
 npm run typecheck
-npm run pinball-play    # plays unattended balls and prints what a ball scores and pays (balls=N, seed=N)
+npm run pinball-play    # plays unattended balls and prints what a ball scores and pays (balls=N, seed=N,
+                        # toys=up, rates)
 npm run pinball-stress  # the long physics run (minutes): 250 launches and 3000 flipper shots, expecting "found 0"
+                        # (-- toys=up: the same with every toy up)
 npm run picture         # builds the table's picture in Blender (about 15 s): src/assets/pinball.png
 npm run picture -- hero # the promotional picture instead, into blender/renders/hero.png
 ```
@@ -40,8 +42,8 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   and run `npm run picture` again, then commit the new picture and its sidecar (`blender/README.md` says what it needs).
   If the picture doesn't load, the stage draws a plain three.js stand-in table instead (`src/stage/table-mesh.ts`).
 - The tests: `pinball-sim-test` is the physics part by part. `pinball-layout-test` is every way round the table at its
-  rate (the orbits, the left ramp, the dish, the saucers, the banks; no ball escapes or sticks) and takes under a
-  minute. `pinball-parts-test` is the live parts, and that the stage's camera puts them on the picture's pixels.
+  rate (the orbits, the left ramp, the dish, the saucers, the banks, the quest's toys up and down; no ball escapes or
+  sticks) and takes about a minute. `pinball-parts-test` is the live parts, and that the stage's camera puts them on the picture's pixels.
   `picture-test` fails while the picture was made from another table or camera than the stage's, or at another size.
   `npm run pinball-stress` takes minutes, so it isn't part of `npm test`.
 - The control panel shows the pinball's card (the line, with a Remove button each), its four hype buttons and its

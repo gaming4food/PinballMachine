@@ -163,7 +163,8 @@ const checks: [string, () => void][] = [
     assert.deepEqual(t.targets.filter(isLockTarget).map((g) => g.id), ['target-scarab', 'target-eye']);
     assert.ok(t.targets.length <= 32, 'the header has room for 32 targets');
     assert.equal(t.tomb?.id, 'tomb');
-    assert.equal(t.diverter?.ramp, 'ramp-right');
+    // On the left ramp, where its shots reach it: no ball leaves the dish east, so on the right one it would never act.
+    assert.equal(t.diverter?.ramp, 'ramp-left');
     assert.ok(t.tomb!.width > 2 * TABLE.ballRadius, 'the mouth is wider than a ball (the tomb catches at its mouth)');
   }],
   ["the first 14 targets keep their places in the snapshot header's bits; the rising ones come after them", () => {

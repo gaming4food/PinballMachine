@@ -46,16 +46,20 @@ the stage and the control panel.
   a host from plain `npm run dev` ignores the request.
 - `npm test`: the chain in `package.json`: the contract test (the manifest is complete, and the card), table-test (the
   table as data, `RULES` and chat's words), pinball-sim-test (the physics), pinball-layout-test (every way round the
-  table at its rate: no ball escapes or sticks), pinball-test (the game, step by step), pinball-hype-test (the hype
+  table at its rate, the quest's toys up and down: no ball escapes or sticks; `-- <words>` runs only the checks whose
+  names hold them), pinball-test (the game, step by step), pinball-hype-test (the hype
   buttons and paid support; `npm run pinball-hype-test -- <words>` runs only the tests whose names hold them),
   pinball-header-test (the stage reads the snapshot's header as the server writes it), pinball-hud-test (the scoreboard
   and the titles), pinball-sounds-test (when each sound plays), pinball-parts-test (the live parts sit on the picture's
   pixels) and picture-test (the picture is of this table and camera).
 - `npm run pinball-stress`: the long physics run (minutes, so not in `npm test`): 250 launches and 3000 flipper shots,
-  expecting `found 0 in 3250 runs`. Run it after a change to the table or the physics.
+  expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up. Run both
+  after a change to the table or the physics.
 - `npm run pinball-play`: plays unattended balls (auto-save only) and prints the average and median points, coins and
-  seconds a ball (`balls=N`, `seed=N`; the top of `tests/pinball-play.ts` says how). It's how `RULES.pointsPerCoin` was
-  tuned (870 points a coin, about 9 coins a ball). It's for tuning, not a test.
+  seconds a ball (`balls=N`, `seed=N`; `toys=up` keeps every toy up, and `rates` prints how often each bank matches and
+  each toy is hit, a ball and per 30 s; the top of `tests/pinball-play.ts` says how). It's how `RULES.pointsPerCoin`
+  was tuned (870 points a coin, about 9 coins a ball), and how the toys' spots were measured. It's for tuning, not a
+  test.
 - `npm run picture`: builds the table's picture in Blender (below); `-- hero` makes the promotional one instead.
 - `npm run typecheck`.
 
@@ -89,11 +93,12 @@ failure is real and fails again: read the step and find out why.
 - **The toys.** The quest's four field toys (the three pop-up targets, the mummy, the tomb and the diverter's gate)
   start down, shut and at rest, and the game moves them when asked (`PinballGame.setToy(toy, up)`, with `toyWanted`):
   each step, after the physics, it brings about what was asked, and a part a ball is in the way of (a pop-up or the
-  mummy where a ball stands, the door with a ball in the doorway or held in the tomb, the gate with a ball in its sweep)
-  waits and is tried again next step. A request is a move, not a standing order: a pop-up a ball knocks down stays down
-  until it is asked up again. The mummy goes down on its third hit since it rose; a ball the tomb catches scores the
-  tomb's points; a Reset puts every toy away. Nothing in the city asks for them yet: on the dev host, `npm run dev:toys`
-  turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
+  mummy where a ball stands, the door with a ball in the doorway or held in the tomb, the gate with a ball in its sweep,
+  or swinging over, on the left ramp or in the dish, where it would shut the ball in) waits and is tried again next
+  step. A request is a move, not a standing order: a pop-up a ball knocks down stays down until it is asked up again.
+  The mummy goes down on its third hit since it rose; a ball the tomb catches scores the tomb's points; a Reset puts
+  every toy away. Nothing in the city asks for them yet: on the dev host, `npm run dev:toys` turns on the `toy` machine
+  action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
 - **Paying.** A drained ball's points make coins (`RULES.pointsPerCoin`): 70% to its owner, and 30% split equally among
   everyone who flipped it, the owner included if they flipped; what's left over goes to the owner. The high scores
   (the best 10 balls) are kept in the save file (`machine-pinball.json`).

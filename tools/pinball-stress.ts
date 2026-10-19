@@ -3,7 +3,10 @@
 // (behind the arch: a ball there is lost). For each one found (up to 4) it prints the last second of the ball's path
 // (x, y, z and its velocity, every third step), to see how it got out. The Blender spike's trace-out10.mts, seeded the
 // same (11). It takes minutes, so it isn't part of npm test; expected: "found 0 in 3250 runs".
-// Usage: npm run pinball-stress (or npx tsx tools/pinball-stress.ts)
+// `toys=up` makes the same run with every one of the quest's toys up: the pop-ups and the mummy raised, the tomb open
+// and the gate over before each run, and a pop-up the ball knocks down raised again as soon as it can be (the physics
+// waits for the ball to be clear of it), every step.
+// Usage: npm run pinball-stress [-- toys=up] (or npx tsx tools/pinball-stress.ts)
 import { initPhysics } from '@kit/server';
 import { DT, PinballSim } from '../src/server/sim';
 import { TABLE_IN_USE as L } from '../src/shared/table';
@@ -13,7 +16,23 @@ await initPhysics();
 let seed = 11;
 Math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
+const toysUp = process.argv.slice(2).includes('toys=up');
 const sim = new PinballSim(L, () => {});
+const rising = L.targets.filter((t) => t.rise).map((t) => t.id);
+/** With toys=up: whichever rising target is down raised (where no ball stands), the tomb open and the gate over. */
+function keepToysUp(): void {
+  if (!toysUp) return;
+  for (const id of rising) sim.raiseTarget(id);
+  sim.openTomb();
+  sim.setDiverter(true);
+}
+/** A run's start: the table cleared and its targets reset, and with toys=up every toy up again. */
+function fresh(): void {
+  sim.clear();
+  sim.resetTargets();
+  keepToysUp();
+}
+if (toysUp) console.log('every toy up: the pop-ups and the mummy raised, the tomb open, the gate over');
 /** The outer wall's outline, closed along the bottom below the drain. */
 const OUT = [...L.walls[0].points, [5, -2], [-5, -2]] as [number, number][];
 function inside(x: number, z: number): boolean {
@@ -38,6 +57,7 @@ function play(id: number, seconds: number): void {
     }
     for (const s of ['left', 'right'] as const) if (hold[s] > 0 && (hold[s] -= DT) <= 0) sim.flip(s, false);
     sim.step();
+    keepToysUp();
     const b = sim.items.get(id);
     if (!b) return;
     const p = b.body.translation(), v = b.body.linvel();
@@ -53,14 +73,12 @@ function play(id: number, seconds: number): void {
 
 for (let n = 0; n < 250; n++) {
   runs++;
-  sim.clear();
-  sim.resetTargets();
+  fresh();
   play(sim.launch(null), 25);
 }
 for (let n = 0; n < 3000 && found < 4; n++) {
   runs++;
-  sim.clear();
-  sim.resetTargets();
+  fresh();
   const f = L.flippers[n % L.flippers.length];
   const x = f.pivot[0] + (Math.random() - 0.5) * 2.4, z = f.pivot[1] + 0.3 + Math.random() * 0.8;
   const a = Math.PI / 2 + (Math.random() - 0.5) * 2.4, v = 15 + Math.random() * 45;
