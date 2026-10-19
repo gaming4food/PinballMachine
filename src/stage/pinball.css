@@ -38,6 +38,62 @@
   margin-left: 0.9em;
 }
 
+/*
+ * The Pharaoh's quest, over the balls: the four gods as lamps (lit as they are crossed off, each in its god's colour,
+ * --c), and under them the banner of the mode that runs, in its god's colour (--c), with a bar of its time left; the
+ * finale's banner is gold and has no bar. PinballHud sets the colours and writes the bar's width every frame, so the
+ * bar has no transition of its own: it would only lag the countdown.
+ */
+.pinball-gods {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 5px;
+}
+
+.pinball-gods .lamp {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--c);
+  background: rgba(10, 4, 24, 0.9);
+  opacity: 0.55;
+}
+
+.pinball-gods .lamp[data-lit='on'] {
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c), 0 0 20px var(--c);
+  opacity: 1;
+}
+
+.pinball-banner {
+  --c: var(--yellow);
+  margin-bottom: 4px;
+  color: var(--c);
+  text-shadow: 0 0 10px var(--c);
+}
+
+.pinball-banner .goal {
+  margin-left: 0.9em;
+  color: #fff;
+}
+
+.pinball-banner .bar {
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--c);
+}
+
+.pinball-banner .fill {
+  height: 100%;
+  width: 0;
+  background: var(--c);
+  box-shadow: 0 0 12px var(--c);
+}
+
 /* The balls on the table: whose, and their score, big. */
 .pinball-ball {
   font-size: 20px;
@@ -75,13 +131,14 @@
 
 /*
  * Play commands off (the layout's switch): the scoreboard shows the play, not what to type; with nothing on the table,
- * nobody in line and no last ball, it waits out of sight.
+ * nobody in line, no last ball and no quest to show (a mode between balls, a god crossed off), it waits out of sight.
  */
 body.no-commands #pinball-hud .cmd {
   display: none;
 }
 
-body.no-commands #pinball-hud[data-phase='idle']:not(:has(.pinball-result:not([hidden]), .pinball-next:not([hidden]))) {
+body.no-commands
+  #pinball-hud[data-phase='idle']:not(:has(.pinball-result:not([hidden]), .pinball-next:not([hidden]), .pinball-banner:not([hidden]), .pinball-gods:not([hidden]))) {
   display: none;
 }
 
@@ -95,6 +152,8 @@ body.no-commands #pinball-hud[data-phase='idle']:not(:has(.pinball-result:not([h
  * The big title over the table (PinballHud): MULTIBALL!, BALL SAVER!, DOUBLE SCORE!, NUDGE!, BALL SAVED! and a ball's
  * result, in its own colour (data-title), popping in, holding and fading over TITLE_SECONDS (2.2 s), as the claw's hype
  * titles. data-run flips between two names for the same animation, so a title right after another starts it afresh.
+ * The quest's titles (SUN CHASE!, THE SUN SETS, JACKPOT 75,000!, PHARAOH'S GOLD!) have no rule below: PinballHud sets
+ * --c on the title for each, from its god's colour or gold, and takes it off again for the next title that has none.
  */
 #pinball-title {
   --c: var(--yellow);

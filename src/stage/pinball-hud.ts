@@ -5,13 +5,40 @@
 // bank's when its plaques match (HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED) at its moment's time, MULTIBALL!
 // when the lock starts it, BALL SAVED! when the stage sees a ball drain and come straight back (ballSaved, from the
 // scene), and a ball's result. Tested in Node: npm run pinball-hud-test.
+//
+// The Pharaoh's quest is on it too, all from the state and the cues the server sends. While a mode runs a banner gives
+// the god's and the mode's names, the goal's progress (Tomb Raid's is its prize, falling with its time) and a bar of
+// the time left, counted down as the stage draws; in the finale it gives Pharaoh's Gold and the next jackpot. The four
+// gods are lamps, lit as they are crossed off. And each quest moment gets a big title at its time (a mode's start, its
+// win with the prize, its loss, a jackpot and the finale), in its god's colour, or gold. A stage opened late draws the
+// banner and the lamps from the state it is given and has no title: the cues are never in hello.
 import { cssColor } from '@kit/stage';
-import { pinballHypeOf, type PinballHypeMsg, type PinballState, pinballStateOf } from '../shared/pinball';
+import {
+  type God,
+  GOD_COLOR,
+  GODS,
+  MODE_NAME,
+  type PinballCueMsg,
+  pinballCueOf,
+  pinballHypeOf,
+  type PinballHypeMsg,
+  type PinballState,
+  pinballStateOf,
+  QUEST,
+  tombPrize,
+} from '../shared/pinball';
 
 /** How long a title is up (pinball.css's title animation runs as long), as the claw's hype titles. */
 export const TITLE_SECONDS = 2.2;
 /** A moment this long past when its time is drawn is let go (a page catching up), as the claw's. */
 const STALE_SECONDS = 2;
+/**
+ * A quest title is let go this long past its moment: it may wait behind two titles first. The moments come together: a
+ * bank matched is HORUS MATCHED and then the mode it starts, and the fourth god's win is its prize, then MULTIBALL!
+ * (from the state) and then PHARAOH'S GOLD!. With STALE_SECONDS the second of any two would be 2.2 s late when its turn
+ * came, and let go.
+ */
+const QUEST_STALE_SECONDS = STALE_SECONDS + 2 * TITLE_SECONDS;
 /** The state turning multiball on within this long of a press's moment is that press, already titled. */
 const SAME_MULTIBALL = 3;
 /**
@@ -34,16 +61,74 @@ const HYPE_TITLES: Record<string, string> = {
   'bank-eye': 'EYE MATCHED',
 };
 
-/** A title waiting for its time (null: the next frame), its look (data-title), and the line over it, if any. */
+/**
+ * What each god's goal counts on the banner. Tomb Raid's is the prize its winning ball is paid, which falls with its
+ * time (QUEST.tombPrize), so it is shown as a prize and not as a count of one.
+ */
+const GOAL_LABEL: Record<God, string> = { ra: 'SHOTS', horus: 'FALCONS', ankh: 'MUMMY', eye: 'PRIZE' };
+/** The title for each god's mode lost. Its start and its win say the mode's name (MODE_NAME). */
+const LOST_TITLES: Record<God, string> = {
+  ra: 'THE SUN SETS',
+  horus: 'THE FALCON FLIES',
+  ankh: 'THE MUMMY SLEEPS',
+  eye: 'THE TOMB SEALS',
+};
+/** The gold of the jackpot's and the finale's titles and of the finale's banner: Ra's, as the table's gate lamp is. */
+const GOLD = GOD_COLOR.ra;
+/** The bar of a mode's time is drawn in steps of a tenth of a percent: finer than a pixel of it. */
+const BAR_STEPS = 1000;
+
+/** The mode of the quest that runs, as the state carries it. */
+type QuestMode = NonNullable<PinballState['quest']['mode']>;
+
+/**
+ * A title waiting for its time (null: the next frame), its look (data-title), and the line over it, if any. It has the
+ * colour of its kind (pinball.css) unless it has a `color` of its own, as a quest title has its god's. It is let go
+ * when it is more than `stale` seconds past its time, where that isn't STALE_SECONDS.
+ */
 interface Title {
   at: number | null;
   kind: string;
   words: string;
   by?: { text: string; color?: number };
+  color?: number;
+  stale?: number;
 }
 
 const points = (n: number) => n.toLocaleString('en-US');
 const coinsText = (n: number) => `${n} ${n === 1 ? 'COIN' : 'COINS'}`;
+
+/**
+ * The seconds a mode has left at the simulation time the stage draws: counted down from the table's time the state was
+ * made at while its clock runs (a ball is in play), held while it doesn't. The stage draws a little behind the server,
+ * so a time before the state's comes out as more than the mode ever had, and one past its end as less than none: both
+ * are held to the mode's own limits.
+ */
+function timeLeft(mode: QuestMode, simTime: number): number {
+  const left = mode.running ? mode.left - (simTime - mode.at) : mode.left;
+  return Math.min(QUEST.modeSeconds, Math.max(0, left));
+}
+
+/** A quest cue's title, at its time; null for the cues with none: a goal hit, a toy's hit and the finale's end. */
+function questTitle(c: PinballCueMsg): Title | null {
+  const title = (kind: string, words: string, color: number): Title => ({ at: c.at, kind, words, color, stale: QUEST_STALE_SECONDS });
+  switch (c.cue) {
+    case 'modeStart':
+      return title('mode-start', `${MODE_NAME[c.god]}!`, GOD_COLOR[c.god]);
+    case 'modeWon':
+      return title('mode-won', `${MODE_NAME[c.god]}! +${points(c.prize)}`, GOD_COLOR[c.god]);
+    case 'modeLost':
+      return title('mode-lost', LOST_TITLES[c.god], GOD_COLOR[c.god]);
+    case 'jackpot':
+      return title('jackpot', `JACKPOT ${points(c.value)}!`, GOLD);
+    case 'finale':
+      return title('finale', "PHARAOH'S GOLD!", GOLD);
+    case 'goal':
+    case 'toyHit':
+    case 'finaleEnd':
+      return null;
+  }
+}
 
 /** The scoreboards on this page, for ballSaved: the scene and the overlay are made apart, from the machine's pages. */
 const boards = new Set<PinballHud>();
@@ -64,11 +149,25 @@ export class PinballHud {
   private readonly next = document.createElement('div');
   private readonly type = document.createElement('div');
   private readonly result = document.createElement('div');
+  /** The quest's god lamps, in the quest's order (GODS), and the banner of the mode that runs or the finale. */
+  private readonly gods = document.createElement('div');
+  private readonly lamps: [God, HTMLElement][] = [];
+  private readonly banner = document.createElement('div');
+  private readonly bannerNames = document.createElement('span');
+  private readonly bannerGoal = document.createElement('span');
+  private readonly bar = document.createElement('div');
+  private readonly fill = document.createElement('div');
   private readonly title = document.createElement('div');
   private readonly words = document.createElement('span');
   private readonly by = document.createElement('span');
   private state: PinballState | null = null;
   private simTime = -Infinity;
+  /**
+   * What the banner's bar (in thousandths of the mode's time) and the Eye's prize show now, or -1 where nothing is
+   * drawn yet: drawTime writes each only when it changes, and showQuest sets them back when it dresses the banner.
+   */
+  private barShown = -1;
+  private prizeShown = -1;
   private readonly waiting: Title[] = [];
   /** When the title up now goes (simulation time), or null with none up; and when the last one went. */
   private until: number | null = null;
@@ -89,8 +188,26 @@ export class PinballHud {
     this.type.className = 'pinball-type cmd';
     this.type.innerHTML = 'TYPE <b>BALL</b> · <b>LEFT</b> · <b>RIGHT</b>';
     this.result.className = 'pinball-result';
-    this.ball.hidden = this.flags.hidden = this.next.hidden = this.result.hidden = true;
-    this.root.append(this.ball, this.flags, this.next, this.result, this.type);
+    // The quest's parts are made here once, and only written to after (the banner's bar and prize every frame).
+    this.gods.className = 'pinball-gods';
+    for (const god of GODS) {
+      const lamp = document.createElement('span');
+      lamp.className = 'lamp';
+      lamp.dataset.god = god;
+      lamp.dataset.lit = 'off';
+      lamp.style.setProperty('--c', cssColor(GOD_COLOR[god]));
+      this.lamps.push([god, lamp]);
+    }
+    this.gods.append(...this.lamps.map(([, lamp]) => lamp));
+    this.banner.className = 'pinball-banner';
+    this.bannerNames.className = 'names';
+    this.bannerGoal.className = 'goal';
+    this.bar.className = 'bar';
+    this.fill.className = 'fill';
+    this.bar.append(this.fill);
+    this.banner.append(this.bannerNames, this.bannerGoal, this.bar);
+    this.ball.hidden = this.flags.hidden = this.next.hidden = this.result.hidden = this.gods.hidden = this.banner.hidden = true;
+    this.root.append(this.gods, this.banner, this.ball, this.flags, this.next, this.result, this.type);
     this.title.id = 'pinball-title';
     this.title.hidden = true;
     this.words.className = 'title-words';
@@ -101,10 +218,16 @@ export class PinballHud {
     boards.add(this);
   }
 
-  /** The pinball's own messages (hello's `machine`, then each 'machine' message): its state, and its hype moments. */
+  /**
+   * The pinball's own messages (hello's `machine`, then each 'machine' message): its state, its hype moments and its
+   * cues. Only the quest's cues get a title here: the toys' hits are the sounds' and the shows'.
+   */
   message(msg: unknown): void {
     const m = pinballHypeOf(msg);
     if (m) this.moment(m);
+    const c = pinballCueOf(msg);
+    const title = c && questTitle(c);
+    if (title) this.queue(title);
     const state = pinballStateOf(msg);
     if (state) this.set(state);
   }
@@ -134,6 +257,7 @@ export class PinballHud {
     this.showFlags(state);
     this.showNext(state);
     this.showResult(state);
+    this.showQuest(state);
     if (!was) return;
     // Multiball the lock started: no press's moment came for it.
     if (!was.multiball && state.multiball && this.multiballMoments === 0 && this.lastMultiball <= this.simTime - SAME_MULTIBALL) {
@@ -190,10 +314,60 @@ export class PinballHud {
     this.result.replaceChildren(...(r ? [PinballHud.line(['label', 'LAST BALL'], ['name', r.name], ['score', `${points(r.points)} POINTS`], ['coins', coinsText(r.coins)])] : []));
   }
 
-  /** Each frame, at the simulation time the stage draws: the titles as their times come, one after another. */
+  /**
+   * The quest, from the state: the gods' lamps (shown while a god is crossed off, a mode runs or the finale does), and
+   * the banner of the mode that runs, or of the finale. A finale a restart saved, still waiting for a ball, has gods
+   * crossed off and no banner. What the banner shows of the time is drawn for the time the stage draws (drawTime).
+   */
+  private showQuest(s: PinballState): void {
+    const { done, mode, finale } = s.quest;
+    this.gods.hidden = done.length === 0 && !mode && !finale;
+    for (const [god, lamp] of this.lamps) lamp.dataset.lit = done.includes(god) ? 'on' : 'off';
+    this.banner.hidden = !mode && !finale;
+    this.bar.hidden = this.bannerGoal.hidden = !mode;
+    if (mode) {
+      this.banner.style.setProperty('--c', cssColor(GOD_COLOR[mode.god]));
+      this.bannerNames.textContent = `${mode.god.toUpperCase()} · ${MODE_NAME[mode.god]}`;
+      // The Eye's goal is its prize, which the time sets (drawTime), so it is written there.
+      if (mode.god !== 'eye') this.bannerGoal.textContent = `${GOAL_LABEL[mode.god]} ${mode.progress}/${mode.goal}`;
+      this.barShown = this.prizeShown = -1;
+      this.drawTime(this.simTime);
+    } else if (finale) {
+      this.banner.style.setProperty('--c', cssColor(GOLD));
+      this.bannerNames.textContent = `PHARAOH'S GOLD · JACKPOT ${points(finale.jackpot)}`;
+    }
+  }
+
+  /**
+   * The banner's bar of the mode's time, and the Eye's prize, which falls with it, at the simulation time the stage
+   * draws. Done every frame, so it makes nothing and writes to an element only when what it shows has changed: the bar
+   * in steps of BAR_STEPS, and the prize when it falls.
+   */
+  private drawTime(simTime: number): void {
+    const mode = this.state?.quest.mode;
+    if (!mode) return;
+    const left = timeLeft(mode, simTime);
+    const step = Math.round((left / QUEST.modeSeconds) * BAR_STEPS);
+    if (step !== this.barShown) {
+      this.barShown = step;
+      this.fill.style.width = `${(step * 100) / BAR_STEPS}%`;
+    }
+    if (mode.god !== 'eye') return;
+    const prize = tombPrize(left);
+    if (prize !== this.prizeShown) {
+      this.prizeShown = prize;
+      this.bannerGoal.textContent = `${GOAL_LABEL.eye} ${points(prize)}`;
+    }
+  }
+
+  /**
+   * Each frame, at the simulation time the stage draws: the banner's time counted down, and the titles as their times
+   * come, one after another.
+   */
   tick(simTime: number): void {
     if (simTime < this.simTime - CLOCK_BACK) this.clockRestarted(simTime);
     this.simTime = simTime;
+    this.drawTime(simTime);
     if (this.until !== null && simTime >= this.until) {
       this.lastUntil = this.until;
       this.until = null;
@@ -209,7 +383,7 @@ export class PinballHud {
         this.multiballMoments = Math.max(0, this.multiballMoments - 1);
         this.lastMultiball = next.at;
       }
-      if (simTime - at > STALE_SECONDS) continue;
+      if (simTime - at > (next.stale ?? STALE_SECONDS)) continue;
       this.show(next, at);
       return;
     }
@@ -243,6 +417,9 @@ export class PinballHud {
       this.by.style.color = '';
       this.by.hidden = true;
     }
+    // A title with no colour of its own takes its kind's (pinball.css), so the last one's must not stay.
+    if (t.color === undefined) this.title.style.removeProperty('--c');
+    else this.title.style.setProperty('--c', cssColor(t.color));
     this.title.dataset.title = t.kind;
     this.title.dataset.run = this.run ? 'a' : 'b';
     this.title.hidden = false;

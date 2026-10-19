@@ -1,11 +1,13 @@
 // Tests the pinball's scoreboard over the stage (PinballHud, stage/pinball-hud.ts): the balls on the table with their
 // owners and scores, the next 3 in line, the words to type (which the layout's Play commands switch hides, as the
 // claw's), a ball's result, and the big titles: MULTIBALL!, BALL SAVED!, DOUBLE SCORE!, a bank's when its plaques match
-// (HORUS MATCHED, RA MATCHED, ANKH MATCHED and EYE MATCHED) and a ball's result, each as the stage draws its time.
+// (HORUS MATCHED, RA MATCHED, ANKH MATCHED and EYE MATCHED) and a ball's result, each as the stage draws its time. And
+// the Pharaoh's quest: the banner of the mode that runs (its names, its goal's progress and a bar of its time counting
+// down as the stage draws), the finale's, the four god lamps, and the quest's titles from its cues.
 // Built in Node from fake elements, as the claw's turn box is tested.
 // Usage: npm run pinball-hud-test
 import assert from 'node:assert/strict';
-import type { PinballHypeMsg, PinballState } from '../src/shared/pinball';
+import { type God, GOD_COLOR, GODS, type PinballHypeMsg, type PinballState, QUEST, tombPrize } from '../src/shared/pinball';
 // The overlay is the stage's: its CSS and any pictures and sound files are stubbed (stub-assets.ts), so it loads in Node.
 import './stub-assets';
 
@@ -13,6 +15,24 @@ const { PinballHud, ballSaved, TITLE_SECONDS } = await import('../src/stage/pinb
 
 const tests: [string, () => void][] = [];
 const test = (name: string, fn: () => void) => tests.push([name, fn]);
+
+/** An element's style as the scoreboard uses it: plain properties, and custom ones (--c) through setProperty. */
+class FakeStyle {
+  color = '';
+  width = '';
+  private readonly custom = new Map<string, string>();
+  setProperty(name: string, value: string): void {
+    this.custom.set(name, value);
+  }
+  removeProperty(name: string): string {
+    const was = this.custom.get(name) ?? '';
+    this.custom.delete(name);
+    return was;
+  }
+  getPropertyValue(name: string): string {
+    return this.custom.get(name) ?? '';
+  }
+}
 
 /** Just enough of an element for the scoreboard to be built in Node, and read. */
 class FakeElement {
@@ -22,7 +42,7 @@ class FakeElement {
   textContent = '';
   hidden = false;
   readonly dataset: Record<string, string> = {};
-  readonly style: Record<string, string> = {};
+  readonly style = new FakeStyle();
   children: FakeElement[] = [];
   append(...nodes: FakeElement[]): void {
     this.children.push(...nodes);
@@ -66,9 +86,29 @@ const state = (more: Partial<PinballState> = {}): PinballState => ({
 const moment = (id: string, at: number, more: Partial<PinballHypeMsg> = {}): PinballHypeMsg => ({ kind: 'pinballHype', id, at, ...more });
 const msgOf = (s: PinballState) => ({ kind: 'pinball', state: s });
 
-/** A scoreboard built from fake elements, and its parts. */
+type Quest = PinballState['quest'];
+type Mode = NonNullable<Quest['mode']>;
+const quest = (more: Partial<Quest> = {}): Quest => ({ done: [], mode: null, finale: null, ...more });
+/** A god's mode that runs: all its time left at the table's time 100, with a ball in play and no goal hit yet. */
+const mode = (god: God, more: Partial<Mode> = {}): Mode => ({ god, left: QUEST.modeSeconds, at: 100, running: true, progress: 0, goal: QUEST.goals[god], ...more });
+/** A cue as the server sends it, at the table's time `at`; `rest` is the cue's kind and its fields. */
+const cue = (at: number, rest: { cue: string } & Record<string, unknown>) => ({ kind: 'pinballCue', at, ...rest });
+
+const money = (n: number) => n.toLocaleString('en-US');
+/** A colour as the stage writes it in CSS. */
+const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+/** The gold of the jackpot's and the finale's titles, and of the finale's banner: Ra's. */
+const GOLD = GOD_COLOR.ra;
+
+/** A scoreboard built from fake elements, and its parts. `made` counts the elements it has made so far. */
 function board() {
-  (globalThis as { document?: unknown }).document = { createElement: () => new FakeElement() };
+  let made = 0;
+  (globalThis as { document?: unknown }).document = {
+    createElement: () => {
+      made++;
+      return new FakeElement();
+    },
+  };
   const slot = new FakeElement();
   const hud = new PinballHud(slot as unknown as HTMLElement);
   const part = (name: string) => {
@@ -83,7 +123,7 @@ function board() {
   assert.ok(words && by, 'the title holds its words (.title-words) and a line over them (.title-by)');
   /** What the title shows: its words, or null when hidden. */
   const shown = () => (title.hidden ? null : words.textContent);
-  return { hud, slot, part, title, shown, by };
+  return { hud, slot, part, title, shown, by, made: () => made };
 }
 
 test('a state with two in line shows both names in .pinball-next, in order', () => {
@@ -243,6 +283,312 @@ test("a state with lastResult shows its name, points and coins; a new one gets t
   hud.tick(2);
   assert.equal(shown(), '12,345 POINTS');
   assert.ok(by.textContent.includes('Alex') && by.textContent.includes('12 COINS'), by.textContent);
+});
+
+/** The share of the mode's time the banner's bar shows (its width, a percentage). */
+const barShare = (fill: FakeElement) => parseFloat(fill.style.width) / 100;
+/** How close the bar is held to the time it should show: a tenth of a percent, a fraction of a pixel of it. */
+const nearShare = (got: number, want: number, what: string) => assert.ok(Math.abs(got - want) < 0.002, `${what}: the bar shows ${got}, not ${want}`);
+
+test('the banner shows the running mode: its names, its progress, and its time counting down while a ball is in play, held while not', () => {
+  const { hud, part } = board();
+  const banner = part('pinball-banner');
+  const names = part('names');
+  const goal = part('goal');
+  const fill = part('fill');
+  hud.message(msgOf(state()));
+  assert.equal(banner.hidden, true, 'no banner with no mode running');
+
+  // Each mode's god and name, and what its goal has counted.
+  const modes: [God, string, string][] = [
+    ['ra', 'RA · SUN CHASE', 'SHOTS'],
+    ['horus', 'HORUS · FALCON STRIKE', 'FALCONS'],
+    ['ankh', 'ANKH · THE MUMMY WAKES', 'MUMMY'],
+  ];
+  for (const [god, named, label] of modes) {
+    hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode(god, { progress: 2 }) }) })));
+    hud.tick(100);
+    assert.equal(banner.hidden, false, `${god}'s banner shows`);
+    assert.equal(names.textContent, named);
+    assert.equal(goal.textContent, `${label} 2/${QUEST.goals[god]}`);
+    assert.equal(banner.style.getPropertyValue('--c'), css(GOD_COLOR[god]), `${god}'s banner takes its god's colour`);
+  }
+
+  // Its time is counted down from the table's time the state was made at, as the stage draws it: smoothly.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode('ra', { left: 20, at: 100 }) }) })));
+  hud.tick(100);
+  nearShare(barShare(fill), 20 / QUEST.modeSeconds, "at the state's time");
+  hud.tick(105);
+  nearShare(barShare(fill), 15 / QUEST.modeSeconds, '5 s on');
+  hud.tick(110.5);
+  nearShare(barShare(fill), 9.5 / QUEST.modeSeconds, 'between whole seconds');
+
+  // The stage draws a little behind the server: before the state's time the bar can't be fuller than the whole mode.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode('ra', { left: QUEST.modeSeconds, at: 200 }) }) })));
+  hud.tick(199.9);
+  nearShare(barShare(fill), 1, "before the state's time");
+  // And past the end of its time it is empty, never less.
+  hud.tick(200 + QUEST.modeSeconds + 5);
+  nearShare(barShare(fill), 0, 'after the time is up');
+
+  // A ball drained: the clock stops, and the bar holds where the state left it however long the table waits.
+  hud.message(msgOf(state({ phase: 'launching', quest: quest({ mode: mode('ra', { left: 12, at: 300, running: false }) }) })));
+  hud.tick(300);
+  nearShare(barShare(fill), 12 / QUEST.modeSeconds, 'held');
+  hud.tick(330);
+  nearShare(barShare(fill), 12 / QUEST.modeSeconds, 'held 30 s on');
+  // The next ball: it counts down again from the state's time.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode('ra', { left: 12, at: 340, running: true }) }) })));
+  hud.tick(345);
+  nearShare(barShare(fill), 7 / QUEST.modeSeconds, 'running again');
+
+  // The mode ends (won: the god is crossed off), and the banner goes with it.
+  hud.message(msgOf(state({ quest: quest({ done: ['ra'] }) })));
+  assert.equal(banner.hidden, true, 'the banner goes when the mode does');
+});
+
+test("Tomb Raid's banner counts its prize down with its time; the finale's shows the next jackpot", () => {
+  const { hud, part } = board();
+  const banner = part('pinball-banner');
+  const names = part('names');
+  const goal = part('goal');
+  const bar = part('bar');
+  const fill = part('fill');
+  const eye = (more: Partial<Mode> = {}) => msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus', 'ankh'], mode: mode('eye', more) }) }));
+  hud.message(eye());
+  hud.tick(100);
+  assert.equal(names.textContent, 'EYE · TOMB RAID');
+  assert.equal(goal.textContent, `PRIZE ${money(tombPrize(QUEST.modeSeconds))}`, 'the prize with all the time left');
+
+  // The prize falls with the time, and agrees with the bar at every moment: both come from the one time drawn.
+  let last = Infinity;
+  for (const t of [100, 107, 114, 121, 128]) {
+    hud.tick(t);
+    const left = QUEST.modeSeconds - (t - 100);
+    assert.equal(goal.textContent, `PRIZE ${money(tombPrize(left))}`, `with ${left} s left`);
+    nearShare(barShare(fill), left / QUEST.modeSeconds, `with ${left} s left`);
+    assert.ok(tombPrize(left) < last, `the prize fell (${tombPrize(left)} after ${last})`);
+    last = tombPrize(left);
+  }
+
+  // No ball in play: the time is held, and so is the prize.
+  hud.message(eye({ left: 18, at: 130, running: false }));
+  hud.tick(130);
+  assert.equal(goal.textContent, `PRIZE ${money(tombPrize(18))}`);
+  hud.tick(150);
+  assert.equal(goal.textContent, `PRIZE ${money(tombPrize(18))}`, 'held while the table waits');
+
+  // The finale: Pharaoh's Gold with the jackpot the next ball in the tomb pays, in gold, with no bar or goal.
+  const jackpot = QUEST.jackpot.first + QUEST.jackpot.step;
+  hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot } }) })));
+  hud.tick(160);
+  assert.equal(banner.hidden, false);
+  assert.equal(names.textContent, `PHARAOH'S GOLD · JACKPOT ${money(jackpot)}`);
+  assert.equal(banner.style.getPropertyValue('--c'), css(GOLD), 'in gold');
+  assert.equal(bar.hidden, true, 'no time bar in the finale');
+  assert.equal(goal.hidden, true, 'and no goal');
+  // A ball in the tomb pays it, and the banner shows the next.
+  hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: jackpot + QUEST.jackpot.step } }) })));
+  assert.equal(names.textContent, `PHARAOH'S GOLD · JACKPOT ${money(jackpot + QUEST.jackpot.step)}`);
+
+  // A finale a restart saved waits for a ball: no banner yet (the lamps show, with all four lit).
+  hud.message(msgOf(state({ phase: 'idle', quest: quest({ done: [...GODS] }) })));
+  assert.equal(banner.hidden, true);
+  // The quest starts over, and the next mode shows its bar and its goal again.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode('horus', { progress: 1 }) }) })));
+  assert.equal(banner.hidden, false);
+  assert.equal(bar.hidden, false);
+  assert.equal(goal.hidden, false);
+  assert.equal(goal.textContent, `FALCONS 1/${QUEST.goals.horus}`);
+  // And the Eye's again, with the time and so the prize it last showed: its prize comes back over the other's goal.
+  hud.message(eye({ left: 18, at: 170, running: false }));
+  hud.tick(170);
+  assert.equal(goal.textContent, `PRIZE ${money(tombPrize(18))}`);
+});
+
+test('the god lamps light as gods are crossed off, and go when the quest starts over', () => {
+  const { hud, part } = board();
+  const gods = part('pinball-gods');
+  const lit = () => gods.children.filter((lamp) => lamp.dataset.lit === 'on').map((lamp) => lamp.dataset.god);
+  hud.message(msgOf(state()));
+  assert.equal(gods.hidden, true, 'a quest with nothing in it shows no lamps');
+  assert.deepEqual(gods.children.map((lamp) => lamp.dataset.god), [...GODS], "four lamps, in the quest's order");
+  assert.deepEqual(gods.children.map((lamp) => lamp.style.getPropertyValue('--c')), GODS.map((god) => css(GOD_COLOR[god])), "each in its god's colour");
+
+  // A mode running shows them, all dark: no god is crossed off yet.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode('ra') }) })));
+  assert.equal(gods.hidden, false);
+  assert.deepEqual(lit(), []);
+  // Ra's won: the mode is over, and one god is enough to show them.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra'] }) })));
+  assert.equal(gods.hidden, false);
+  assert.deepEqual(lit(), ['ra']);
+  // Horus too, with the Ankh's mode running.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus'], mode: mode('ankh') }) })));
+  assert.deepEqual(lit(), ['ra', 'horus']);
+  // The fourth is the finale: all four are lit.
+  hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
+  assert.deepEqual(lit(), [...GODS]);
+  // The finale ends with multiball, and the quest starts over: the lamps go out and away.
+  hud.message(msgOf(state({ phase: 'playing', quest: quest() })));
+  assert.deepEqual(lit(), []);
+  assert.equal(gods.hidden, true);
+});
+
+/** Decision 4's titles: each god's mode, by its name (its start, and its win with the prize after it) and its loss. */
+const MODE_TITLES: Record<God, { name: string; lost: string }> = {
+  ra: { name: 'SUN CHASE!', lost: 'THE SUN SETS' },
+  horus: { name: 'FALCON STRIKE!', lost: 'THE FALCON FLIES' },
+  ankh: { name: 'THE MUMMY WAKES!', lost: 'THE MUMMY SLEEPS' },
+  eye: { name: 'TOMB RAID!', lost: 'THE TOMB SEALS' },
+};
+
+test("each quest title at its time, in its colour: a mode's start, won with its prize, lost, a jackpot, the finale", () => {
+  const { hud, shown, title } = board();
+  hud.message(msgOf(state()));
+  let at = 10;
+  /** One cue's title: not before its time, its words and its colour at it, and gone TITLE_SECONDS on. */
+  const plays = (rest: { cue: string } & Record<string, unknown>, words: string, color: number) => {
+    hud.message(cue(at, rest));
+    hud.tick(at - 0.1);
+    assert.equal(shown(), null, `${words}: not before its time`);
+    hud.tick(at);
+    assert.equal(shown(), words);
+    assert.equal(title.style.getPropertyValue('--c'), css(color), `${words}: in its colour`);
+    hud.tick(at + TITLE_SECONDS);
+    assert.equal(shown(), null, `${words}: gone after ${TITLE_SECONDS} s`);
+    at += TITLE_SECONDS + 1;
+  };
+  for (const god of GODS) {
+    const { name, lost } = MODE_TITLES[god];
+    // Tomb Raid pays its countdown, which the cue carries; the others pay the mode's prize.
+    const prize = god === 'eye' ? tombPrize(12) : QUEST.prize;
+    plays({ cue: 'modeStart', god }, name, GOD_COLOR[god]);
+    plays({ cue: 'modeWon', god, prize }, `${name} +${money(prize)}`, GOD_COLOR[god]);
+    plays({ cue: 'modeLost', god }, lost, GOD_COLOR[god]);
+  }
+  const jackpot = QUEST.jackpot.first + QUEST.jackpot.step;
+  plays({ cue: 'jackpot', value: jackpot, x: 0, z: 0 }, `JACKPOT ${money(jackpot)}!`, GOLD);
+  plays({ cue: 'finale' }, "PHARAOH'S GOLD!", GOLD);
+
+  // A goal hit, a toy's hit and the finale's end have no title, and a cue that isn't one shows nothing.
+  const none = [
+    cue(at, { cue: 'goal', god: 'ra', x: 0, z: 0 }),
+    cue(at, { cue: 'toyHit', part: 'target-mummy', down: false, x: 0, z: 0 }),
+    cue(at, { cue: 'finaleEnd' }),
+    cue(at, { cue: 'modeStart', god: 'osiris' }),
+    cue(at, { cue: 'jackpot', value: 'lots', x: 0, z: 0 }),
+  ];
+  for (const msg of none) {
+    hud.message(msg);
+    hud.tick(at);
+    assert.equal(shown(), null, `${msg.cue} has no title`);
+  }
+  // The next title with no colour of its own takes its look back: the quest's colour doesn't stay on it.
+  hud.message(moment('multiball', at + 1));
+  hud.tick(at + 1);
+  assert.equal(shown(), 'MULTIBALL!');
+  assert.equal(title.style.getPropertyValue('--c'), '', "a quest title's colour is not left on the next title");
+});
+
+test("a page opened mid-mode shows the banner and the lamps from hello's state, and no title", () => {
+  const { hud, part, shown } = board();
+  // The page has been drawing a while: the table's time is known from the snapshots before hello's state comes.
+  hud.tick(500);
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra'], mode: mode('horus', { left: 18, at: 499.8, progress: 1 }) }) })));
+  assert.equal(part('pinball-banner').hidden, false);
+  assert.equal(part('names').textContent, 'HORUS · FALCON STRIKE');
+  assert.equal(part('goal').textContent, `FALCONS 1/${QUEST.goals.horus}`);
+  const gods = part('pinball-gods');
+  assert.equal(gods.hidden, false);
+  assert.deepEqual(gods.children.filter((lamp) => lamp.dataset.lit === 'on').map((lamp) => lamp.dataset.god), ['ra']);
+  hud.tick(500);
+  nearShare(barShare(part('fill')), (18 - 0.2) / QUEST.modeSeconds, 'its time as drawn');
+  for (const t of [500.1, 501, 503, 510]) {
+    hud.tick(t);
+    assert.equal(shown(), null, `no title at ${t}`);
+  }
+});
+
+test("a quest title waits its turn behind the titles of its moment: a bank's match, then the mode it starts; the fourth god's win, MULTIBALL! and PHARAOH'S GOLD!", () => {
+  const { hud, shown } = board();
+  hud.message(msgOf(state({ phase: 'playing' })));
+  hud.tick(9);
+  // A bank matched starts a mode: the bank's title (a hype moment) and the mode's start come at the same moment, and
+  // the start, second in line, is shown when the first is done, TITLE_SECONDS after its moment.
+  hud.message(moment('bank-horus', 10));
+  hud.message(cue(10, { cue: 'modeStart', god: 'horus' }));
+  hud.tick(10);
+  assert.equal(shown(), 'HORUS MATCHED');
+  hud.tick(10 + TITLE_SECONDS);
+  assert.equal(shown(), 'FALCON STRIKE!', 'its turn');
+  hud.tick(10 + 2 * TITLE_SECONDS);
+  assert.equal(shown(), null, 'and gone after its own time');
+
+  // The fourth god's win: its prize, the finale's multiball (titled from the state, which comes at once) and the finale
+  // itself, all at the moment of the win. The stage draws a little behind: the cues wait for their time.
+  const prize = tombPrize(12);
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus', 'ankh'], mode: mode('eye', { at: 90 }) }) })));
+  hud.tick(99.9);
+  hud.message(cue(100, { cue: 'modeWon', god: 'eye', prize }));
+  hud.message(cue(100, { cue: 'finale' }));
+  hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
+  let t = 99.9;
+  hud.tick(t);
+  assert.equal(shown(), 'MULTIBALL!');
+  t += TITLE_SECONDS;
+  hud.tick(t);
+  assert.equal(shown(), `TOMB RAID! +${money(prize)}`);
+  t += TITLE_SECONDS;
+  hud.tick(t);
+  assert.equal(shown(), "PHARAOH'S GOLD!", 'the finale, three titles in');
+  t += TITLE_SECONDS;
+  hud.tick(t);
+  assert.equal(shown(), null);
+});
+
+test('a quest title far past its moment is let go (a page catching up), and the next shows at its time', () => {
+  const { hud, shown } = board();
+  hud.message(msgOf(state()));
+  hud.message(cue(10, { cue: 'jackpot', value: QUEST.jackpot.first, x: 0, z: 0 }));
+  hud.tick(20);
+  assert.equal(shown(), null, '10 s late');
+  hud.message(cue(30, { cue: 'jackpot', value: QUEST.jackpot.first + QUEST.jackpot.step, x: 0, z: 0 }));
+  hud.tick(30);
+  assert.equal(shown(), `JACKPOT ${money(QUEST.jackpot.first + QUEST.jackpot.step)}!`);
+});
+
+test("the table's clock starting again lets go the quest's titles still waiting on the old clock, and the new ones show", () => {
+  const { hud, shown } = board();
+  hud.message(msgOf(state({ phase: 'playing' })));
+  hud.tick(600);
+  hud.message(cue(600, { cue: 'jackpot', value: QUEST.jackpot.first, x: 0, z: 0 }));
+  hud.message(cue(603, { cue: 'jackpot', value: QUEST.jackpot.first + QUEST.jackpot.step, x: 0, z: 0 }));
+  hud.tick(600);
+  assert.equal(shown(), `JACKPOT ${money(QUEST.jackpot.first)}!`, 'on the old clock');
+  // The server restarts mid-title: its clock starts again from 0, and the page carries on.
+  hud.tick(0.5);
+  assert.equal(shown(), null, "the old clock's title goes");
+  hud.message(cue(1, { cue: 'finale' }));
+  hud.tick(1);
+  assert.equal(shown(), "PHARAOH'S GOLD!", 'a new title shows at its time');
+  hud.tick(1 + TITLE_SECONDS);
+  hud.tick(603);
+  assert.equal(shown(), null, "the old clock's waiting title was let go");
+});
+
+test('a frame makes nothing: the banner is built once, and the bar and the prize are written to the elements it has', () => {
+  const { hud, part, made } = board();
+  const fill = part('fill');
+  hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus', 'ankh'], mode: mode('eye') }) })));
+  const before = made();
+  const widths = new Set<string>();
+  for (let t = 100; t < 130; t += 1 / 60) {
+    hud.tick(t);
+    widths.add(fill.style.width);
+  }
+  assert.equal(made(), before, 'no element made while the time counts down');
+  assert.ok(widths.size > 60, `the bar moved a step at a time, many times (${widths.size} widths)`);
 });
 
 let failed = 0;
