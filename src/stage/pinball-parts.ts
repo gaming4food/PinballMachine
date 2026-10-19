@@ -7,10 +7,13 @@
 // ball that hits it, the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's gate,
 // which swings over and back (the header's toy bits, shared/pinball.ts TOY); both spinners' plates at their turns; and
 // soft additive glows over the picture's lamps and bumpers, lit by the header's bits (shared/pinball.ts LIT) and the
-// bumper and sling cues.
+// bumper and sling cues, and over the frame's rail lights, the orbits' arrows and a lamp at each toy (by its bits).
+// Every glow is a lamp to the light shows as well (light-show.ts, played by the stage: setShowLights), whose light
+// shows over the game's where it's the brighter; and whatever lights a glow, it rises no more than 3 times a second,
+// for the viewers a flashing picture can hurt.
 //
 // Without the picture (it failed to load) the stand-in look is drawn instead (`usePicture(false)`): the bumper caps
-// and sling rubbers that flash, and the inserts, over the stand-in table (table-mesh.ts).
+// and sling rubbers that flash, and the inserts, over the stand-in table (table-mesh.ts). The shows light none of it.
 // In the table's own coordinates, as table-mesh.ts.
 import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
@@ -23,6 +26,7 @@ import scarab62 from '../assets/plaques/scarab-62.png';
 import sundisc14 from '../assets/plaques/sundisc-14.png';
 import { DIVERTER_SPEED, LIT, TOY } from '../shared/pinball';
 import { FLIPPER_SHAPE, flipperHull, type Diverter, type Flipper, type Ramp, type Table, type Target } from '../shared/table';
+import { RiseLimit, type LampLight, type ShowLamp } from './light-show';
 import { CX, CYAN, DOOR_TUCK, doorway, PINK, segmentBox, WALL_THICK } from './table-mesh';
 
 const YELLOW = 0xffd23f;
@@ -97,6 +101,14 @@ const GLOW_LIT = 0.45;
 const GLOW_DIM = 0.15;
 const GLOW_BUMPER = 0.9;
 const GLOW_SLING = 0.6;
+/**
+ * A show's light at its brightest (light-show.ts: 1 of a lamp's peak), as a glow's opacity: as bright as a bumper's
+ * flash. It's every glow's peak: a glow's rise limit counts its opacity as a share of it, and a rise is going above
+ * half of it after being below 0.15 of it. The lamps the game lights keep clear of both: lit (GLOW_LIT) they're half
+ * of it, never above, and a blinking lamp's dim half (GLOW_DIM) is a sixth of it, never below. So none of them ever
+ * rises, and the lock and the saver blink as they did.
+ */
+const GLOW_SHOW = 0.9;
 /** A lamp's glow lies this far over the playfield (over the shadow catcher, table-mesh.ts's pictureDepth). */
 const LAMP_Y = 0.012;
 /** The drain's place up the table, its sun disc round it (build_table.py's drain ring). */
@@ -104,6 +116,28 @@ const DRAIN_Z = 0.32;
 /** The picture's lamp colours: the amber inserts and the blue ones (build_table.py's AMBER_LAMP and BLUE_LAMP). */
 const AMBER = 0xffa030;
 const BLUE = 0x4a7dff;
+/**
+ * The frame's blue rail lights (build_table.py's rail led): an LED every 1.05 up each side of the cabinet from z 0.92,
+ * 16 a side, on the brass lip at x ±5.23, 1.08 up. Their glows face the camera, drawn over everything as the bumpers'
+ * are. Nothing stands in front of them, so they're the ring a chase runs round the table.
+ */
+const RAIL = { x: 5.23, z0: 0.92, step: 1.05, y: 1.08, count: 16, size: 0.5 };
+/**
+ * The tomb doorway's two amber LEDs (build_table.py's doorway led): on its lintel's top, `over` above the doorway,
+ * `side` outside each jamb's face and `back` behind the door's. Their glows face the camera, drawn over everything as
+ * the rail lights' are: the lintel they stand on is one of the picture's unseen shapes.
+ */
+const DOORWAY_LED = { side: 0.05, back: 0.045, over: 0.1, size: 0.45 };
+/**
+ * The toys' lamps, each lying flat at its toy's foot, `size` across and in its god's colour in the quest: a pop-up's
+ * (Horus's blue) and the mummy's (Ankh's green) `out` beyond the toy's face, toward the play; the doorstep's (the
+ * Eye's red) `out` in front of the tomb door's face; and the gate's (Ra's gold) on its ramp's floor at the middle of
+ * the gate at rest, in the gap the gate swings out of.
+ */
+const POPUP_LAMP = { out: 0.35, size: 0.8, color: BLUE };
+const MUMMY_LAMP = { out: 0.45, size: 1.2, color: GREEN };
+const DOORSTEP_LAMP = { out: 0.25, size: 1.1, color: 0xff3344 };
+const GATE_LAMP = { size: 0.9, color: 0xffc23a };
 
 /** Each target's emblem (build_table.py's EMBLEMS); every flip plaque's back is the sun disc. */
 const EMBLEMS: Record<string, string> = {
@@ -329,17 +363,37 @@ export interface TargetView {
 }
 
 /**
- * A glow over the picture: which lamp (a LIT bit's name), bumper or sling it's over, and what draws it. A lamp's lies
- * flat on the playfield over the lamp, behind whatever stands in front of it (the picture's shapes are in the depth
- * buffer: table-mesh.ts's pictureDepth); a bumper's or a sling's faces the camera over it, drawn over everything (it's
- * a flash of light), since a sprite inside the bumper's own unseen shape would be hidden by it.
+ * A glow over the picture: which lamp (a LIT bit's name, a toy's or the frame's), bumper or sling it's over, what
+ * lights it and what draws it. A lamp's lies flat on the playfield (or a ramp's floor) over the lamp, behind whatever
+ * stands in front of it (the picture's shapes are in the depth buffer: table-mesh.ts's pictureDepth); a bumper's or a
+ * sling's faces the camera over it, drawn over everything (it's a flash of light), since a sprite inside the bumper's
+ * own unseen shape would be hidden by it, and so do the frame's rail lights and the tomb doorway's LEDs. Every glow is
+ * a lamp to the light shows as well.
  */
 export interface Glow {
   id: string;
-  /** Its LIT bit; 0 for a bumper's or a sling's, which glows with its flash. */
+  /**
+   * Its LIT bit, or 0: a bumper's or a sling's glows with its flash, a toy's lamp with its toy, and the frame's rail
+   * lights and the orbits' arrows with the shows alone.
+   */
   bit: number;
+  /** A toy's lamp: whether its toy lights it, by the header's bits (the targets down and the toys'). */
+  toy?: (down: number, toys: number) => boolean;
+  /** The lamp it is to the light shows: its place on the table, and its own colour, the one the game lights it in. */
+  lamp: ShowLamp;
   object: THREE.Mesh | THREE.Sprite;
   material: THREE.MeshBasicMaterial | THREE.SpriteMaterial;
+}
+
+/**
+ * The table's lamps as the light shows see them (light-show.ts): every glow, in the glows' order; the frame's rail
+ * lights as a ring, for a chase round the table; and double score's ladders. A show knows its own lamps by which they
+ * are, so the ring and the ladders hold all's own lamps, not copies of them.
+ */
+export interface PinballLamps {
+  all: readonly ShowLamp[];
+  ring: readonly ShowLamp[];
+  ladders: readonly ShowLamp[];
 }
 
 export class TableParts {
@@ -362,10 +416,19 @@ export class TableParts {
   /** The spinners' plates: the main spinner, then the table's others. */
   readonly spinners: { pivot: THREE.Group }[] = [];
   readonly glows: Glow[] = [];
+  /** Every glow as a lamp (in `glows` order), the frame's ring in its order, and the ladders' ten. */
+  readonly lamps: PinballLamps;
   /** Each bumper's and sling's flash (1 at a hit, dying away), with the stand-in's cap or rubber that shows it. */
   private readonly flashes = new Map<string, { flash: number; peak: number; mat: THREE.MeshStandardMaterial; rest: number; hot: number }>();
   /** Each stand-in insert, by the LIT bit that lights it. */
   private readonly inserts: { bit: number; mat: THREE.MeshStandardMaterial }[] = [];
+  /**
+   * Each glow's own rise limit and the shows' light on it, in the glows' order. The light is copied in by setShowLights
+   * (a level of 0 where no show lights the lamp), since a player fills its own in again at its next call. The limits
+   * are never reset: they count on the parts' clock, which never starts again, and a glow a viewer saw rise was seen,
+   * whatever hello comes next.
+   */
+  private readonly glowLights: { limit: RiseLimit; show: LampLight }[] = [];
   /** The targets down: before the first header, the rising ones (they start down, as on the table). */
   private down = 0;
   /** The plaques turned last set; null before the first (a plaque already turned then is shown turned, not turning). */
@@ -565,6 +628,46 @@ export class TableParts {
     }
     [LIT.centre0, LIT.centre1, LIT.centre2, LIT.centre3].forEach((bit, k) => this.addGlow(`centre${k}`, bit, CX, LAMP_Y, 2.9 + k * 0.62, 0.9, k % 2 ? BLUE : AMBER, true));
     this.addGlow('saver', LIT.saver, CX, LAMP_Y, DRAIN_Z, 1.9, AMBER, true);
+
+    // The lamps only the light shows light (the game has no bits for them): the frame's rail lights up both sides of
+    // the cabinet, and the orbits' amber arrows, three up each orbit lane (build_table.py's arrow loops). The right
+    // orbit's lie under the right ramp, which hides most of each glow as it hides most of the picture's arrows.
+    const rails = (['left', 'right'] as const).map((side, s) =>
+      Array.from({ length: RAIL.count }, (_, k) => this.addGlow(`rail-${side}-${k}`, 0, (s ? 1 : -1) * RAIL.x, RAIL.y, RAIL.z0 + k * RAIL.step, RAIL.size, BLUE, false).lamp),
+    );
+    for (let k = 0; k < 3; k++) this.addGlow(`orbit-left-${k}`, 0, -4.5, LAMP_Y, 9.9 + k * 0.55, 0.7, AMBER, true);
+    for (let k = 0; k < 3; k++) this.addGlow(`orbit-right-${k}`, 0, 3.7, LAMP_Y, 11.3 + k * 0.45, 0.65, AMBER, true);
+
+    // A lamp at each toy, lit by the header's bits while its toy is up, open or over: so a page opening on a toy up
+    // shows its lamp lit at once, and a pop-up's lights as its bit clears, as it starts up. The tomb has three: the
+    // doorway's two LEDs on its lintel, and one on its doorstep.
+    if (way) {
+      const open = (_down: number, toys: number) => (toys & TOY.tombOpen) !== 0;
+      [way.x0 - DOORWAY_LED.side, way.x1 + DOORWAY_LED.side].forEach((x, k) =>
+        this.addGlow(`doorway-${k}`, 0, x, way.height + DOORWAY_LED.over, way.front + DOORWAY_LED.back, DOORWAY_LED.size, AMBER, false, open),
+      );
+      this.addGlow('doorstep', 0, (way.x0 + way.x1) / 2, LAMP_Y, way.front - DOORSTEP_LAMP.out, DOORSTEP_LAMP.size, DOORSTEP_LAMP.color, true, open);
+    }
+    table.targets.forEach((t, i) => {
+      if (!t.rise) return;
+      const look = t.rise === 'hold' ? MUMMY_LAMP : POPUP_LAMP;
+      const [nx, nz] = this.targets[i].front;
+      const out = (t.depth ?? TARGET_THICK) / 2 + look.out;
+      this.addGlow(t.id.replace(/^target-/, ''), 0, t.x + nx * out, LAMP_Y, t.z + nz * out, look.size, look.color, true, (down) => (down & (1 << i)) === 0);
+    });
+    if (dv && ramp) {
+      const a = THREE.MathUtils.degToRad(dv.restDeg);
+      const mid: [number, number] = [dv.pivot[0] + (Math.cos(a) * dv.length) / 2, dv.pivot[1] + (Math.sin(a) * dv.length) / 2];
+      this.addGlow('gate', 0, mid[0], floorAt(ramp, mid) + LAMP_Y, mid[1], GATE_LAMP.size, GATE_LAMP.color, true, (_down, toys) => (toys & TOY.diverterOver) !== 0);
+    }
+
+    // Every glow is a lamp to the light shows, and the ring and the ladders are all's own lamps (a show knows its lamps
+    // by which they are). The ring runs up the left rail from the bottom, then down the right one from the top.
+    this.lamps = {
+      all: this.glows.map((g) => g.lamp),
+      ring: [...rails[0], ...rails[1].toReversed()],
+      ladders: this.glows.filter((g) => g.id === 'double').map((g) => g.lamp),
+    };
     this.usePicture(true);
   }
 
@@ -574,26 +677,33 @@ export class TableParts {
     this.inserts.push({ bit, mat });
   }
 
-  /** A glow `size` across at (x, y, z): flat on the playfield (a lamp's), or facing the camera over everything (a flash). */
-  private addGlow(id: string, bit: number, x: number, y: number, z: number, size: number, color: number, flat: boolean): void {
+  /**
+   * A glow `size` across at (x, y, z): flat on the playfield (a lamp's), or facing the camera over everything (a
+   * flash). Each is a lamp to the light shows too, at its place and in its own colour, with a rise limit of its own; a
+   * toy's lamp has its `toy`.
+   */
+  private addGlow(id: string, bit: number, x: number, y: number, z: number, size: number, color: number, flat: boolean, toy?: Glow['toy']): Glow {
     const look = { map: glowMap(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0 };
+    const lamp: ShowLamp = { x, z, color };
     let glow: Glow;
     if (flat) {
       const material = new THREE.MeshBasicMaterial({ ...look, side: THREE.DoubleSide });
       const object = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
       object.rotation.x = -Math.PI / 2;
-      glow = { id, bit, object, material };
+      glow = { id, bit, toy, lamp, object, material };
     } else {
       const material = new THREE.SpriteMaterial({ ...look, depthTest: false });
       const object = new THREE.Sprite(material);
       object.scale.set(size, size, 1);
       object.renderOrder = 2;
-      glow = { id, bit, object, material };
+      glow = { id, bit, toy, lamp, object, material };
     }
     glow.object.position.set(x, y, z);
     glow.object.visible = false;
     this.glowGroup.add(glow.object);
     this.glows.push(glow);
+    this.glowLights.push({ limit: new RiseLimit(), show: { level: 0, color } });
+    return glow;
   }
 
   /** A drop or rising target where its height says: sunk out of sight when it's all the way down. */
@@ -702,6 +812,18 @@ export class TableParts {
     this.lit = bits;
   }
 
+  /** The shows' light for each lamp, in lamps.all's order (null leaves a lamp to the game), until the next call. */
+  setShowLights(lights: readonly (LampLight | null)[]): void {
+    // Copied at once, since a player's lights are its own, filled in again at its next call. A lamp past the end of
+    // `lights` has none.
+    for (let i = 0; i < this.glowLights.length; i++) {
+      const light = lights[i];
+      const { show } = this.glowLights[i];
+      show.level = light ? light.level : 0;
+      if (light) show.color = light.color;
+    }
+  }
+
   flashBumper(id: string): void {
     const f = this.flashes.get(id);
     if (f) f.flash = 1;
@@ -719,7 +841,8 @@ export class TableParts {
 
   /**
    * Each frame: the flashes show and die away, the drop targets and the rising ones move toward up or down, the mummy
-   * rocks, the door and the gate move toward their bits, the lamps glow or blink.
+   * rocks, the door and the gate move toward their bits, the lamps glow or blink, with the shows' light over them, and
+   * every glow is held to 3 rises a second.
    */
   update(dt: number): void {
     this.clock += dt;
@@ -743,19 +866,33 @@ export class TableParts {
       const on = (this.lit & ins.bit) !== 0;
       ins.mat.emissiveIntensity = on && (!blinks(ins.bit) || blink) ? LIT_ON : on ? LIT_ON * 0.35 : LIT_OFF;
     }
-    for (const glow of this.glows) {
+    this.glows.forEach((glow, i) => {
+      // The game's light: a lamp by its LIT bit, a toy's lamp by its toy, a bumper or a sling by its flash.
       let level: number;
       if (glow.bit) {
         const on = (this.lit & glow.bit) !== 0;
         level = on ? (!blinks(glow.bit) || blink ? GLOW_LIT : GLOW_DIM) : 0;
+      } else if (glow.toy) {
+        level = glow.toy(this.down, this.toys) ? GLOW_LIT : 0;
       } else {
         const f = this.flashes.get(glow.id);
         level = f ? f.peak * f.flash : 0;
       }
+      // The shows' light where it's the brighter, in its colour.
+      const { limit, show } = this.glowLights[i];
+      let color = glow.lamp.color;
+      if (show.level * GLOW_SHOW > level) {
+        level = show.level * GLOW_SHOW;
+        color = show.color;
+      }
+      // Then, whatever lit it, no more than 3 rises a second (light-show.ts), on the parts' own clock: the limit guards
+      // what the viewers see, so it counts the real seconds they see it in, where the shows run on the table's clock.
+      level = limit.level(level / GLOW_SHOW, this.clock) * GLOW_SHOW;
       if (level < 0.01) level = 0;
       glow.material.opacity = level;
+      glow.material.color.setHex(color);
       glow.object.visible = level > 0;
-    }
+    });
     const decay = Math.exp(-dt * FLASH_DECAY);
     for (const f of this.flashes.values()) {
       f.mat.emissiveIntensity = f.rest + (f.hot - f.rest) * f.flash;

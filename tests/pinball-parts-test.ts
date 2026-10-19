@@ -2,9 +2,11 @@
 // plaque per flip target that turns about its pin when its bit sets, the two drop targets, three flippers and two
 // spinners each at its own angle, the lamps' glows by the LIT bits, and the quest's toys (the pop-ups and the mummy
 // rising and sinking by their bits, the mummy rocking when hit, the tomb's door and the diverter's gate by the toy
-// bits); that the stage's camera, with the parts in the table's place (tiltTable), puts the table's probe points on
-// the picture's pixels (tools/export-scene.ts's probes, which the Blender build matched its camera to within 0.5 px)
-// and the live parts on them, the toys where the build draws them; and that the picture's unseen shapes
+// bits); the lamps the light shows light (every glow, the frame's rail lights as a ring, the ladders), the shows' light
+// over the game's, the toys' lamps by their bits, and no glow rising more than 3 times a second, whatever lights it;
+// that the stage's camera, with the parts in the table's place (tiltTable), puts the table's probe points on the
+// picture's pixels (tools/export-scene.ts's probes, which the Blender build matched its camera to within 0.5 px) and
+// the live parts on them, the toys and the new lamps where the build draws them; and that the picture's unseen shapes
 // (table-mesh.ts's pictureDepth) hide what the picture hides, and not what it shows: a toy up, or a ball the tomb
 // holds at its doorway. The flippers are drawn in the physics' own shape (shared/table.ts FLIPPER_SHAPE), checked
 // against the physics' colliders.
@@ -15,7 +17,8 @@ import * as THREE from 'three';
 import { DT, initPhysics } from '@kit/server';
 import { PinballSim, WALL_HALF } from '../src/server/sim';
 import { LIT, TOY } from '../src/shared/pinball';
-import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, isLockTarget, tombMouth, wallsWithTomb, type Table, type Target } from '../src/shared/table';
+import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, isLockTarget, tombMouth, wallsWithTomb, type Ramp, type Table, type Target } from '../src/shared/table';
+import { burst, DARK_BELOW, FLASH_GAP, LIT_ABOVE, LightShowPlayer, type LampLight, type ShowLamp } from '../src/stage/light-show';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
 import './stub-assets';
 
@@ -742,6 +745,369 @@ test("the live toys sit where the picture's build draws them, on its pixels (wit
   }
   same("the diverter's gate", drawn(parts.gate!.pivot), gate);
   console.log(`      worst: ${worst.toFixed(3)} px over ${count} corners`);
+});
+
+/**
+ * The glows this stage adds, each a lamp the light shows light: its id, whether it's a sprite drawn over everything (or
+ * lies flat), how wide it is, and its own colour.
+ */
+const NEW_LAMPS: { id: string; sprite: boolean; size: number; color: number }[] = [
+  ...['left', 'right'].flatMap((side) => Array.from({ length: 16 }, (_, k) => ({ id: `rail-${side}-${k}`, sprite: true, size: 0.5, color: 0x4a7dff }))),
+  ...[0, 1, 2].map((k) => ({ id: `orbit-left-${k}`, sprite: false, size: 0.7, color: 0xffa030 })),
+  ...[0, 1, 2].map((k) => ({ id: `orbit-right-${k}`, sprite: false, size: 0.65, color: 0xffa030 })),
+  { id: 'doorway-0', sprite: true, size: 0.45, color: 0xffa030 },
+  { id: 'doorway-1', sprite: true, size: 0.45, color: 0xffa030 },
+  { id: 'doorstep', sprite: false, size: 1.1, color: 0xff3344 },
+  ...[1, 2, 3].map((k) => ({ id: `popup-${k}`, sprite: false, size: 0.8, color: 0x4a7dff })),
+  { id: 'mummy', sprite: false, size: 1.2, color: 0x39ff6a },
+  { id: 'gate', sprite: false, size: 0.9, color: 0xffc23a },
+];
+/** The toys' lamps: the tomb's three, a pop-up's each, the mummy's and the gate's. */
+const TOY_LAMPS = ['doorway-0', 'doorway-1', 'doorstep', 'popup-1', 'popup-2', 'popup-3', 'mummy', 'gate'];
+
+/**
+ * The most rises in any 1 s window of a light looked at every `dt` (each level a share of its peak): a rise is going
+ * above LIT_ABOVE after being below DARK_BELOW, and a light starts out dark (light-show-test counts them so too).
+ */
+function rises(seen: number[], dt: number): number {
+  const at: number[] = [];
+  let dark = true;
+  seen.forEach((level, i) => {
+    if (level < DARK_BELOW) dark = true;
+    else if (dark && level > LIT_ABOVE) {
+      dark = false;
+      at.push(i * dt);
+    }
+  });
+  let most = 0;
+  for (let a = 0, b = 0; b < at.length; b++) {
+    while (at[b] - at[a] >= 1) a++;
+    most = Math.max(most, b - a + 1);
+  }
+  return most;
+}
+
+/**
+ * A ramp's floor height at p, in (x, z), as the physics has it (server/sim.ts's floorHeight): its centre line's height
+ * at the point on it nearest p.
+ */
+function floorOf(r: Ramp, p: readonly [number, number]): number {
+  let best = Infinity;
+  let y = r.path[0][2];
+  for (let i = 0; i + 1 < r.path.length; i++) {
+    const [ax, az, ay] = r.path[i];
+    const [bx, bz, by] = r.path[i + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const k = Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - az) * dz) / (dx * dx + dz * dz)));
+    const d = Math.hypot(p[0] - ax - k * dx, p[1] - az - k * dz);
+    if (d < best) {
+      best = d;
+      y = ay + k * (by - ay);
+    }
+  }
+  return y;
+}
+
+test("every glow is a lamp: the 32 rail lights, the 6 orbit arrows, the doorway's 2 and its step, a lamp for each toy; the ring goes round the frame in order; the ladders are ten", () => {
+  const parts = new TableParts(TABLE_IN_USE);
+  const { all, ring, ladders } = parts.lamps;
+  // A lamp for every glow, in the glows' order: at its glow's place on the table, in its glow's own colour.
+  assert.equal(all.length, parts.glows.length, 'a lamp for every glow');
+  assert.equal(new Set(all).size, all.length, 'no lamp twice');
+  parts.glows.forEach((g, i) => {
+    assert.ok(near(all[i].x, g.object.position.x) && near(all[i].z, g.object.position.z), `${g.id}'s lamp is at (${all[i].x}, ${all[i].z}), its glow at (${g.object.position.x}, ${g.object.position.z})`);
+    assert.equal(all[i].color, g.material.color.getHex(), `${g.id}'s lamp is in its glow's colour`);
+  });
+  // The new ones, each once: no LIT bit, dark until a show or its toy lights it, and drawn as each lamp is.
+  for (const want of NEW_LAMPS) {
+    const found = parts.glows.filter((g) => g.id === want.id);
+    assert.equal(found.length, 1, `one ${want.id} glow`);
+    const [g] = found;
+    assert.equal(g.bit, 0, `${want.id} has no LIT bit`);
+    assert.ok(g.material.opacity === 0 && !g.object.visible, `${want.id} starts dark`);
+    assert.equal(g.object instanceof THREE.Sprite, want.sprite, `${want.id} is ${want.sprite ? 'a sprite' : 'flat'}`);
+    const size = g.object instanceof THREE.Sprite ? g.object.scale.x : (g.object.geometry as THREE.PlaneGeometry).parameters.width;
+    assert.ok(near(size, want.size), `${want.id} is ${size} across, not ${want.size}`);
+    assert.equal(g.material.color.getHex(), want.color, `${want.id}'s colour is ${g.material.color.getHexString()}`);
+  }
+  const idOf = (l: ShowLamp) => parts.glows[all.indexOf(l)]?.id;
+  // The ring: the frame's rail lights, up the left column from the bottom and down the right one from the top, each
+  // the next round from the last. Its lamps are all's own, not copies: a show knows its lamps by which they are.
+  assert.ok(ring.every((l) => all.includes(l)), "the ring's lamps are all's own");
+  const up = Array.from({ length: 16 }, (_, k) => k);
+  assert.deepEqual(ring.map(idOf), [...up.map((k) => `rail-left-${k}`), ...up.toReversed().map((k) => `rail-right-${k}`)]);
+  ring.forEach((l, i) => {
+    if (i === 0) return;
+    const [dx, dz] = [l.x - ring[i - 1].x, l.z - ring[i - 1].z];
+    const step = i < 16 ? [0, 1.05] : i === 16 ? [10.46, 0] : [0, -1.05];
+    assert.ok(near(dx, step[0], 1e-9) && near(dz, step[1], 1e-9), `${idOf(l)} is next round from ${idOf(ring[i - 1])}: (${dx}, ${dz}) on`);
+  });
+  // The ladders: double score's ten, all's own too.
+  assert.equal(ladders.length, 10);
+  assert.ok(ladders.every((l) => all.includes(l)), "the ladders' lamps are all's own");
+  assert.equal(new Set(ladders).size, 10, 'ten lamps');
+  assert.ok(ladders.every((l) => idOf(l) === 'double'), "the ladders are double score's");
+});
+
+test("the new lamps sit where the picture's build draws them, on its pixels (within 3 px)", () => {
+  // The picture's camera, as tools/export-scene.ts hands it to the build (which matched its own camera to it).
+  const scene = exportScene();
+  const pictureCamera = new THREE.PerspectiveCamera(scene.fovY, scene.width / scene.height, 0.5, 200);
+  pictureCamera.matrixAutoUpdate = false;
+  pictureCamera.matrixWorld.fromArray(scene.cameraMatrix);
+  pictureCamera.matrixWorldInverse.copy(pictureCamera.matrixWorld).invert();
+  pictureCamera.setViewOffset(scene.width, scene.height, 0, scene.viewY, scene.width, scene.height);
+  const tableMatrix = new THREE.Matrix4().fromArray(scene.tableMatrix);
+  const pixel = (p: THREE.Vector3, camera: THREE.Camera): [number, number] => {
+    const q = p.clone().project(camera);
+    return [((q.x + 1) / 2) * WIDTH, ((1 - q.y) / 2) * HEIGHT];
+  };
+  // The glows through the stage's camera.
+  const camera = new THREE.PerspectiveCamera();
+  fitStageCamera(camera, WIDTH, HEIGHT);
+  const table = tiltTable(new THREE.Group());
+  const parts = new TableParts(TABLE_IN_USE);
+  table.add(parts.group);
+  table.updateMatrixWorld(true);
+  // Where build_table.py draws each lamp, by its own formulas, in the table's coordinates (x, up, z).
+  const build = new Map<string, [number, number, number]>();
+  // The rail LEDs: domes on the frame's brass lip (1.08 up), each 0.52 above a frame screw; the screws from 0.4 up the
+  // cabinet in steps of 1.05 while under its top less 1.2 (FY1, 17.7), at x ±5.12 scaled out to the lip's ±5.23.
+  for (let k = 0; 0.4 + k * 1.05 < 17.7 - 1.2; k++) {
+    for (const [side, x] of [['left', -5.12], ['right', 5.12]] as const) build.set(`rail-${side}-${k}`, [(x * 5.23) / 5.12, 1.08, 0.4 + k * 1.05 + 0.52]);
+  }
+  // The orbits' arrows: inserts 0.006 thick, three up each orbit lane.
+  for (let k = 0; k < 3; k++) {
+    build.set(`orbit-left-${k}`, [-4.5, 0.006, 9.9 + k * 0.55]);
+    build.set(`orbit-right-${k}`, [3.7, 0.006, 11.3 + k * 0.45]);
+  }
+  // The doorway's LEDs: domes on its lintel's top (0.1 over the doorway), 0.05 outside each jamb's face and 0.045
+  // behind the door's face. The build draws no lamp on the doorstep, nor at the toys: those lie on what it draws there,
+  // the doorstep's at the doorway's middle, 0.25 in front of the door's face (the doorstep is 0.006 thick), and a
+  // pop-up's and the mummy's on the playfield, out from the toy's face (its target_frame's n) by 0.35 and 0.45.
+  const d = doorwayOf();
+  build.set('doorway-0', [d.x0 - 0.05, d.height + 0.1, d.front + 0.045]);
+  build.set('doorway-1', [d.x1 + 0.05, d.height + 0.1, d.front + 0.045]);
+  build.set('doorstep', [(d.x0 + d.x1) / 2, 0.006, d.front - 0.25]);
+  for (const i of RISING_AT) {
+    const t = TABLE_IN_USE.targets[i];
+    const { n } = frameOf(t);
+    const out = (t.depth ?? 0.2) / 2 + (t.rise === 'hold' ? 0.45 : 0.35);
+    build.set(t.id.replace(/^target-/, ''), [t.x + n[0] * out, 0, t.z + n[1] * out]);
+  }
+  // The gate's: the middle of the build's gate at rest, on its ramp's floor there.
+  const { dv, ramp } = gateOf();
+  const a = THREE.MathUtils.degToRad(dv.restDeg);
+  const mid: [number, number] = [dv.pivot[0] + (Math.cos(a) * dv.length) / 2, dv.pivot[1] + (Math.sin(a) * dv.length) / 2];
+  build.set('gate', [mid[0], floorOf(ramp, mid), mid[1]]);
+  assert.deepEqual([...build.keys()].sort(), NEW_LAMPS.map((l) => l.id).sort(), 'a place in the build for every new lamp');
+  let worst = 0;
+  for (const [id, [x, y, z]] of build) {
+    const glow = parts.glows.find((g) => g.id === id);
+    assert.ok(glow, `a ${id} glow`);
+    const got = pixel(glow.object.getWorldPosition(new THREE.Vector3()), camera);
+    const want = pixel(new THREE.Vector3(x, y, z).applyMatrix4(tableMatrix), pictureCamera);
+    const err = Math.hypot(got[0] - want[0], got[1] - want[1]);
+    worst = Math.max(worst, err);
+    assert.ok(err <= 3, `${id}: drawn at (${got.map((v) => v.toFixed(1))}), the build's at (${want.map((v) => v.toFixed(1))}): ${err.toFixed(2)} px`);
+  }
+  console.log(`      worst: ${worst.toFixed(3)} px over ${build.size} lamps`);
+});
+
+test("a show's light shows over the game's, in its colour; when it ends every lamp is what the game says: lit, blinking or dark", () => {
+  const dt = 1 / 120;
+  // The table with a show lighting every lamp for 1 s, and the same table with none: what the game says.
+  const parts = new TableParts(TABLE_IN_USE);
+  const game = new TableParts(TABLE_IN_USE);
+  for (const p of [parts, game]) p.setLit(LIT.lock | LIT.centre2);
+  const SHOW = 0xff2bd6;
+  const light: LampLight = { level: 1, color: SHOW };
+  const player = new LightShowPlayer(parts.lamps.all);
+  player.play({ seconds: 1, light: () => light }, 0);
+  const lock = parts.glows.findIndex((g) => g.id === 'lock');
+  const centre2 = parts.glows.findIndex((g) => g.id === 'centre2');
+  const lockSeen = new Set<number>();
+  let k = 0;
+  for (; k * dt < 3; k++) {
+    const t = k * dt;
+    parts.setShowLights(player.lights(t));
+    parts.update(dt);
+    game.update(dt);
+    if (t < 1) {
+      // The show's light over every glow, in its colour: over the lit lamp and the blinking lock too.
+      for (const g of parts.glows) {
+        assert.ok(g.object.visible && near(g.material.opacity, 0.9, 1e-9) && g.material.color.getHex() === SHOW, `${g.id} at ${t.toFixed(3)} s: ${g.material.opacity} in ${g.material.color.getHexString()}`);
+      }
+    } else if (t >= 1 + FLASH_GAP) {
+      // Over, and past the gap a rise holds a light dark for: every glow as the game has it, which is centre 2 lit,
+      // the lock blinking and every other lamp dark, each in its own colour.
+      parts.glows.forEach((g, i) => {
+        const w = game.glows[i];
+        const what = `${g.id} at ${t.toFixed(3)} s: ${g.material.opacity} in ${g.material.color.getHexString()}`;
+        assert.ok(g.material.opacity === w.material.opacity && g.object.visible === w.object.visible, `${what}, the game's ${w.material.opacity}`);
+        assert.equal(g.material.color.getHex(), parts.lamps.all[i].color, `${what}: its own colour`);
+        if (i === centre2) assert.ok(near(g.material.opacity, 0.45, 1e-9), `${what}: lit`);
+        else if (i === lock) lockSeen.add(Math.round(g.material.opacity * 1e6) / 1e6);
+        else assert.ok(g.material.opacity === 0 && !g.object.visible, `${what}: dark`);
+      });
+    }
+  }
+  assert.deepEqual([...lockSeen].sort(), [0.15, 0.45], 'the lock blinks, lit and dim');
+  // A show dimmer than the game's light leaves the lamp the game's, in its own colour; on a dark lamp it shows.
+  const dim: LampLight = { level: 0.4, color: SHOW };
+  const at = k * dt;
+  player.play({ seconds: 0.5, light: () => dim }, at);
+  const rail = parts.glows.findIndex((g) => g.id === 'rail-left-0');
+  for (; k * dt < at + 0.5; k++) {
+    parts.setShowLights(player.lights(k * dt));
+    parts.update(dt);
+    const [c, r] = [parts.glows[centre2], parts.glows[rail]];
+    assert.ok(near(c.material.opacity, 0.45, 1e-9) && c.material.color.getHex() === parts.lamps.all[centre2].color, `centre2 under a dim show: ${c.material.opacity} in ${c.material.color.getHexString()}`);
+    assert.ok(near(r.material.opacity, 0.36, 1e-9) && r.material.color.getHex() === SHOW, `rail-left-0 under a dim show: ${r.material.opacity} in ${r.material.color.getHexString()}`);
+  }
+});
+
+test("the toys' lamps: a pop-up's and the mummy's lit while it stands, the doorway's while the tomb is open, the gate's while it's over; as they are at the first look", () => {
+  const [, popup2, , mummy] = RISING_AT;
+  /** The toys' lamps lit after a frame, each lit at a lit lamp's glow (GLOW_LIT, 0.45). */
+  const lit = (p: InstanceType<typeof TableParts>) => {
+    p.update(1 / 60);
+    return TOY_LAMPS.filter((id) => {
+      const g = p.glows.find((glow) => glow.id === id)!;
+      assert.ok(g.object.visible ? near(g.material.opacity, 0.45, 1e-9) : g.material.opacity === 0, `${id} glows at ${g.material.opacity}`);
+      return g.object.visible;
+    });
+  };
+  const but = (...out: string[]) => TOY_LAMPS.filter((id) => !out.includes(id));
+  // Before any header every toy is down, the tomb shut and the gate at rest: none lit.
+  const parts = new TableParts(TABLE_IN_USE);
+  assert.deepEqual(lit(parts), []);
+  // A page opening on every toy up, the tomb open and the gate over shows every toy's lamp lit, at its first look.
+  parts.setTargets(0, 0, 0);
+  parts.setToys(TOY.tombOpen | TOY.diverterOver);
+  assert.deepEqual(lit(parts), TOY_LAMPS);
+  // Each goes out with its own bit: a pop-up knocked down, the mummy down, the tomb shut, the gate back at rest.
+  parts.setTargets(1 << popup2, 0, 1);
+  assert.deepEqual(lit(parts), but('popup-2'));
+  parts.setTargets((1 << popup2) | (1 << mummy), 0, 2);
+  assert.deepEqual(lit(parts), but('popup-2', 'mummy'));
+  parts.setToys(TOY.diverterOver);
+  assert.deepEqual(lit(parts), but('popup-2', 'mummy', 'doorway-0', 'doorway-1', 'doorstep'));
+  parts.setToys(0);
+  assert.deepEqual(lit(parts), ['popup-1', 'popup-3']);
+  // And each lights again with its bit: as its toy starts up (the mummy is still rising) or the tomb starts to open.
+  parts.setTargets(0, 0, 3);
+  parts.setToys(TOY.tombOpen | TOY.diverterOver);
+  assert.deepEqual(lit(parts), TOY_LAMPS);
+  assert.ok(parts.targets[mummy].pivot.position.y < 0, 'the mummy is still rising');
+  // A fresh hello: the next header's are shown as they are, at once.
+  parts.reset();
+  parts.setTargets(RISING & ~(1 << mummy), 0, 0);
+  parts.setToys(TOY.diverterOver);
+  assert.deepEqual(lit(parts), ['mummy', 'gate']);
+  // A page opening on every toy down, the tomb shut and the gate at rest shows none lit.
+  const shut = new TableParts(TABLE_IN_USE);
+  shut.setTargets(RISING, 0, 0);
+  shut.setToys(0);
+  assert.deepEqual(lit(shut), []);
+});
+
+test('no glow rises more than 3 times in any second, whatever lights it: bumpers hit every 0.1 s, the blinking lock, a show bursting every 0.1 s', () => {
+  const dt = 1 / 120;
+  /**
+   * The table for 5 s, a frame every 1/120 s, with the lock lit (it blinks): every `hitEvery` frames each bumper is
+   * hit, and with `bursts`, every 12 frames (0.1 s) a burst runs out from the table's middle over every lamp. What each
+   * glow shows (its opacity as a share of its peak, 0.9), and what the shows alone asked of each lamp.
+   */
+  const play = (hitEvery: number, bursts: boolean) => {
+    const parts = new TableParts(TABLE_IN_USE);
+    parts.setLit(LIT.lock);
+    const player = new LightShowPlayer(parts.lamps.all);
+    const shown = parts.glows.map(() => [] as number[]);
+    const asked = parts.glows.map(() => [] as number[]);
+    for (let k = 0; k < 600; k++) {
+      const t = k * dt;
+      if (k % hitEvery === 0) for (const b of TABLE_IN_USE.bumpers) parts.flashBumper(b.id);
+      if (bursts && k % 12 === 0) player.play(burst(parts.lamps.all, { x: 0, z: 8, reach: 10, color: 0xffffff, seconds: 0.5 }), t);
+      const lights = player.lights(t);
+      lights.forEach((l, i) => asked[i].push(l?.level ?? 0));
+      parts.setShowLights(lights);
+      parts.update(dt);
+      parts.glows.forEach((g, i) => shown[i].push(g.material.opacity / 0.9));
+    }
+    return { parts, shown, asked };
+  };
+  const most = (levels: number[][]) => Math.max(...levels.map((l) => rises(l, dt)));
+  const held = (what: string, { parts, shown }: ReturnType<typeof play>) =>
+    parts.glows.forEach((g, i) => assert.ok(rises(shown[i], dt) <= 3, `${what}: ${g.id} (glow ${i}) rose ${rises(shown[i], dt)} times in a second`));
+  // The bursts ask most lamps to rise 10 times a second (a ring every 0.1 s, each gone before the next comes): the
+  // limit holds every glow to 3.
+  const busy = play(12, true);
+  assert.ok(most(busy.asked) >= 9, `the bursts alone ask up to ${most(busy.asked)} rises a second`);
+  held('bursts, bumpers and the lock', busy);
+  // Hit every 0.1 s, a bumper's flash never dies away before the next hit, so it rises once. Hit every 0.3 s, it dies
+  // below DARK_BELOW before each hit, so the game itself asks for 3.3 rises a second; the limit holds that to 3 too.
+  const slow = play(36, false);
+  const bumpers = slow.parts.glows.flatMap((g, i) => (TABLE_IN_USE.bumpers.some((b) => b.id === g.id) ? [i] : []));
+  assert.ok(bumpers.length > 0, 'the bumpers glow');
+  for (const i of bumpers) {
+    for (let k = 36; k < 600; k += 36) assert.ok(slow.shown[i][k - 1] < DARK_BELOW, `${slow.parts.glows[i].id} is dark before the hit at frame ${k}`);
+    assert.ok(rises(slow.shown[i], dt) >= 2, `${slow.parts.glows[i].id} still flashes: ${rises(slow.shown[i], dt)} rises a second`);
+  }
+  held('bumpers hit every 0.3 s', slow);
+});
+
+test("without the picture the shows light nothing and nothing throws; the stand-in's inserts still follow the LIT bits", () => {
+  const dt = 1 / 120;
+  // The stand-in table with a show lighting every lamp, and the same with none.
+  const parts = new TableParts(TABLE_IN_USE);
+  const plain = new TableParts(TABLE_IN_USE);
+  for (const p of [parts, plain]) {
+    p.usePicture(false);
+    p.setLit(LIT.rollover0 | LIT.lock);
+  }
+  const light: LampLight = { level: 1, color: 0xff2bd6 };
+  const player = new LightShowPlayer(parts.lamps.all);
+  player.play({ seconds: 2, light: () => light }, 0);
+  /** The stand-in's look: the glow of each of its caps, rubbers and inserts. */
+  const look = (p: InstanceType<typeof TableParts>) =>
+    p.standIn.children.map((m) => {
+      const mat = (m as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      return `${mat.emissive.getHexString()} ${mat.emissiveIntensity}`;
+    });
+  for (let k = 0; k * dt < 2; k++) {
+    if (k % 30 === 0) for (const p of [parts, plain]) p.flashBumper(TABLE_IN_USE.bumpers[0].id);
+    parts.setShowLights(player.lights(k * dt));
+    parts.update(dt);
+    plain.update(dt);
+    // The glows are hidden without the picture, so no show's light is seen; and the stand-in takes none of it.
+    assert.equal(parts.glowGroup.visible, false, 'the glows are hidden');
+    assert.deepEqual(look(parts), look(plain), `the stand-in at ${(k * dt).toFixed(3)} s is as it is with no show`);
+  }
+  // Lights for fewer lamps than there are, or none at all, are no lamp's light.
+  assert.doesNotThrow(() => {
+    parts.setShowLights([light]);
+    parts.update(dt);
+    parts.setShowLights([]);
+    parts.update(dt);
+  });
+  // The stand-in's inserts follow the LIT bits: rollover 0's and the lock's lit (the lock blinking, dim or bright), the
+  // other rollovers' not; then rollover 1's alone.
+  const inserts = parts.standIn.children.filter((m) => m instanceof THREE.Mesh && m.geometry instanceof THREE.CircleGeometry) as THREE.Mesh[];
+  const glowAt = (x: number, z: number) => {
+    const m = inserts.find((ins) => near(ins.position.x, x) && near(ins.position.z, z));
+    assert.ok(m, `an insert at (${x}, ${z})`);
+    return (m.material as THREE.MeshStandardMaterial).emissiveIntensity;
+  };
+  const [r0, r1, r2] = TABLE_IN_USE.rollovers;
+  const { lock } = TABLE_IN_USE;
+  assert.ok(glowAt(r0.x, r0.z) > 1 && glowAt(lock.x, lock.z) > 1, 'rollover 0 and the lock lit');
+  assert.ok(glowAt(r1.x, r1.z) < 0.5 && glowAt(r2.x, r2.z) < 0.5, 'rollovers 1 and 2 unlit');
+  parts.setLit(LIT.rollover1);
+  parts.update(dt);
+  assert.ok(glowAt(r1.x, r1.z) > 1, 'rollover 1 lit');
+  assert.ok(glowAt(r0.x, r0.z) < 0.5 && glowAt(r2.x, r2.z) < 0.5 && glowAt(lock.x, lock.z) < 0.5, 'the rest unlit');
 });
 
 /** A table with only the given walls, flippers and slings (nothing else unseen), for pictureDepth's own cases. */
