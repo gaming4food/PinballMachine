@@ -3,13 +3,13 @@
 // spinners each at its own angle, the lamps' glows by the LIT bits, and the quest's toys (the pop-ups and the mummy
 // rising and sinking by their bits, the mummy rocking when hit, the tomb's door and the diverter's gate by the toy
 // bits); the lamps the light shows light (every glow, the frame's rail lights as a ring, the ladders), the shows' light
-// over the game's, the toys' lamps by their bits, and no glow rising more than 3 times a second, whatever lights it;
-// that the stage's camera, with the parts in the table's place (tiltTable), puts the table's probe points on the
-// picture's pixels (tools/export-scene.ts's probes, which the Blender build matched its camera to within 0.5 px) and
-// the live parts on them, the toys and the new lamps where the build draws them; and that the picture's unseen shapes
-// (table-mesh.ts's pictureDepth) hide what the picture hides, and not what it shows: a toy up, or a ball the tomb
-// holds at its doorway. The flippers are drawn in the physics' own shape (shared/table.ts FLIPPER_SHAPE), checked
-// against the physics' colliders.
+// over the game's, the toys' lamps by their bits, and no glow rising more than 3 times a second, whatever lights it,
+// counted in real seconds however fast the host's dt runs; that the stage's camera, with the parts in the table's place
+// (tiltTable), puts the table's probe points on the picture's pixels (tools/export-scene.ts's probes, which the Blender
+// build matched its camera to within 0.5 px) and the live parts on them, the toys and the new lamps where the build
+// draws them; and that the picture's unseen shapes (table-mesh.ts's pictureDepth) hide what the picture hides, and not
+// what it shows: a toy up, or a ball the tomb holds at its doorway. The flippers are drawn in the physics' own shape
+// (shared/table.ts FLIPPER_SHAPE), checked against the physics' colliders.
 // Usage: npm run pinball-parts-test
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -1056,6 +1056,54 @@ test('no glow rises more than 3 times in any second, whatever lights it: bumpers
     assert.ok(rises(slow.shown[i], dt) >= 2, `${slow.parts.glows[i].id} still flashes: ${rises(slow.shown[i], dt)} rises a second`);
   }
   held('bumpers hit every 0.3 s', slow);
+});
+
+test("the glows' limit counts real seconds, not the host's dt: with dt 1.5 times real time, bumpers hit and a show bursting every 0.2 real seconds rise no glow more than 3 times in any real second", () => {
+  // The city's frame loop measures each frame's dt from a 1/fps grid, so its dt sums to about 1.5 times real time at
+  // its 60 fps cap. So the scene passes the browser's own clock to update() as `real`, and the glows' limits count
+  // that. Here a frame comes every 1/60 real second with a dt of 1.5 / 60, and the shows run on the table's clock,
+  // which keeps real time. Counting the dt instead, the limits would let a glow rise 4 times in a real second.
+  const step = 1 / 60;
+  /**
+   * The table for 10 real seconds: every 12 frames (0.2 real seconds) each bumper is hit, or a burst runs out from the
+   * table's middle over every lamp. What each glow shows (its opacity as a share of its peak, 0.9), and what the shows
+   * alone asked of each lamp.
+   */
+  const play = (what: 'bumpers' | 'bursts') => {
+    const parts = new TableParts(TABLE_IN_USE);
+    const player = new LightShowPlayer(parts.lamps.all);
+    const shown = parts.glows.map(() => [] as number[]);
+    const asked = parts.glows.map(() => [] as number[]);
+    for (let k = 0; k < 600; k++) {
+      const real = k * step;
+      if (k % 12 === 0 && what === 'bumpers') for (const b of TABLE_IN_USE.bumpers) parts.flashBumper(b.id);
+      if (k % 12 === 0 && what === 'bursts') player.play(burst(parts.lamps.all, { x: 0, z: 8, reach: 10, color: 0xffffff, seconds: 1 }), real);
+      const lights = player.lights(real);
+      lights.forEach((l, i) => asked[i].push(l?.level ?? 0));
+      parts.setShowLights(lights);
+      parts.update(1.5 * step, real);
+      parts.glows.forEach((g, i) => shown[i].push(g.material.opacity / 0.9));
+    }
+    return { parts, shown, asked };
+  };
+  const held = (what: string, { parts, shown }: ReturnType<typeof play>) =>
+    parts.glows.forEach((g, i) => assert.ok(rises(shown[i], step) <= 3, `${what}: ${g.id} (glow ${i}) rose ${rises(shown[i], step)} times in a real second`));
+  // Each bumper's flash dies away on the dt, so it is dark before every hit: the game asks it to rise 5 times a real
+  // second, and the limit holds that to 3.
+  const hits = play('bumpers');
+  const bumpers = hits.parts.glows.flatMap((g, i) => (TABLE_IN_USE.bumpers.some((b) => b.id === g.id) ? [i] : []));
+  assert.ok(bumpers.length > 0, 'the bumpers glow');
+  for (const i of bumpers) {
+    for (let k = 12; k < 600; k += 12) assert.ok(hits.shown[i][k - 1] < DARK_BELOW, `${hits.parts.glows[i].id} is dark before the hit at frame ${k}`);
+    assert.ok(rises(hits.shown[i], step) >= 2, `${hits.parts.glows[i].id} still flashes: ${rises(hits.shown[i], step)} rises a real second`);
+  }
+  held('bumpers hit every 0.2 real seconds', hits);
+  // The bursts ask most lamps to rise 5 times a real second (a ring every 0.2 s, each gone before the next comes): the
+  // limit holds every glow to 3.
+  const bursts = play('bursts');
+  const asks = Math.max(...bursts.asked.map((l) => rises(l, step)));
+  assert.ok(asks >= 5, `the bursts alone ask up to ${asks} rises a real second`);
+  held('a show bursting every 0.2 real seconds', bursts);
 });
 
 test("without the picture the shows light nothing and nothing throws; the stand-in's inserts still follow the LIT bits", () => {

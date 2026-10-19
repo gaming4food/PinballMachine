@@ -139,7 +139,8 @@ export function strobe(lamps: readonly ShowLamp[], o: { color: number; times: nu
  * min(raw, DARK_BELOW) until FLASH_GAP after that rise. So it rises at most once in FLASH_GAP however fast it is asked
  * to, a light that stays lit is never held, and holding keeps a dark light dark, never darkens a lit one. A light is
  * dark before its first look, so its first rise goes through at once. `t` is seconds on a clock that doesn't go back;
- * where the clock starts again, `reset()` forgets the last rise.
+ * where the clock starts again, `reset()` forgets the last rise. A `t` that isn't a number holds a dark light dark: the
+ * limit fails closed.
  */
 export class RiseLimit {
   /** Whether the light has been dark since it last rose (it is, until it has risen), and when it last rose. */
@@ -148,7 +149,9 @@ export class RiseLimit {
 
   level(raw: number, t: number): number {
     if (raw < DARK_BELOW) this.dark = true;
-    if (this.dark && t - this.risenAt < FLASH_GAP) return Math.min(raw, DARK_BELOW);
+    // Held unless FLASH_GAP has surely gone by: written so, a time that isn't a number holds the light rather than
+    // letting it rise, and the last rise is never a time that isn't one.
+    if (this.dark && !(t - this.risenAt >= FLASH_GAP)) return Math.min(raw, DARK_BELOW);
     if (this.dark && raw > LIT_ABOVE) {
       this.dark = false;
       this.risenAt = t;

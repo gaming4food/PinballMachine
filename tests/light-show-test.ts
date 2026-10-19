@@ -466,6 +466,9 @@ test('RiseLimit: a light asked to rise 10 times a second rises at most 3 times i
   assert.equal(edge.level(1, 0.1), 1, 'at LIT_ABOVE it had not risen, so this is its first rise');
   assert.equal(edge.level(DARK_BELOW, 0.15), DARK_BELOW);
   assert.equal(edge.level(1, 0.2), 1, 'at DARK_BELOW it had not gone dark, so it is not held');
+
+  // A clock that isn't a number holds the light, so the limit fails closed: it never lets a dark light up then.
+  assert.equal(new RiseLimit().level(1, NaN), DARK_BELOW, 'a dark light asked up at a time that is no time is held');
 });
 
 test('clear() lets every show go', () => {

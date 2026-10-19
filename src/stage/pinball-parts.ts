@@ -424,8 +424,8 @@ export class TableParts {
   /**
    * Each glow's own rise limit and the shows' light on it, in the glows' order. The light is copied in by setShowLights
    * (a level of 0 where no show lights the lamp), since a player fills its own in again at its next call. The limits
-   * are never reset: they count on the parts' clock, which never starts again, and a glow a viewer saw rise was seen,
-   * whatever hello comes next.
+   * are never reset: they count real seconds (update's `real`, or without it the parts' own clock), which never start
+   * again, and a glow a viewer saw rise was seen, whatever hello comes next.
    */
   private readonly glowLights: { limit: RiseLimit; show: LampLight }[] = [];
   /** The targets down: before the first header, the rising ones (they start down, as on the table). */
@@ -436,6 +436,7 @@ export class TableParts {
   private toys = 0;
   private toysFresh = true;
   private lit = 0;
+  /** The sum of every frame's dt: the lamps blink by it, and the glows' limits count it where update has no `real`. */
   private clock = 0;
 
   constructor(table: Table) {
@@ -661,10 +662,12 @@ export class TableParts {
     }
 
     // Every glow is a lamp to the light shows, and the ring and the ladders are all's own lamps (a show knows its lamps
-    // by which they are). The ring runs up the left rail from the bottom, then down the right one from the top.
+    // by which they are). The ring runs up the left rail from the bottom, then down the right one from the top. The
+    // right rail is copied and reversed, not toReversed(): that is ES2023, newer than some of the embedded browsers the
+    // stage runs in, and there it would throw here and leave no table at all.
     this.lamps = {
       all: this.glows.map((g) => g.lamp),
-      ring: [...rails[0], ...rails[1].toReversed()],
+      ring: [...rails[0], ...[...rails[1]].reverse()],
       ladders: this.glows.filter((g) => g.id === 'double').map((g) => g.lamp),
     };
     this.usePicture(true);
@@ -841,10 +844,14 @@ export class TableParts {
   /**
    * Each frame: the flashes show and die away, the drop targets and the rising ones move toward up or down, the mummy
    * rocks, the door and the gate move toward their bits, the lamps glow or blink, with the shows' light over them, and
-   * every glow is held to 3 rises a second.
+   * every glow is held to 3 rises a second. Everything moves by `dt`, the frame's step. `real` is the browser's own
+   * clock in seconds (performance.now() / 1000), and the glows' rise limits count it: a host's dt can sum to more than
+   * real time (the city's to about 1.5 times it), and a limit counting that would let a glow rise 4 or 5 times in a
+   * second as the viewers see it. Without `real` (the tests in Node) the limits count the sum of dt.
    */
-  update(dt: number): void {
+  update(dt: number, real?: number): void {
     this.clock += dt;
+    const riseClock = real ?? this.clock;
     this.targets.forEach((t, i) => {
       if (t.plaque) return;
       t.y = toward(t.y, this.down & (1 << i) ? -t.drop : 0, t.speed * dt);
@@ -884,9 +891,9 @@ export class TableParts {
         level = show.level * GLOW_SHOW;
         color = show.color;
       }
-      // Then, whatever lit it, no more than 3 rises a second (light-show.ts), on the parts' own clock: the limit guards
-      // what the viewers see, so it counts the real seconds they see it in, where the shows run on the table's clock.
-      level = limit.level(level / GLOW_SHOW, this.clock) * GLOW_SHOW;
+      // Then, whatever lit it, no more than 3 rises a second (light-show.ts), in real seconds: the limit guards what
+      // the viewers see, so it counts the seconds they see it in, not the table's clock the shows go by, nor dt.
+      level = limit.level(level / GLOW_SHOW, riseClock) * GLOW_SHOW;
       if (level < 0.01) level = 0;
       glow.material.opacity = level;
       glow.material.color.setHex(color);

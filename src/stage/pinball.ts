@@ -593,13 +593,17 @@ export class PinballScene implements MachineScene {
     // that the lamps and the picture show them in this frame.
     const step = h ? this.tableClock.step(h.time) : 0;
     const now = this.tableClock.now;
+    // The rise limits of the glows and of the picture's flash count real seconds, from the browser's own clock: they
+    // guard what the viewers see, and the host's dt and the drawn table time can both run faster than real time (the
+    // city's dt sums to about 1.5 times it).
+    const real = performance.now() / 1000;
     this.shows.frame(now);
     this.parts.setShowLights(this.player.lights(now));
     // Both results are the player's and the flash's own, filled in again at their next call: read at once.
-    const flashed = this.flash.at(now);
+    const flashed = this.flash.at(now, real);
     this.flashUniforms.uFlash.value.setHex(flashed.color);
     this.flashUniforms.uFlashAmount.value = flashed.amount;
-    this.parts.update(dt);
+    this.parts.update(dt, real);
 
     // The balls, with their tags.
     const drawn: DrawnBall[] = [];

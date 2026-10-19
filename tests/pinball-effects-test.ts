@@ -9,7 +9,9 @@
 // of two at once the brighter shows. A flash asked for less than FLASH_GAP after the last one began is dropped, and so
 // is one that would first show less than FLASH_GAP after the last first showed, so the picture never brightens sooner
 // than that, at any frame rate, nor rises more than 3 times a second. Its amount still goes through a RiseLimit, which
-// has nothing left to hold. No page or graphics card is needed.
+// has nothing left to hold, and given the browser's clock through one more that counts real seconds, so that a table
+// clock running fast still rises the picture at most 3 times in a real second; a hello never resets that one. No page
+// or graphics card is needed.
 // Usage: npm run pinball-effects-test
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -623,9 +625,12 @@ const BLUE = 0x4a7dff;
 /** The times of `n` looks, LOOK apart from 0. */
 const lookTimes = (n: number): number[] => Array.from({ length: n }, (_, i) => i * LOOK);
 
-/** What the flash shows at `t`, kept: at() returns the flash's own object, which its next call fills in again. */
-function look(flash: ScreenFlash, t: number): { color: number; amount: number } {
-  return { ...flash.at(t) };
+/**
+ * What the flash shows at `t` (with `real`, the browser's clock, if given), kept: at() returns the flash's own object,
+ * which its next call fills in again.
+ */
+function look(flash: ScreenFlash, t: number, real?: number): { color: number; amount: number } {
+  return { ...flash.at(t, real) };
 }
 
 /** The looks (their places in the list) at which a light is brighter than at the look before; the first has none. */
@@ -1119,6 +1124,60 @@ test('the amount goes through a RiseLimit, though the two gaps leave it nothing 
   assert.deepEqual(asked, [[0, 0], [0.8, 1]], 'asked at every look with the light as it is, but not at a time that is no time');
   flash.clear();
   assert.equal(resets, 1, 'and reset by clear()');
+});
+
+test("one more RiseLimit counts real seconds: with the table's clock 1.5 times as fast, flashes as fast as the gaps allow rise at most 3 times in any real second, and a hello's clear() never resets it", () => {
+  // The gaps and the first RiseLimit count the table's seconds, and the drawn table time can outrun real time (the
+  // kit's render clock jumps its offset forward after a stall). So the stage passes the browser's own clock to at()
+  // too, and the amount goes through one more RiseLimit on it. Here the table's clock runs 1.5 times as fast as real
+  // time, looked at 60 times a real second, and a flash is asked at every look for its own time: the gaps let one
+  // through every 0.35 table seconds, which is every 0.23 real seconds.
+  const step = 1 / 60;
+  const guarded = new ScreenFlash();
+  const plain = new ScreenFlash();
+  const times: number[] = [];
+  const levels: number[] = [];
+  const plainLevels: number[] = [];
+  for (let k = 0; k < 600; k++) {
+    const real = k * step;
+    const t = 1.5 * real;
+    for (const f of [guarded, plain]) f.flash(WHITE, 1, t);
+    times.push(real);
+    levels.push(guarded.at(t, real).amount / FLASH_CAP);
+    plainLevels.push(plain.at(t).amount / FLASH_CAP);
+  }
+  // On the table's clock alone the picture rises more than 3 times in a real second...
+  const loose = mostInASecond(riseTimes(plainLevels, times));
+  assert.ok(loose > 3, `on the table's clock alone the picture rises ${loose} times in a real second`);
+  // ...and with real seconds counted, at most 3, FLASH_GAP or more apart, and it still flashes.
+  const rises = riseTimes(levels, times);
+  assert.ok(mostInASecond(rises) <= 3, `${mostInASecond(rises)} rises in a real second`);
+  for (let k = 1; k < rises.length; k++) assert.ok(rises[k] - rises[k - 1] >= FLASH_GAP, `rise ${k} at ${rises[k]} s`);
+  assert.ok(rises.length >= 20, `${rises.length} rises in 10 real seconds: it still flashes`);
+  for (const level of levels) assert.ok(level >= 0 && level <= 1, `${level} of the cap`);
+
+  // A hello: clear() starts the table's clock again, but real time goes on, and so does the guard on it. A flash rose
+  // at 50 real seconds and has gone dark; the next, on the new clock, is held until FLASH_GAP after that rise.
+  const hello = new ScreenFlash();
+  hello.flash(GOLD, 1, 100);
+  assert.equal(look(hello, 100, 50).amount, FLASH_CAP, 'the first flash rises');
+  assert.ok(look(hello, 100.3, 50.2).amount < DARK_BELOW * FLASH_CAP, 'and is dark 0.3 s on');
+  hello.clear();
+  hello.flash(RED, 1, 0.1);
+  const held = look(hello, 0.1, 50.25);
+  assert.ok(near(held.amount, DARK_BELOW * FLASH_CAP, 1e-12), `0.25 real seconds after the last rise the next is held: ${held.amount}`);
+  hello.flash(BLUE, 1, 0.5);
+  const free = look(hello, 0.5, 50.4);
+  assert.equal(free.color, BLUE);
+  assert.ok(near(free.amount, FLASH_CAP, 1e-12), `0.4 real seconds after it the next shows in full: ${free.amount}`);
+  // Without the real clock, as before, the hello lets the next flash show in full at once.
+  const bare = new ScreenFlash();
+  bare.flash(GOLD, 1, 100);
+  look(bare, 100);
+  look(bare, 100.3);
+  bare.clear();
+  bare.flash(RED, 1, 0.1);
+  assert.equal(look(bare, 0.1).amount, FLASH_CAP, 'on the table clock alone the hello lets it through');
 });
 
 test('a long run of flashes holds only the one showing and those still to begin, never a list that grows', () => {

@@ -14,6 +14,11 @@
 // 0.333 s). So a flash that would first show less than FLASH_GAP after the last first showed is dropped as well. The
 // amount drawn still goes through a RiseLimit, as every light on the table does. With the two gaps that is redundant,
 // since it is never left a flash to hold, and it stays as the guard the lights share, in case a gap is changed.
+//
+// The gaps and that RiseLimit count the table's seconds, and the drawn table time can outrun real time (the kit's
+// render clock jumps its offset forward after a stall). So the stage passes the browser's own clock as well, and the
+// amount goes through one more RiseLimit on it, which holds the picture to 3 rises in a second as the viewers see it. A
+// hello never resets that one: real time doesn't start again.
 import { FLASH_GAP, RiseLimit } from './light-show';
 
 /** The most a flash adds to the picture, as a share of its colour: the cap on the brightest change on the screen. */
@@ -39,7 +44,8 @@ interface Flash {
  * colour, and dies away by a factor of e every 1/7 s; where flashes meet, the brightest shows, in its colour. A flash
  * is dropped if it begins less than FLASH_GAP after the last one began, or would first show less than that after the
  * last first showed. The clock passed to `flash` and `at` never goes back; where the table's clock starts again (the
- * server restarted), the caller calls `clear()`.
+ * server restarted), the caller calls `clear()`. The browser's clock that `at` may be given as well never starts again,
+ * and `clear()` leaves what it counts alone.
  */
 export class ScreenFlash {
   /**
@@ -59,6 +65,12 @@ export class ScreenFlash {
    * to the rule whatever a change to the gaps does.
    */
   private readonly limit = new RiseLimit();
+  /**
+   * Holds the amount drawn to 3 rises a second on the browser's own clock (at()'s `real`), after `limit`: the gaps and
+   * `limit` count the table's seconds, which can come faster than real ones, and this counts the seconds the viewers
+   * see. clear() never resets it, since real time goes on through a hello, and a flash a viewer saw was seen.
+   */
+  private readonly realLimit = new RiseLimit();
   /** What at() returns: made once here, and filled in again by each call, so that nothing is made per frame. */
   private readonly light = { color: 0, amount: 0 };
 
@@ -97,13 +109,20 @@ export class ScreenFlash {
    * held it. With nothing showing the amount is 0 and the colour 0. A flash first looked at less than FLASH_GAP after
    * the last first showed is dropped: it never shows. The object is the flash's own, and the next call fills it in
    * again (nothing is made per frame), so a caller reads it at once and copies what it keeps. A `t` that isn't a number
-   * shows nothing and leaves the flashes as they are.
+   * shows nothing and leaves the flashes as they are. Given `real`, the browser's own clock in seconds (the stage's
+   * performance.now() / 1000), the amount then goes through `realLimit` on it as well; without it (the tests in Node)
+   * it is held on the table's clock alone.
    */
-  at(t: number): { color: number; amount: number } {
+  at(t: number, real?: number): { color: number; amount: number } {
     const out = this.light;
     out.color = 0;
     out.amount = 0;
-    if (!Number.isFinite(t)) return out;
+    if (!Number.isFinite(t)) {
+      // Nothing is drawn, and the guard on real time sees that too, as it sees every amount drawn: a frame unlit is a
+      // light gone dark.
+      if (real !== undefined) this.realLimit.level(0, real);
+      return out;
+    }
 
     // A flash looked at for the first time less than FLASH_GAP after the last first showed is dropped, so that the
     // picture never brightens sooner than that, whatever the frame rate: counted from their starts alone, two flashes
@@ -139,15 +158,19 @@ export class ScreenFlash {
     this.held.length = kept;
 
     // RiseLimit looks at every call, nothing showing included, as it does for every light: that is how it sees a light
-    // go dark. With the gaps above it is never left a flash to hold (see `limit`).
-    out.amount = this.limit.level(best === null ? 0 : most, t) * FLASH_CAP;
+    // go dark. With the gaps above it is never left a flash to hold (see `limit`). The guard on real time looks at what
+    // it gives, at every call too, and holds what came sooner than FLASH_GAP of real time after the last rise.
+    let level = this.limit.level(best === null ? 0 : most, t);
+    if (real !== undefined) level = this.realLimit.level(level, real);
+    out.amount = level * FLASH_CAP;
     if (best !== null) out.color = best.color;
     return out;
   }
 
   /**
    * Lets every flash go, those still to begin too, and forgets the last start, the last first showing and the last
-   * rise, so that a flash on a clock that starts again is not dropped for the old clock's times.
+   * rise on the table's clock, so that a flash on a clock that starts again is not dropped for the old clock's times.
+   * The guard on real time keeps its last rise: real time doesn't start again on a hello.
    */
   clear(): void {
     this.held.length = 0;
