@@ -20,12 +20,13 @@
     "pinball-sounds-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-sounds-test.ts",
     "light-show-test": "tsx --disable-warning=ExperimentalWarning tests/light-show-test.ts",
     "pinball-effects-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-effects-test.ts",
+    "pinball-shows-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-shows-test.ts",
     "pinball-parts-test": "tsx --disable-warning=ExperimentalWarning tests/pinball-parts-test.ts",
     "pinball-play": "tsx --disable-warning=ExperimentalWarning tests/pinball-play.ts",
     "picture": "tsx --disable-warning=ExperimentalWarning tools/picture.ts",
     "picture-test": "tsx --disable-warning=ExperimentalWarning tests/picture-test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test && npm run -s pinball-layout-test && npm run -s pinball-test && npm run -s pinball-hype-test && npm run -s pinball-header-test && npm run -s pinball-hud-test && npm run -s pinball-sounds-test && npm run -s light-show-test && npm run -s pinball-effects-test && npm run -s pinball-parts-test && npm run -s picture-test"
+    "test": "npm run -s contract-test && npm run -s table-test && npm run -s pinball-sim-test && npm run -s pinball-layout-test && npm run -s pinball-test && npm run -s pinball-hype-test && npm run -s pinball-header-test && npm run -s pinball-hud-test && npm run -s pinball-sounds-test && npm run -s light-show-test && npm run -s pinball-effects-test && npm run -s pinball-shows-test && npm run -s pinball-parts-test && npm run -s picture-test"
   },
   "engines": {
     "node": ">=22.5"
