@@ -3,8 +3,8 @@
 // sizes): the three flippers at their angles; a plaque per flip target, its emblem in front and the sun disc behind,
 // that turns 180° about its pin when its bit sets (and back when it clears); the two drop targets, which sink when down;
 // the quest's toys: the three pop-ups (drawn as the drop targets are) and the mummy (a gold sarcophagus with its face
-// on its front), which rise out of their slots and sink back into them by their bits, the mummy rocking back when a
-// ball hits it, the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's gate,
+// on its front), which rise out of their slots and sink back into them by their bits, the mummy rocking away from a
+// ball that hits it, the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's gate,
 // which swings over and back (the header's toy bits, shared/pinball.ts TOY); both spinners' plates at their turns; and
 // soft additive glows over the picture's lamps and bumpers, lit by the header's bits (shared/pinball.ts LIT) and the
 // bumper and sling cues.
@@ -61,8 +61,9 @@ const LID_LIP = 0.02;
 const MUMMY_FACE = { inset: 0.05, y0: 0.05, underTop: 0.11 };
 const MUMMY_SECONDS = 0.6;
 /**
- * A hit rocks the mummy back, its top away from the ball, as far as ROCK_DEG: it sways back and forth every ROCK_PERIOD
- * seconds, dying away (by e every 1/ROCK_DECAY s), and stands still again after ROCK_SECONDS.
+ * A hit rocks the mummy away from the ball, its top going first to the side away from the one the ball met (back for a
+ * ball at its front, forward for one behind it), as far as ROCK_DEG: it sways back and forth every ROCK_PERIOD seconds,
+ * dying away (by e every 1/ROCK_DECAY s), and stands still again after ROCK_SECONDS.
  */
 const ROCK_DEG = 6;
 const ROCK_PERIOD = 0.35;
@@ -319,8 +320,12 @@ export interface TargetView {
   speed: number;
   /** One that stays up when hit (the mummy), which a hit rocks instead (rockMummy). */
   hold: boolean;
+  /** The way out of its front, toward the play (targetFrame's n): which side of it a ball met it on. */
+  front: [number, number];
   /** How long ago its rock began (s); Infinity when it stands still. */
   rocked: number;
+  /** Which way its top goes first: 1 back (from a ball at its front), -1 forward (from one behind it). */
+  rockAway: number;
 }
 
 /**
@@ -451,7 +456,9 @@ export class TableParts {
         drop,
         speed: hold ? drop / MUMMY_SECONDS : TARGET_SPEED,
         hold,
+        front: n,
         rocked: Infinity,
+        rockAway: 1,
       };
       this.place(view);
       this.targets.push(view);
@@ -670,9 +677,17 @@ export class TableParts {
     this.placeToys();
   }
 
-  /** A ball hit the mummy (it stays up when hit, so the stage hears it as a ball meeting it): it rocks back. */
-  rockMummy(): void {
-    for (const t of this.targets) if (t.hold) t.rocked = 0;
+  /**
+   * A ball hit the mummy (it stays up when hit, so the stage hears it as a ball meeting it), `ball` where it met it: it
+   * rocks away from the ball, back from one at its front and forward from one behind it.
+   */
+  rockMummy(ball: { x: number; z: number }): void {
+    for (const t of this.targets) {
+      if (!t.hold) continue;
+      const out = (ball.x - t.pivot.position.x) * t.front[0] + (ball.z - t.pivot.position.z) * t.front[1];
+      t.rockAway = out < 0 ? -1 : 1;
+      t.rocked = 0;
+    }
   }
 
   /** The spinners' turns, in radians: the main spinner, then the others. */
@@ -713,10 +728,11 @@ export class TableParts {
       t.y = toward(t.y, this.down & (1 << i) ? -t.drop : 0, t.speed * dt);
       this.place(t);
       if (!t.hold) return;
-      // Rocked back first (a turn about its face's line that takes its top away from the play), swaying and dying away.
+      // Rocked away from the ball first (a turn about its face's line: negative takes its top back, away from the play,
+      // and positive forward), swaying and dying away.
       t.rocked += dt;
       const k = t.rocked;
-      t.pivot.rotation.x = k < ROCK_SECONDS ? -THREE.MathUtils.degToRad(ROCK_DEG) * Math.exp(-k * ROCK_DECAY) * Math.sin((2 * Math.PI * k) / ROCK_PERIOD) : 0;
+      t.pivot.rotation.x = k < ROCK_SECONDS ? -t.rockAway * THREE.MathUtils.degToRad(ROCK_DEG) * Math.exp(-k * ROCK_DECAY) * Math.sin((2 * Math.PI * k) / ROCK_PERIOD) : 0;
     });
     if (this.door) this.door.lift = toward(this.door.lift, this.toys & TOY.tombOpen ? this.door.height : 0, (this.door.height / DOOR_SECONDS) * dt);
     if (this.gate) this.gate.angle = toward(this.gate.angle, this.toys & TOY.diverterOver ? this.gate.spec.overDeg : this.gate.spec.restDeg, DIVERTER_SPEED * dt);

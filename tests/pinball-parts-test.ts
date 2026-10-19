@@ -460,7 +460,7 @@ test('the pop-ups and the mummy start down and rise by their bits', () => {
   assert.equal(shown(popup2), false, 'pop-up 2 down at once');
 });
 
-test('the mummy rocks back when hit, and settles', () => {
+test('the mummy rocks away from the ball that hits it, from in front or behind, and settles', () => {
   const mummy = RISING_AT[3];
   const t = TABLE_IN_USE.targets[mummy];
   const { n } = frameOf(t);
@@ -473,16 +473,26 @@ test('the mummy rocks back when hit, and settles', () => {
     const top = pivot.localToWorld(new THREE.Vector3(0, t.height!, 0));
     return (top.x - t.x) * n[0] + (top.z - t.z) * n[1];
   };
+  /** A ball touching the mummy's front (side 1) or its back (side -1), a little along its face from its middle. */
+  const ball = (side: number) => {
+    const d = side * (TABLE.ballRadius + (t.depth ?? 0.2) / 2 + 0.02);
+    const u = [Math.cos(THREE.MathUtils.degToRad(t.angle!)), Math.sin(THREE.MathUtils.degToRad(t.angle!))];
+    return { id: 1, x: t.x + n[0] * d + u[0] * 0.2, z: t.z + n[1] * d + u[1] * 0.2 };
+  };
   assert.ok(near(lean(), 0, 1e-9), `upright: ${lean()}`);
-  parts.rockMummy();
-  let most = 0;
-  for (let k = 0; k < 12; k++) {
-    parts.update(1 / 60);
-    most = Math.min(most, lean());
+  for (const [side, from] of [[1, 'in front'], [-1, 'behind']] as const) {
+    parts.rockMummy(ball(side));
+    let most = 0;
+    for (let k = 0; k < 12; k++) {
+      parts.update(1 / 60);
+      if (Math.abs(lean()) > Math.abs(most)) most = lean();
+    }
+    // Its top goes first to the side away from the ball: back, away from the play, for a ball in front, and forward
+    // for one behind it.
+    assert.ok(-side * most > 0.04, `hit from ${from}, it rocked away from the ball: its top went ${most.toFixed(3)} out of its front`);
+    for (let k = 0; k < 90; k++) parts.update(1 / 60);
+    assert.ok(Math.abs(lean()) < 1e-3, `hit from ${from}, it settled upright: ${lean()}`);
   }
-  assert.ok(most < -0.04, `rocked back, away from the play: its top went ${most.toFixed(3)} out of its front`);
-  for (let k = 0; k < 90; k++) parts.update(1 / 60);
-  assert.ok(Math.abs(lean()) < 1e-3, `settled upright: ${lean()}`);
   const base = pivot.localToWorld(new THREE.Vector3());
   assert.ok(near(base.x, t.x, 1e-9) && near(base.y, 0, 1e-9) && near(base.z, t.z, 1e-9), 'standing on its slot');
 });

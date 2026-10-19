@@ -15,20 +15,27 @@ const { PinballSoundCues, PinballVoice } = await import('../src/stage/pinball-so
 const tests: [string, () => void][] = [];
 const test = (name: string, fn: () => void) => tests.push([name, fn]);
 
-/** The cues, and every sound they asked for, as `moment` or `moment:detail`. */
+/**
+ * The cues, every sound they asked for, as `moment` or `moment:detail`, and each target hit's ball where the cue
+ * passed one (null where it passed none).
+ */
 function cues() {
   const heard: string[] = [];
+  const met: ({ id: number; x: number; z: number } | null)[] = [];
   const c = new PinballSoundCues({
     flip: (side) => heard.push(`flip:${side}`),
     bumper: (id) => heard.push(`bumper:${id}`),
     sling: (id) => heard.push(`sling:${id}`),
-    target: (index) => heard.push(`target:${index}`),
+    target: (index, ball) => {
+      heard.push(`target:${index}`);
+      met.push(ball ? { ...ball } : null);
+    },
     drain: () => heard.push('drain'),
     launch: () => heard.push('launch'),
     multiball: () => heard.push('multiball'),
     saved: () => heard.push('saved'),
   });
-  return { c, heard };
+  return { c, heard, met };
 }
 
 const state = (multiball: boolean): PinballState => ({
@@ -140,8 +147,8 @@ test('a ball seen first touching a bumper (a page opening) is no hit; a sling hi
   assert.deepEqual(heard, [`sling:${s.id}`]);
 });
 
-test("a ball meeting the mummy's face is a hit", () => {
-  const { c, heard } = cues();
+test("a ball meeting the mummy's face is a hit, and the cue passes the ball, in front or behind, for its rock", () => {
+  const { c, heard, met } = cues();
   const i = TABLE_IN_USE.targets.findIndex((t) => t.rise === 'hold');
   const m = TABLE_IN_USE.targets[i];
   assert.equal(m.id, 'target-mummy');
@@ -172,6 +179,11 @@ test("a ball meeting the mummy's face is a hit", () => {
   c.balls(out(-2));
   c.balls(out(-(touch + 0.02)));
   assert.deepEqual(heard, [`target:${i}`, `target:${i}`, `target:${i}`], 'met from behind');
+  // Each hit came with the ball where it met the mummy (the stage rocks the mummy away from it): twice in front, then
+  // behind.
+  assert.deepEqual(met, [out(touch + 0.02)[0], out(touch + 0.03)[0], out(-(touch + 0.02))[0]], 'the balls that met it, where they met it');
+  const side = (b: { x: number; z: number } | null) => Math.sign((b!.x - m.x) * nx + (b!.z - m.z) * nz);
+  assert.deepEqual(met.map(side), [1, 1, -1], 'in front, in front, behind');
   // Its third hit puts it down: the hit was heard as the ball met it, so going down is silent.
   c.targets(rising);
   assert.deepEqual(heard, [`target:${i}`, `target:${i}`, `target:${i}`], 'going down is silent');

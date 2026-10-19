@@ -22,9 +22,10 @@ export interface PinballCueSink {
   sling(id: string): void;
   /**
    * A target was hit (a drop target or a pop-up knocked down, a flip plaque turned to its back, or the standing mummy
-   * met by a ball): its place in the table's targets.
+   * met by a ball): its place in the table's targets, and for the mummy the ball that met it, where it met it (the
+   * stage rocks the mummy away from it).
    */
-  target(index: number): void;
+  target(index: number, ball?: DrawnBall): void;
   drain(): void;
   launch(): void;
   multiball(): void;
@@ -180,7 +181,7 @@ export class PinballSoundCues {
         const d = this.gap(h, ball);
         if (d < REACH || (before?.has(h.id) && d < LEAVE)) {
           now.add(h.id);
-          if (before && !before.has(h.id)) this.sink.target(h.index);
+          if (before && !before.has(h.id)) this.sink.target(h.index, ball);
         }
       }
       this.meeting.set(ball.id, now);
