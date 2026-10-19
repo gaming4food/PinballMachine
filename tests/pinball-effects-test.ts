@@ -3,12 +3,13 @@
 // 1.5 a second, never go below the playfield, live 0.45 to 0.8 s and are parked out of sight after, fading as they go;
 // a mote drifts up and never falls; a spark is 0.14 across wherever the stage draws it; and nothing moves while the
 // table's clock stands still. The open tomb's beam fades in and out over 0.4 s with the tomb's bit and sends up motes
-// while it is open. A payout's coin burst (stage/coin-burst.ts) grows with the payout, from a pool of 180. The screen
-// flash (stage/screen-hits.ts) adds at most FLASH_CAP of its colour to the table's picture, peaks at its time and dies
-// away by a factor of e every 1/7 s; of two at once the brighter shows. A flash asked for less than FLASH_GAP after the
-// last one began is dropped, and so is one that would first show less than FLASH_GAP after the last first showed, so
-// the picture never brightens sooner than that, at any frame rate, nor rises more than 3 times a second. Its amount
-// still goes through a RiseLimit, which has nothing left to hold. No page or graphics card is needed.
+// while it is open, and after a fresh hello (reset) shows the tomb as it is at once. A payout's coin burst
+// (stage/coin-burst.ts) grows with the payout, from a pool of 180. The screen flash (stage/screen-hits.ts) adds at
+// most FLASH_CAP of its colour to the table's picture, peaks at its time and dies away by a factor of e every 1/7 s;
+// of two at once the brighter shows. A flash asked for less than FLASH_GAP after the last one began is dropped, and so
+// is one that would first show less than FLASH_GAP after the last first showed, so the picture never brightens sooner
+// than that, at any frame rate, nor rises more than 3 times a second. Its amount still goes through a RiseLimit, which
+// has nothing left to hold. No page or graphics card is needed.
 // Usage: npm run pinball-effects-test
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -389,6 +390,53 @@ test("the tomb's beam: dark while shut; opening fades it in over 0.4 s and sends
   none.update(1);
   assert.equal(none.level, 0);
   assert.equal(sparks.live(), 1, 'it sent up no motes');
+});
+
+test("after reset() (a fresh hello) the beam stays as it is until the next set(), which shows the tomb as it is at once; then it fades again", () => {
+  const sparks = new Sparks();
+  const beam = new TombBeam(TABLE_IN_USE, sparks);
+  const shaft = beam.group.children[0] as THREE.Mesh;
+  const light = shaft.material as THREE.MeshBasicMaterial;
+
+  // Open and all the way lit.
+  beam.set(false);
+  beam.set(true);
+  for (let k = 0; k < 10; k++) beam.update(0.05);
+  assert.equal(beam.level, 1);
+
+  // A fresh hello: until the new connection's first header the beam stays lit, as the tomb's door stays up.
+  beam.reset();
+  assert.equal(beam.level, 1);
+  assert.equal(shaft.visible, true);
+  // That header has the tomb shut: the beam is dark at once, with no fade out.
+  beam.set(false);
+  assert.equal(beam.level, 0);
+  assert.equal(shaft.visible, false);
+  assert.equal(light.opacity, 0);
+  // After that first set it fades with the bit again, as the table runs.
+  beam.set(true);
+  beam.update(0.1);
+  assert.ok(near(beam.level, 0.25), `level ${beam.level}, wanted 0.25`);
+
+  // The other way round: shut and dark, and a fresh hello on the tomb open lights it at once, with no fade in.
+  beam.set(false);
+  for (let k = 0; k < 10; k++) beam.update(0.05);
+  assert.equal(beam.level, 0);
+  beam.reset();
+  assert.equal(shaft.visible, false, 'dark until the next set');
+  beam.set(true);
+  assert.equal(beam.level, 1);
+  assert.equal(shaft.visible, true);
+  assert.ok(near(light.opacity, 0.55));
+  beam.set(false);
+  beam.update(0.1);
+  assert.ok(near(beam.level, 0.75), `and it fades out again after: level ${beam.level}, wanted 0.75`);
+
+  // A table with no tomb has no beam, reset or not.
+  const none = new TombBeam({ ...TABLE_IN_USE, tomb: undefined }, sparks);
+  none.reset();
+  none.set(true);
+  assert.equal(none.level, 0);
 });
 
 test("a payout's coin burst grows with the payout: 8 coins for 0, 17 for 9, 60 at most, from a pool of 180", () => {

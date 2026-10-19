@@ -41,8 +41,7 @@ const CAP_THICK = 0.03;
 const FLIPPER_ROUND = 24;
 /**
  * A target: its gold body's thickness and height where its table says nothing (Target.depth and height, as the
- * physics' TARGET_DEPTH; the sounds read the thickness too); its emblem's bottom, and how far under the target's top
- * the emblem's top is.
+ * physics' TARGET_DEPTH); its emblem's bottom, and how far under the target's top the emblem's top is.
  */
 export const TARGET_THICK = 0.2;
 const TARGET_HEIGHT = 0.52;
@@ -279,7 +278,7 @@ function glowMap(): THREE.DataTexture {
 /**
  * A target's frame on the playfield, as the physics and the picture's build stand it: `u` along its face, `n` out of
  * its face toward the play. One with an angle runs that way, facing the flippers; any other stands along the wall
- * nearest it, facing away from that wall. (The sounds read it too, for where a ball meets the mummy.)
+ * nearest it, facing away from that wall.
  */
 export function targetFrame(table: Table, t: Target): { u: [number, number]; n: [number, number] } {
   if (t.angle !== undefined) {
@@ -788,8 +787,8 @@ export class TableParts {
   }
 
   /**
-   * A ball hit the mummy (it stays up when hit, so the stage hears it as a ball meeting it), `ball` where it met it: it
-   * rocks away from the ball, back from one at its front and forward from one behind it.
+   * A ball hit the mummy, which stays up when hit (each hit is the server's cue), `ball` where it met it: it rocks away
+   * from the ball, back from one at its front and forward from one behind it.
    */
   rockMummy(ball: { x: number; z: number }): void {
     for (const t of this.targets) {

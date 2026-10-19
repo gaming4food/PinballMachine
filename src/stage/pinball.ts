@@ -13,6 +13,12 @@
 //
 // The scoreboard over it is PinballHud (pinball-hud.ts), the sounds pinball-sounds.ts, the header's reading
 // pinball-header.ts.
+//
+// The quest's flash plays over the table: the show book (pinball-shows.ts) turns each moment (a hype moment, a toy's
+// hit from the server's cues, multiball, a payout) into a light show over the table's lamps (light-show.ts, lit through
+// pinball-parts.ts), a flash of the picture (screen-hits.ts, in the picture's own shader), sparks (sparks.ts) and a
+// shake, and the open tomb sends up its beam. They run on the table's clock as drawn (DrawnClock), so they stand still
+// while the table does, and nothing of theirs flashes more than 3 times a second.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -40,13 +46,17 @@ import {
   WIDTH,
 } from '@kit/stage';
 import picture from '../assets/pinball.png';
-import { pinballHypeOf, type PinballState, pinballStateOf } from '../shared/pinball';
+import { pinballCueOf, pinballHypeOf, type PinballState, pinballStateOf, TOY } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { CoinBurst } from './coin-burst';
+import { LightShowPlayer } from './light-show';
 import { type PinballHeader, readPinballHeader } from './pinball-header';
 import { ballSaved } from './pinball-hud';
 import { TableParts } from './pinball-parts';
+import { DrawnClock, PinballShows } from './pinball-shows';
 import { type DrawnBall, PinballSoundCues, PinballVoice } from './pinball-sounds';
+import { ScreenFlash } from './screen-hits';
+import { Sparks, TombBeam } from './sparks';
 import { CYAN, PINK, pictureDepth, standInTable } from './table-mesh';
 import './pinball.css';
 
@@ -180,6 +190,24 @@ export class PinballScene implements MachineScene {
   private readonly parts: TableParts;
   private readonly burst = new CoinBurst();
   private readonly cues: PinballSoundCues;
+  // The quest's flash, public so that the browser's console can look inside while testing (window.pinballScene).
+  /** The light shows over the table's lamps (parts.lamps.all), mixed into one light for each. */
+  readonly player: LightShowPlayer;
+  /** The screen flash over the table's picture, under its cap. */
+  readonly flash = new ScreenFlash();
+  /** The sparks' fixed pool, in the table group. */
+  readonly sparks = new Sparks();
+  /** The open tomb's beam, in the table group: its motes are sparks. */
+  readonly beam = new TombBeam(TABLE_IN_USE, this.sparks);
+  /** The show book: what each moment plays, through the player, the sparks, the flash and the view's quake. */
+  readonly shows: PinballShows;
+  /**
+   * The table's clock as drawn, for the flash: it holds still where the drawn time slips back a little, starts again
+   * where the table's clock does, and steps at most 0.1 s.
+   */
+  private readonly tableClock = new DrawnClock();
+  /** The screen flash on the picture's shader (below): the colour added over the picture, and how much of it. */
+  private readonly flashUniforms = { uFlash: { value: new THREE.Color(0, 0, 0) }, uFlashAmount: { value: 0 } };
   private readonly ballGeo = new THREE.SphereGeometry(TABLE.ballRadius, 32, 24);
   private readonly ballMat = new THREE.MeshStandardMaterial({ color: 0xd4d8e2, metalness: 1, roughness: 0.12, envMapIntensity: 1.4 });
   private readonly balls = new Map<number, BallView>();
@@ -213,6 +241,19 @@ export class PinballScene implements MachineScene {
     // The pinball's own sounds on the stage's synth (pinball-sounds.ts); the bumpers and slings flash with theirs.
     const voice = new PinballVoice(sounds?.synth() ?? null);
     this.parts = new TableParts(TABLE_IN_USE);
+    // The show book plays each moment on the light-show player over the table's lamps, the sparks, the screen flash and
+    // the view's quake. Where the table's clock starts again, the old clock's shows and flashes go together.
+    this.player = new LightShowPlayer(this.parts.lamps.all);
+    this.shows = new PinballShows(TABLE_IN_USE, this.parts.lamps, {
+      play: (show, at) => this.player.play(show, at),
+      sparks: (x, y, z, color, count) => this.sparks.burst(x, y, z, color, count),
+      flash: (color, strength, at) => this.flash.flash(color, strength, at),
+      shake: (seconds) => this.quake(seconds),
+      clear: () => {
+        this.player.clear();
+        this.flash.clear();
+      },
+    });
     this.cues = new PinballSoundCues({
       flip: () => voice.flip(),
       bumper: (id) => {
@@ -225,7 +266,8 @@ export class PinballScene implements MachineScene {
       },
       target: (index, ball) => {
         voice.target();
-        // A ball meeting the mummy is its hit, as it stays up (pinball-sounds.ts): it rocks away from that ball.
+        // Each of the mummy's hits is a cue from the server, with where the ball was (pinball-sounds.ts): it stays up
+        // when hit, so it rocks away from that ball.
         if (TABLE_IN_USE.targets[index]?.rise === 'hold' && ball) this.parts.rockMummy(ball);
       },
       rise: () => voice.rise(),
@@ -233,7 +275,12 @@ export class PinballScene implements MachineScene {
       gate: () => voice.gate(),
       drain: () => voice.drain(),
       launch: () => voice.launch(),
-      multiball: () => voice.multiball(),
+      // The cues decide multiball once, for a press and for the lock alike, so its show is played from here, at the
+      // table's time drawn last.
+      multiball: () => {
+        voice.multiball();
+        this.shows.multiball(this.tableClock.now);
+      },
       saved: () => voice.saved(),
     });
     const w = Math.round(WIDTH * quality.scale);
@@ -275,10 +322,9 @@ export class PinballScene implements MachineScene {
       new THREE.ShaderMaterial({
         uniforms: {
           ...pictureUniforms(map, look.exposure),
-          // The screen flash (screen-hits.ts): the colour to add over the picture, and how much of it. At 0 the picture
-          // is drawn as it was rendered.
-          uFlash: { value: new THREE.Color(0, 0, 0) },
-          uFlashAmount: { value: 0 },
+          // The screen flash (screen-hits.ts): the colour to add over the picture, and how much of it, set each frame
+          // (update). At 0 the picture is drawn as it was rendered.
+          ...this.flashUniforms,
         },
         vertexShader: /* glsl */ `
           varying vec2 vUv;
@@ -307,7 +353,8 @@ export class PinballScene implements MachineScene {
     this.standIn = standInTable(TABLE_IN_USE, look, TABLE.width, TABLE.length);
     this.standIn.visible = false;
     this.depth = pictureDepth(TABLE_IN_USE, TABLE.width, TABLE.length);
-    this.table.add(this.standIn, this.depth, this.parts.group, this.burst.group);
+    // The sparks and the beam are in the table's own coordinates, as the parts are.
+    this.table.add(this.standIn, this.depth, this.parts.group, this.burst.group, this.sparks.points, this.beam.group);
     this.scene.add(this.table);
     this.table.updateMatrixWorld(true);
     this.addLights();
@@ -392,10 +439,21 @@ export class PinballScene implements MachineScene {
     }
   }
 
-  /** The pinball's own messages: its state (the tags' names and scores, multiball's sound) and its hype moments. */
+  /**
+   * The pinball's own messages: its state (the tags' names and scores, multiball's sound), its hype moments and the
+   * toys' hits (its cues), each of the last two for the sounds and for the show book.
+   */
   machineMessage(msg: unknown): void {
-    const m = pinballHypeOf(msg);
-    if (m) this.cues.hype(m);
+    const hype = pinballHypeOf(msg);
+    if (hype) {
+      this.cues.hype(hype);
+      this.shows.hype(hype);
+    }
+    const cue = pinballCueOf(msg);
+    if (cue) {
+      this.cues.cue(cue);
+      this.shows.cue(cue);
+    }
     const state = pinballStateOf(msg);
     if (state) {
       this.state = state;
@@ -525,7 +583,22 @@ export class PinballScene implements MachineScene {
       this.parts.setLit(h.lit);
       this.cues.flippers(t, h.flippers[0], h.flippers[1]);
       this.cues.targets(h.targetsDown, h.targetsTurned);
+      this.cues.toys(h.toys);
+      this.beam.set((h.toys & TOY.tombOpen) !== 0);
     }
+
+    // The flash runs on the table's clock as drawn, which stops when the table does. It goes by `now` (DrawnClock), not
+    // by the drawn time itself, which slips back a little after the table pauses: `now` holds still through a slip, and
+    // the screen flash's 3 a second holds only on a clock that never goes back. The moments due by now play first, so
+    // that the lamps and the picture show them in this frame.
+    const step = h ? this.tableClock.step(h.time) : 0;
+    const now = this.tableClock.now;
+    this.shows.frame(now);
+    this.parts.setShowLights(this.player.lights(now));
+    // Both results are the player's and the flash's own, filled in again at their next call: read at once.
+    const flashed = this.flash.at(now);
+    this.flashUniforms.uFlash.value.setHex(flashed.color);
+    this.flashUniforms.uFlashAmount.value = flashed.amount;
     this.parts.update(dt);
 
     // The balls, with their tags.
@@ -540,7 +613,8 @@ export class PinballScene implements MachineScene {
     this.cues.balls(drawn);
     this.cues.frame(t);
 
-    // Payouts: the coins burst from the drain nearest across, or just above the drain.
+    // Payouts: the coins burst from the drain nearest across, or just above the drain, and so does the show book's
+    // burst of light (queued at now, it plays with the next frame's moments).
     for (const pay of this.payouts.splice(0)) {
       let at = { x: pay.x, z: DRAIN_Z };
       let best = Infinity;
@@ -552,8 +626,12 @@ export class PinballScene implements MachineScene {
         }
       }
       this.burst.burst(pay.amount, at.x, at.z);
+      this.shows.payout(at.x, at.z, pay.amount, now);
     }
-    this.burst.update(dt);
+    // The sparks (the beam's motes among them), the beam and the coins move on by the table's step, as the shows do.
+    this.sparks.update(step);
+    this.beam.update(step);
+    this.burst.update(step);
     for (let i = this.effects.length - 1; i >= 0; i--) if (!this.effects[i].update(dt)) this.effects.splice(i, 1);
 
     // The neon lights breathe.
@@ -624,11 +702,20 @@ export class PinballScene implements MachineScene {
   /** Viewers' pictures go on coins; balls carry names, not pictures. */
   setAvatar(_owner: number, _url: string): void {}
 
-  /** A fresh hello: the table is drawn from the new connection's snapshots and bodies only. */
+  /**
+   * A fresh hello: the table is drawn from the new connection's snapshots and bodies only. The new server's clock may
+   * have started again from 0, so the flash forgets the old clock: the show book lets go of its moments and clears the
+   * player and the flash (its sinks' clear), the table's clock takes the next drawn time as its first, the sparks go
+   * out, and the beam shows the tomb as it is at the next header, as the toys are shown.
+   */
   reset(): void {
     this.samples.length = 0;
     this.cues.reset();
     this.parts.reset();
+    this.shows.reset();
+    this.tableClock.reset();
+    this.sparks.clear();
+    this.beam.reset();
     for (const id of [...this.balls.keys()]) this.dropBall(id);
     this.drains.length = 0;
     this.payouts.length = 0;

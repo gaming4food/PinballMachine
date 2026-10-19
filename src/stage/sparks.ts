@@ -278,7 +278,10 @@ export class TombBeam {
   readonly group = new THREE.Group();
   private readonly way: ReturnType<typeof doorway>;
   private readonly shaft: THREE.Mesh | null = null;
-  /** Whether the tomb is open, how lit the beam is (0 shut, 1 open), and whether the next set is the first. */
+  /**
+   * Whether the tomb is open, how lit the beam is (0 shut, 1 open), and whether the next set is the first (or the first
+   * after a reset).
+   */
   private open = false;
   private lit = 0;
   private fresh = true;
@@ -314,8 +317,8 @@ export class TombBeam {
   }
 
   /**
-   * The tomb's bit: open, or shut. The first call shows the beam as it is, lit or dark at once (a page opening on an
-   * open tomb); after that it fades to the bit over BEAM_FADE as the table runs.
+   * The tomb's bit: open, or shut. The first call, and the first after reset(), shows the beam as it is, lit or dark at
+   * once (a page opening on an open tomb); after that it fades to the bit over BEAM_FADE as the table runs.
    */
   set(open: boolean): void {
     // No tomb, no beam: it stays dark whatever the bit says.
@@ -325,6 +328,15 @@ export class TombBeam {
     this.fresh = false;
     this.lit = open ? 1 : 0;
     this.show();
+  }
+
+  /**
+   * A fresh hello: the new connection's tomb may be open or shut whatever the beam shows now, so the next set() shows
+   * it as it is, at once, as the table's toys are shown after one (TableParts.reset). Until then the beam stays as it
+   * is, as the tomb's door does.
+   */
+  reset(): void {
+    this.fresh = true;
   }
 
   /** The table's clock moves on by `step`: the beam fades toward the bit and, while it is open, sends motes up. */

@@ -24,7 +24,7 @@ the stage and the control panel.
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
 | `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, moving the quest's toys, the high scores) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
 | `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the hype moments and the toys' hit cues, `RULES`, chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
-| `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
+| `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys and the lamps the light shows light among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the flash (The flash, below: the show book and the table's clock as drawn in `pinball-shows.ts`, the light shows and their player in `light-show.ts`, the screen flash in `screen-hits.ts`, the sparks and the tomb's beam in `sparks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
 | `src/assets/` | The table's picture (`pinball.png`) with its sidecar (`pinball.json`), and the live plaques' pictures (`plaques/`): made by `npm run picture` and `blender/plaques.py`, not by hand. |
 | `src/panel/` | The card: the line, with a Remove button on each viewer (`pinball-card.ts`). |
 | `blender/`, `tools/` | What builds the picture: `tools/picture.ts` (`npm run picture`) exports the table and the stage's camera (`export-scene.ts`), renders them with `blender/build_table.py` and grades the render (`grade.py`). `compose_art.py`, `gen_art.py` and `art/` are the printed art, `plaques.py` the live plaques'. `tools/pinball-stress.ts` is the stress run, and `tools/dev-toys.ts` and `tools/toy.ts` the dev host's toy switch (Running it). |
@@ -55,8 +55,10 @@ the stage and the control panel.
   names hold them), pinball-test (the game, step by step), pinball-hype-test (the hype
   buttons and paid support; `npm run pinball-hype-test -- <words>` runs only the tests whose names hold them),
   pinball-header-test (the stage reads the snapshot's header as the server writes it), pinball-hud-test (the scoreboard
-  and the titles), pinball-sounds-test (when each sound plays), pinball-parts-test (the live parts sit on the picture's
-  pixels) and picture-test (the picture is of this table and camera).
+  and the titles), pinball-sounds-test (when each sound plays), light-show-test (the light shows and their player, and
+  that no light rises more than 3 times a second), pinball-effects-test (the sparks' pool, the tomb's beam, the coin
+  burst and the screen flash), pinball-shows-test (what each moment plays, and when), pinball-parts-test (the live parts
+  sit on the picture's pixels) and picture-test (the picture is of this table and camera).
 - `npm run pinball-stress`: the long physics run (minutes, so not in `npm test`): 250 launches and 3000 flipper shots,
   expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up. Run both
   after a change to the table or the physics.
@@ -138,6 +140,36 @@ thanks the supporter, and `supportEffect` names on the city's card what it set o
 On the stage (`pinball-hud.ts`), each moment gets a big title at its time (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!,
 NUDGE!, and a matched bank's: HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED), as do multiball from the lock, a
 saved ball and a ball's result.
+
+## The flash
+
+Each moment on the table plays as light on the stage: a light show over the table's lamps, a flash of the table's
+picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says what each plays, with its values:
+
+- A bank matched bursts its god's colour (Ra gold, Horus blue, Ankh green, Eye red) from its plaques, with a flash in
+  it and sparks off each plaque. Multiball, a press's or the lock's, chases pink twice round the frame's rail lights,
+  then strobes every lamp white, with a white flash. The ball saver sweeps green up the table; double score strobes the
+  ladders gold, with a gold flash; a nudge shakes the view 0.3 s; a payout bursts gold from where its coins burst.
+- The toys' hits, from the server's cues: a pop-up knocked down bursts blue, each of the mummy's hits green and the
+  tomb's catch red, each with sparks at the ball; the mummy's third hit, which puts it down, bursts wider, flashes white
+  and shakes the view 0.6 s. While the tomb is open, a beam of light stands in its doorway with motes rising in it.
+- **Nothing flashes more than 3 times a second**, for the viewers a flashing picture can hurt. A light rises when it
+  goes above half its peak after being below 0.15 of it, and none rises again within `FLASH_GAP` (0.34 s) of its last
+  rise, so never 4 times in a second. Each show keeps to that alone (a chase's lap and a strobe's flash take at least
+  `FLASH_GAP`, and multiball's strobe waits 0.4 s after its chase), and `RiseLimit` (`light-show.ts`) holds every glow
+  to it besides, whatever lights it. The screen flash (`screen-hits.ts`) lights only the table's picture, adding at
+  most `FLASH_CAP` (0.3) of its colour, and drops a flash that would begin, or first show, less than `FLASH_GAP` after
+  the last one did, at any frame rate.
+- **Fixed pools.** The sparks are one pool of `MAX_SPARKS` (400) and the coins one of 180, made at the start: a busy
+  moment takes the oldest again. Nothing is made per frame.
+- **The table's clock.** The shows, the flash, the sparks, the beam and the coins run on the table's time as drawn
+  (`DrawnClock`), so they stand still while the table does. It steps at most 0.1 s, and holds still where the drawn
+  time slips back a little after a pause, since the flash's 3 a second needs a clock that never goes back. A moment
+  drawn more than 2 s after its time plays nothing, and the drawn time going back by more than a second (the server
+  restarted) clears what plays and lets go of the old clock's moments, as a fresh hello does. Two things count real
+  seconds instead: the glows' rise limit, since it guards what the viewers see, and a shake, which is the view's quake.
+- The browser's console has `pinballScene`, with its `player`, `flash`, `sparks`, `beam` and `shows`, for looking
+  inside (`pinballScene.sparks.live()`, `pinballScene.beam.level`).
 
 ## The table and its picture
 

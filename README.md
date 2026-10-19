@@ -10,7 +10,7 @@ npm run dev             # the dev host, standing in for the city: http://localho
 npm run dev:toys        # the same host with the toy switch on; npm run toy -- all up raises the field toys on it
 npm test                # contract-test, table-test, pinball-sim-test, pinball-layout-test, pinball-test,
                         # pinball-hype-test, pinball-header-test, pinball-hud-test, pinball-sounds-test,
-                        # pinball-parts-test, picture-test
+                        # light-show-test, pinball-effects-test, pinball-shows-test, pinball-parts-test, picture-test
 npm run typecheck
 npm run pinball-play    # plays unattended balls and prints what a ball scores and pays (balls=N, seed=N,
                         # toys=up, rates)
@@ -33,8 +33,9 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   ramp. The game raises and lowers them when asked (`PinballGame.setToy`), never into a ball; on the dev host,
   `npm run dev:toys` and `npm run toy -- <popups|mummy|tomb|diverter|all> <up|down>` ask (`CLAUDE.md` says how).
 - `src/` is the machine (the game and its Rapier physics in `src/server/`, the table as data in `src/shared/pyramid.ts`
-  with its types in `table.ts`, the rules in `src/shared/pinball.ts`, the scene, scoreboard and sounds in `src/stage/`,
-  the table's picture and the plaques' in `src/assets/`, the card in `src/panel/`), and `tests/` its tests.
+  with its types in `table.ts`, the rules in `src/shared/pinball.ts`, the scene, scoreboard, sounds and flash in
+  `src/stage/`, the table's picture and the plaques' in `src/assets/`, the card in `src/panel/`), and `tests/` its
+  tests.
 - `blender/` builds the table's picture from that same table data, through the stage's own camera (`build_table.py`,
   its grade and its printed art), and `tools/` runs it (`picture.ts`, with `export-scene.ts`); `tools/pinball-stress.ts`
   is the stress run. The stage draws the picture as its backdrop with the live parts over it: the balls, the three
@@ -43,11 +44,19 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   bumpers. Change the table and run `npm run picture` again, then commit the new picture and its sidecar
   (`blender/README.md` says what it needs). If the picture doesn't load, the stage draws a plain three.js stand-in table
   instead (`src/stage/table-mesh.ts`).
+- The flash: each moment on the table (a bank matched, the hype buttons, multiball from the lock, a payout, the toys'
+  hits) plays as a light show over the table's glows, a flash of the picture, sparks and a shake, and the open tomb
+  sends up a beam of light (`src/stage/pinball-shows.ts` says what each plays). Nothing flashes more than 3 times a
+  second, the screen flash adds at most 0.3 of its colour, the sparks and the coins come from fixed pools, and it all
+  runs on the table's clock, standing still while the table does (`CLAUDE.md`, The flash).
 - The tests: `pinball-sim-test` is the physics part by part. `pinball-layout-test` is every way round the table at its
   rate (the orbits, the left ramp, the dish, the saucers, the banks, the quest's toys up and down; no ball escapes or
-  sticks) and takes about a minute. `pinball-parts-test` is the live parts, and that the stage's camera puts them on
-  the picture's pixels. `picture-test` fails while the picture was made from another table or camera than the stage's,
-  or at another size. `npm run pinball-stress` takes minutes, so it isn't part of `npm test`.
+  sticks) and takes about a minute. `light-show-test`, `pinball-effects-test` and `pinball-shows-test` are the flash:
+  the light shows and their player, the sparks, the tomb's beam, the coin burst and the screen flash, what each moment
+  plays and when, and that nothing flashes more than 3 times a second. `pinball-parts-test` is the live parts, and that
+  the stage's camera puts them on the picture's pixels. `picture-test` fails while the picture was made from another
+  table or camera than the stage's, or at another size. `npm run pinball-stress` takes minutes, so it isn't part of
+  `npm test`.
 - The control panel shows the pinball's card (the line, with a Remove button each), its four hype buttons and its
   Reset (`src/panel.ts`; the buttons are listed in `src/entry.ts`, and the game plays them in `PinballGame.action`):
   Multiball (2 more balls in now), Ball saver (15 s), Double score (30 s) and Nudge. The Reset clears the table and the
