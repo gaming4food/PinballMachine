@@ -279,4 +279,41 @@ export const PYRAMID: Table = {
   // from the dish or the ramp above it would be wedged against the west rail (all 40 let go there were), so it won't
   // swing over while a ball is on its ramp or in the dish (sim.ts).
   diverter: { id: 'diverter', ramp: 'ramp-left', pivot: [-3.0794, 13.0535], length: 0.9276, restDeg: -83.379, overDeg: -143.379 },
+  // The switches with no art: the picture shows none of them and they score nothing. Each reports a ball that passes
+  // it, either way, once a pass (sim.ts), for the quest's Sun Chase to count its orbit and ramp shots.
+  switches: [
+    // An orbit switch stands square across its lane from wall to wall, near the top of the lane's straight run: the
+    // left one between the outer wall and the orbit wall at z 12.4, where the orbit wall starts to bend, the right one
+    // between the orbit wall and the shooter lane's wall at 11.6, under the right ramp (as tall as a ball, it lets a
+    // ball riding the ramp pass over it) and below that wall's top (12.1), which keeps a launch off it. Each of the
+    // layout test's orbit shots (34 units/s up the middle of a lane, its fixed spread) passes its lane's switch going
+    // up, once, goes round and comes down the other lane past that one's switch going down; each of 60 launches comes
+    // round the arch and down the left lane past its switch going down, and passes none going up.
+    // A ball can pass a lane's switch going up and still not go round: a slow one climbs into the top corner and falls
+    // back, and on the right a ball that comes round the corner by the island can stall short of the top's crest (x
+    // -0.6, where the orbit wall is highest), as many fast ones up that lane's outer side do (x 3.76 and out, at 35 to
+    // 44 units/s). Of 120 real flips off each main flipper (dropped on it, flipped at 0.5 to 0.95 of its length), 62 of
+    // the 63 that pass the left lane's switch going up go round, but only 46 of the 69 that pass the right's; the
+    // right's 23 others pass every height in that lane (9.5 to 12.8): no place there counts only shots that go round.
+    { id: 'orbit-left', kind: 'orbit', x: -4.5, z: 12.4, width: 1 },
+    { id: 'orbit-right', kind: 'orbit', x: 3.7, z: 11.6, width: 1 },
+    // The dish's switch stands on the dish's floor across its mouth, square across the left ramp's last stretch (which
+    // heads 98.5 degrees) and as wide as the ramp, 0.38 past the ramp's last point along it: a ball meets it once its
+    // centre is 0.06 past that point. Of 477 balls rolled up the ramp from its middle (6 to 32 units/s, across it and
+    // up to 6 degrees either side) and the layout test's 35 shots up it, with the gate at rest, the furthest any that
+    // fell back got its centre was 0.05 short of that point, and of the 347 that got into the dish, 344 meet the switch
+    // going up, each 0.13 or more past the point; the other 3 only poke their centres about 0.03 inside the dish's rim
+    // and roll straight back. Every ball leaves the dish back down the ramp (none goes east), so one that stays in it
+    // longer than a pass meets the switch again on its way out, going down (105 of the 344): only its pass going up is
+    // a shot into the dish.
+    { id: 'ramp-dish', kind: 'ramp', x: -3.656, z: 13.666, y: 0.8, width: 0.8, angle: 8.503 },
+    // The gate's switch stands beside the gap in the ramp's east rail, along the gate at rest and as long as it, 0.38
+    // out from the rail's line (the ramp's edge from the gap's one end to its other), from the floor's height where the
+    // gap begins (0.688, 0.15 over a ball on the playfield beside the ramp) up as tall as a ball: a ball meets it once
+    // its centre is 0.06 out past the rail's line. Of the same 512 balls with the gate over, all 340 that the gate
+    // turns out through the gap meet it, once (35 of them heading down the table as they do), and none of the 172 that
+    // stay on the ramp, the furthest of which got its centre to 0.014 short of the rail's line. At rest, the gate
+    // stands between the ramp and it.
+    { id: 'ramp-gate', kind: 'ramp', x: -2.7279, z: 12.6274, y: 0.688, width: 0.9276, angle: 96.621 },
+  ],
 };

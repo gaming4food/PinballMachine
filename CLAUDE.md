@@ -60,8 +60,8 @@ the stage and the control panel.
   burst and the screen flash), pinball-shows-test (what each moment plays, and when), pinball-parts-test (the live parts
   sit on the picture's pixels) and picture-test (the picture is of this table and camera).
 - `npm run pinball-stress`: the long physics run (minutes, so not in `npm test`): 250 launches and 3000 flipper shots,
-  expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up. Run both
-  after a change to the table or the physics.
+  expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up, and
+  `-- lock=held` with a ball held in the lock throughout. Run all three after a change to the table or the physics.
 - `npm run pinball-play`: plays unattended balls (auto-save only) and prints the average and median points, coins and
   seconds a ball (`balls=N`, `seed=N`; `toys=up` keeps every toy up, and `rates` prints how often each bank matches and
   each toy is hit, a ball and per 30 s; the top of `tests/pinball-play.ts` says how). It's how `RULES.pointsPerCoin`

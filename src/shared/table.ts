@@ -217,6 +217,24 @@ export interface Diverter {
   overDeg: number;
 }
 
+/**
+ * A switch with no art: a sensor `width` across, standing across a lane at (x, z), `y` up (a ramp's floor). It scores
+ * nothing and is drawn nowhere: it only reports a ball that passes it, either way (sim.ts), for the quest's modes to
+ * count the shots it sees.
+ */
+export interface TableSwitch {
+  id: string;
+  /** What it sees: a ball up an orbit lane, or one up the left ramp (into the dish, or out through the gate's gap). */
+  kind: 'orbit' | 'ramp';
+  x: number;
+  z: number;
+  /** How far up off the playfield it stands, for one on a ramp's floor (default 0, the playfield). */
+  y?: number;
+  width: number;
+  /** The way it runs across its lane (degrees, x toward z), for one not square across the table (default 0). */
+  angle?: number;
+}
+
 /** A whole table. */
 export interface Table {
   walls: Wall[];
@@ -241,6 +259,8 @@ export interface Table {
   tomb?: Tomb;
   /** The quest's diverter on one of the ramps, if the table has one. */
   diverter?: Diverter;
+  /** The switches with no art, which see the quest's orbit and ramp shots. */
+  switches: TableSwitch[];
 }
 
 /**

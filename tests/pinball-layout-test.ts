@@ -9,7 +9,8 @@
 // gate) are checked up and down: no ball stuck or got off the table round them, the left ramp as it was with them
 // down, the tomb's kick to a flipper, the gate's shots into the lock, and how the magnet and the tomb share the centre
 // lane; and, with a ball held in the lock (which kicks a second one back out), none of the gate's shots and none of
-// the balls dropped round the lock stays on the table. It runs in about a minute, and prints one line per check.
+// the balls dropped round the lock stays on the table. The orbit shots that pass an orbit switch going up go on round.
+// It runs in about a minute, and prints one line per check.
 // Usage: npm run pinball-layout-test [-- <words>: only the checks whose names hold them]
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
@@ -826,6 +827,44 @@ const checks: [string, () => string][] = [
     const magnetMax = Math.max(...byMagnet), tombMin = Math.min(...byTomb);
     assert.ok(magnetMax < tombMin, `the magnet took one at ${magnetMax} and the tomb one at ${tombMin}: they don't split by speed`);
     return `of ${speeds.length * 3} rolled up the lane at 6 to 20 units/s, the magnet took ${byMagnet.length} (up to ${magnetMax}), the tomb ${byTomb.length} (from ${tombMin})`;
+  }],
+  ['of the balls that pass an orbit switch going up, at least 90% go on round to the other lane', () => {
+    // The game counts a ball passing an orbit switch going up as an orbit shot, so one that does should go on round:
+    // over the top and down the other lane, past that lane's switch. The table's shots up the orbits ('the left orbit,
+    // the right orbit and the lock': 34 units/s straight up each lane from its foot, the fixed spread) and up the left
+    // ramp (the tripwire's spread and grid), each on a table of its own and followed 4 s. (Real flips round the right
+    // orbit go round less often, at any height in its lane: pyramid.ts's orbit switches say how often, and why.)
+    const other: Record<string, string> = { 'orbit-left': 'orbit-right', 'orbit-right': 'orbit-left' };
+    const shots: [number, number, number, number][] = [
+      ...SPREAD.map(([, fz]): [number, number, number, number] => [-4.5, 6.8, 0, 34 * fz]),
+      ...SPREAD.map(([, fz]): [number, number, number, number] => [3.7, 8.0, 0, 34 * fz]),
+      ...RAMP_SHOTS.map(([fx, fz]): [number, number, number, number] => [-0.1, 3.0, -23 * fx, 44 * fz]),
+    ];
+    let passed = 0, round = 0;
+    const each: string[] = [];
+    for (const [x, z, vx, vz] of shots) {
+      const seen: { id: string; up: boolean }[] = [];
+      hits = [];
+      sim = new PinballSim(L, (h) => {
+        hits.push(h);
+        if (h.kind === 'switch') seen.push({ id: h.id, up: sim.items.get(h.ball)!.body.linvel().z > 0 });
+      });
+      const id = add(x, z, vx, vz);
+      for (let i = 0; i < 4 / DT && pos(id); i++) sim.step();
+      const first = seen.findIndex((s) => s.up && s.id in other);
+      if (first < 0) {
+        each.push('-');
+        continue;
+      }
+      const went = seen.slice(first + 1).some((s) => s.id === other[seen[first].id]);
+      passed++;
+      round += +went;
+      each.push(went ? 'R' : 'b');
+    }
+    const line = `${each.slice(0, 10).join('')} ${each.slice(10, 20).join('')} ${each.slice(20).join('')}`;
+    assert.ok(passed >= 20, `only ${passed} of the ${shots.length} shots passed an orbit switch going up (per shot, R round, b back, - none: ${line})`);
+    assert.ok(round >= 0.9 * passed, `only ${round} of the ${passed} that passed an orbit switch going up went on round (${line})`);
+    return `${round} of the ${passed} that passed an orbit switch going up went on round (per shot, R round, b back, - none: ${line})`;
   }],
 ];
 

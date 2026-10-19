@@ -15,7 +15,7 @@ npm run typecheck
 npm run pinball-play    # plays unattended balls and prints what a ball scores and pays (balls=N, seed=N,
                         # toys=up, rates)
 npm run pinball-stress  # the long physics run (minutes): 250 launches and 3000 flipper shots, expecting "found 0"
-                        # (-- toys=up: the same with every toy up)
+                        # (-- toys=up: the same with every toy up; -- lock=held: with a ball held in the lock)
 npm run picture         # builds the table's picture in Blender (about 15 s): src/assets/pinball.png
 npm run picture -- hero # the promotional picture instead, into blender/renders/hero.png
 ```

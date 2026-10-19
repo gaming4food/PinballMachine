@@ -1,7 +1,7 @@
 // The pinball's pyramid table and its rules, as data: the table is on the playfield, the flippers leave a gap a ball
 // can't stop in, every piece has its own id, it fits the snapshot header's room, the quest's toys (the pop-ups, the
-// mummy, the tomb and the diverter) are there and the tomb's doorway is cut into the pyramid's wall, and chat commands
-// are read the way the rules say.
+// mummy, the tomb and the diverter) are there and the tomb's doorway is cut into the pyramid's wall, the four switches
+// stand across the orbit lanes, the left ramp's top and the gate's gap, and chat commands are read as the rules say.
 // Usage: npm run table-test (or npx tsx tests/table-test.ts)
 import assert from 'node:assert/strict';
 import { TABLE, TABLE_IN_USE, flipperTip, isLockTarget, tombMouth, wallsWithTomb, type Target } from '../src/shared/table';
@@ -24,6 +24,20 @@ function mouthEnds(): [[number, number], [number, number]] {
   return [ends[0], ends[1]];
 }
 const near = (p: [number, number], q: [number, number], eps = 1e-6) => Math.hypot(p[0] - q[0], p[1] - q[1]) < eps;
+const deg = (a: number) => (a * 180) / Math.PI;
+const rad = (a: number) => (a * Math.PI) / 180;
+
+/** Where a wall's polyline crosses the line z, the crossing nearest x: the wall on one side of a lane there. */
+function crossingNear(points: [number, number][], z: number, x: number): number {
+  let best = NaN;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [[ax, az], [bx, bz]] = [points[i], points[i + 1]];
+    if ((az - z) * (bz - z) > 0 || az === bz) continue;
+    const at = ax + ((z - az) / (bz - az)) * (bx - ax);
+    if (Number.isNaN(best) || Math.abs(at - x) < Math.abs(best - x)) best = at;
+  }
+  return best;
+}
 
 /** A target's face as the physics stands it (sim.ts): the rectangle `width` along its angle and `depth` thick. */
 function faceOf(g: Target) {
@@ -62,6 +76,7 @@ const checks: [string, () => void][] = [
     spots.push(['spinner', t.spinner.x, t.spinner.z], ['lock', t.lock.x, t.lock.z], ['kickback', t.kickback.x, t.kickback.z]);
     if (t.tomb) spots.push(['tomb', t.tomb.x, t.tomb.z], ['tomb held', ...t.tomb.held]);
     if (t.diverter) spots.push(['diverter pivot', ...t.diverter.pivot]);
+    for (const s of t.switches) spots.push([s.id, s.x, s.z]);
     spots.push(['plunger from', t.plunger.x, t.plunger.zFrom], ['plunger to', t.plunger.x, t.plunger.zTo]);
     for (const f of t.flippers) spots.push([`${f.side} flipper pivot`, ...f.pivot], [`${f.side} flipper tip`, ...flipperTip(f)]);
     for (const [what, x, z] of spots) {
@@ -152,7 +167,7 @@ const checks: [string, () => void][] = [
   ['ids are unique across every part', () => {
     const t = TABLE_IN_USE;
     const toys = [...(t.tomb ? [t.tomb] : []), ...(t.diverter ? [t.diverter] : [])];
-    const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers, ...t.saucers, ...t.spinners, ...t.banks, ...t.ramps, ...t.dishes, ...toys].map((p) => p.id);
+    const ids = [...t.bumpers, ...t.slings, ...t.targets, ...t.rollovers, ...t.saucers, ...t.spinners, ...t.banks, ...t.ramps, ...t.dishes, ...toys, ...t.switches].map((p) => p.id);
     assert.equal(new Set(ids).size, ids.length, `duplicate id in ${ids.join(', ')}`);
   }],
   ['the toys: three pop-ups and the mummy start down, the lock keeps its two drop targets', () => {
@@ -295,6 +310,59 @@ const checks: [string, () => void][] = [
         assert.ok(gap > 0, `${faced[i].id} and ${faced[j].id} overlap by ${(-gap).toFixed(3)}`);
       }
     }
+  }],
+  ["the four switches: one across each orbit lane, the left ramp's top into the dish, the gate's gap", () => {
+    const t = TABLE_IN_USE;
+    assert.deepEqual(t.switches.map((s) => [s.id, s.kind]), [['orbit-left', 'orbit'], ['orbit-right', 'orbit'], ['ramp-dish', 'ramp'], ['ramp-gate', 'ramp']]);
+    const sw = (id: string) => t.switches.find((s) => s.id === id)!;
+    const outer = t.walls[0].points, orbit = t.walls.find((w) => w.kind === 'orbit')!.points;
+    // The shooter lane's inner wall is the one of its two that runs straight up the table (its floor runs across).
+    const shooter = t.walls.find((w) => w.kind === 'shooter' && w.points[0][0] === w.points[1][0])!.points;
+    // An orbit switch stands on the playfield square across its lane, from the wall on one side to the wall on the
+    // other where it stands, so a ball going up or down the lane meets it wherever it is across the lane. The right
+    // lane's stands below the top of the shooter lane's wall, which walls a launch off from it.
+    for (const [id, sides] of [['orbit-left', [outer, orbit]], ['orbit-right', [orbit, shooter]]] as const) {
+      const s = sw(id);
+      assert.equal(s.y, undefined, `${id} stands on the playfield`);
+      assert.equal(s.angle ?? 0, 0, `${id} is square across its lane`);
+      const [a, b] = sides.map((w) => crossingNear(w, s.z, s.x)).sort((p, q) => p - q);
+      assert.ok(Math.abs(s.x - s.width / 2 - a) < 0.01 && Math.abs(s.x + s.width / 2 - b) < 0.01, `${id} runs from x ${s.x - s.width / 2} to ${s.x + s.width / 2}, where its lane's walls are at ${a.toFixed(3)} and ${b.toFixed(3)}`);
+    }
+    assert.ok(sw('orbit-right').z < Math.max(shooter[0][1], shooter[1][1]), "the right lane's switch is below the top of the shooter lane's wall");
+    // The dish's switch stands on the floor where the left ramp runs into the dish's south gap: square across the
+    // ramp's last stretch, as wide as the ramp, on its line just past its last point, at the dish floor's height.
+    const ramp = t.ramps.find((r) => r.id === 'ramp-left')!;
+    const dish = t.dishes[0];
+    const [lx, lz, ly] = ramp.path[ramp.path.length - 1], [px, pz] = ramp.path[ramp.path.length - 2];
+    const heading = Math.atan2(lz - pz, lx - px);
+    const d = sw('ramp-dish');
+    const along = (d.x - lx) * Math.cos(heading) + (d.z - lz) * Math.sin(heading);
+    const across = (d.z - lz) * Math.cos(heading) - (d.x - lx) * Math.sin(heading);
+    assert.ok(Math.abs((d.angle ?? 0) - (deg(heading) - 90)) < 0.5, `ramp-dish runs at ${d.angle} degrees, and the ramp's top heads ${deg(heading).toFixed(2)}`);
+    assert.equal(d.width, ramp.width, 'as wide as the ramp');
+    assert.ok(d.y === ly && ly === dish.y, `ramp-dish stands at ${d.y}, the ramp's top and the dish's floor at ${ly} and ${dish.y}`);
+    assert.ok(Math.abs(across) < 0.01 && along >= 0 && along < 0.5, `ramp-dish is ${along.toFixed(3)} past the ramp's last point and ${across.toFixed(3)} off its line`);
+    const round = (deg(Math.atan2(d.z - dish.z, d.x - dish.x)) + 360) % 360;
+    assert.ok(Math.hypot(d.x - dish.x, d.z - dish.z) < dish.r && dish.gaps.some(([a, b]) => round >= a && round <= b), `ramp-dish is inside the dish, in its south gap (at ${round.toFixed(1)} degrees round it)`);
+    // The gate's switch stands beside the gap in the ramp's east rail, where the gate stands at rest in the rail's
+    // place: along the gate's line and as long as it, out from it on the side away from the ramp, between it and the
+    // lock, at the height of the ramp's floor in the gap, above a ball on the playfield.
+    const gate = t.diverter!;
+    const g = sw('ramp-gate');
+    const [ux, uz] = [Math.cos(rad(gate.restDeg)), Math.sin(rad(gate.restDeg))];
+    const mid: [number, number] = [gate.pivot[0] + (ux * gate.length) / 2, gate.pivot[1] + (uz * gate.length) / 2];
+    const centre = ramp.path.reduce((best, p) => (Math.hypot(p[0] - mid[0], p[1] - mid[1]) < Math.hypot(best[0] - mid[0], best[1] - mid[1]) ? p : best));
+    // The normal to the gate's line on the side away from the ramp's centre line.
+    let [nx, nz] = [-uz, ux];
+    if ((mid[0] - centre[0]) * nx + (mid[1] - centre[1]) * nz < 0) [nx, nz] = [-nx, -nz];
+    const gAlong = (g.x - mid[0]) * ux + (g.z - mid[1]) * uz, out = (g.x - mid[0]) * nx + (g.z - mid[1]) * nz;
+    const angleOff = Math.abs(((((g.angle ?? 0) - gate.restDeg) % 180) + 180) % 180);
+    assert.ok(Math.min(angleOff, 180 - angleOff) < 0.5, `ramp-gate runs at ${g.angle} degrees, the gate at rest at ${gate.restDeg}`);
+    assert.ok(Math.abs(g.width - gate.length) < 0.01 && Math.abs(gAlong) < 0.01, `ramp-gate is ${g.width} long and ${gAlong.toFixed(3)} along from the gate's middle`);
+    const { lock } = t;
+    assert.ok(out > 0 && Math.hypot(g.x - lock.x, g.z - lock.z) < Math.hypot(mid[0] - lock.x, mid[1] - lock.z), `ramp-gate is ${out.toFixed(3)} out from the gate's line, between it and the lock`);
+    const [y0, y1] = [ramp.path[ramp.opening!.from][2], ramp.path[ramp.opening!.to][2]];
+    assert.ok(g.y !== undefined && g.y >= y0 && g.y <= y1 && g.y > 2 * TABLE.ballRadius, `ramp-gate stands at ${g.y}, where the ramp's floor in the gap is ${y0} to ${y1}`);
   }],
   ['the rules and the snapshot header', () => {
     assert.deepEqual(RULES, {

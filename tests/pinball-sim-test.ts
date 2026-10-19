@@ -10,7 +10,9 @@
 // lock or a saucer has (nor they its), the quest's diverter (a gate on the left ramp, over a gap in its rail) at rest
 // leaves the ramp running as before and swung over sends balls going up it into the lock, a ball leaving the ramp only
 // through the gap, swinging at its own slow speed, never into a ball, and never over while a ball is on its ramp or in
-// the dish above it, the toys' bits say what's open and over (and a table with no diverter has no gate to swing), and
+// the dish above it, the toys' bits say what's open and over (and a table with no diverter has no gate to swing), the
+// switches with no art each see a ball that passes them once (an orbit shot its own lane's going up, a launch only the
+// left one's going down, a shot into the dish the dish's, a ball the gate turns out the gate's) and no other ball, and
 // the snapshot is the 47-byte header (type, time, ball count, the three flippers' angles, the lit bits, the targets
 // down and turned, both spinners' angles, the toys' bits) then each ball's body; a ball's owner is in its state, not
 // the snapshot.
@@ -183,6 +185,42 @@ function leaving(sim: PinballSim, hits: Hit[], id: number, seconds: number): { l
     }
   }
   return { left, lock: hits.some((h) => h.kind === 'lock' && h.ball === id) };
+}
+
+/** A switch's hit, and which way up the table the ball was going as it came (as the game reads it, by its velocity). */
+type Pass = { id: string; ball: number; up: boolean };
+/** A sim on the table in use, its hits, and its switches' hits as passes. */
+function withPasses(): { sim: PinballSim; hits: Hit[]; passes: Pass[] } {
+  const hits: Hit[] = [];
+  const passes: Pass[] = [];
+  const sim: PinballSim = new PinballSim(TABLE_IN_USE, (hit) => {
+    hits.push(hit);
+    if (hit.kind === 'switch') passes.push({ id: hit.id, ball: hit.ball, up: sim.items.get(hit.ball)!.body.linvel().z > 0 });
+  });
+  return { sim, hits, passes };
+}
+/** Ball `id`'s passes in order, each as its switch and its way: 'orbit-left up'. */
+const passesOf = (passes: Pass[], id: number) => passes.filter((p) => p.ball === id).map((p) => `${p.id} ${p.up ? 'up' : 'down'}`);
+/** A seeded generator of a check's own for its spots, so it runs the same whatever the checks before it drew. */
+function spotsFrom(start: number): () => number {
+  let s = start;
+  return () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+}
+/** Whether p is inside a closed outline (its last point back at, or joined to, its first). */
+function insideOutline(p: [number, number], poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if (zi > p[1] !== zj > p[1] && p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+/** How far (x, z) is from the left ramp's centre line. */
+function fromLeftRamp(x: number, z: number): number {
+  const P = GATE_RAMP.path;
+  let best = Infinity;
+  for (let i = 0; i + 1 < P.length; i++) best = Math.min(best, segDist([x, z], [P[i][0], P[i][1]], [P[i + 1][0], P[i + 1][1]]));
+  return best;
 }
 
 const targetIndex = (id: string) => TABLE_IN_USE.targets.findIndex((t) => t.id === id);
@@ -1348,6 +1386,119 @@ const checks: [string, () => void][] = [
     // A table with no diverter has no gate to swing over, and none away from rest, and its toys' bits never say over.
     const none = make({ ...TABLE_IN_USE, diverter: undefined }).sim;
     assert.deepEqual([none.setDiverter(true), none.diverterOver, none.setDiverter(false), none.toys() & TOY.diverterOver], [false, false, true, 0], 'no diverter');
+  }],
+  ["an orbit shot up each side touches its lane's switch going up, once; a launch round the arch passes the left one going down, if at all", () => {
+    // Shots straight up the middle of each orbit lane from its foot, as pinball-layout-test fires its orbit shots (34
+    // units/s), here at 32 to 36 units/s: each touches its own lane's switch once, going up, goes round over the top
+    // and comes down the other lane, touching that one's switch going down. (The game counts only a pass going up as
+    // an orbit shot.)
+    for (const [own, other, x, z] of [['orbit-left', 'orbit-right', -4.5, 6.8], ['orbit-right', 'orbit-left', 3.7, 8.0]] as const) {
+      for (let n = 0; n < 5; n++) {
+        const { sim, passes } = withPasses();
+        const id = place(sim, x, z, 0, 32 + n);
+        for (let i = 0; i < 3 / DT && sim.items.has(id); i++) sim.step();
+        assert.deepEqual(passesOf(passes, id), [`${own} up`, `${other} down`], `a shot up the lane of ${own} at ${32 + n} units/s`);
+      }
+    }
+    // A launch goes up the shooter lane, whose wall stands between it and the right lane's switch, round the arch and
+    // down the left orbit lane: it touches no switch but the left lane's, going down, and that one once at most.
+    for (let n = 0; n < 10; n++) {
+      const { sim, passes } = withPasses();
+      const id = sim.launch(null);
+      for (let i = 0; i < 4 / DT && sim.items.has(id); i++) sim.step();
+      const seen = passesOf(passes, id);
+      assert.ok(seen.length <= 1 && seen.every((p) => p === 'orbit-left down'), `launch ${n}: ${seen.join(', ') || 'no switch'}`);
+    }
+  }],
+  ["a left-ramp shot into the dish touches the dish switch; with the gate over, a shot turned out through the gap touches the gate's switch", () => {
+    // The balls the gate's checks above roll up the left ramp from its middle (upTheRamp), each followed 4 s. With the
+    // gate at rest, one that gets up into the dish touches the dish's switch first, going up the table; one too slow to
+    // get there falls back to the ramp's mouth touching no switch. Every ball leaves the dish back down the ramp it
+    // came up (none leaves it east), so one that stays in the dish longer than a pass's 0.5 s touches the dish's switch
+    // again on its way out, going down. (The game counts the pass going in.)
+    const rest = withPasses();
+    const ends: string[] = [];
+    let outAgain = 0;
+    for (let n = 0; n < 20; n++) {
+      rest.sim.clear();
+      rest.hits.length = 0;
+      const id = upTheRamp(rest.sim, n, 20);
+      const { left } = leaving(rest.sim, rest.hits, id, 4);
+      const seen = passesOf(rest.passes, id);
+      ends.push(left);
+      if (left === 'the dish') {
+        assert.equal(seen[0], 'ramp-dish up', `ball ${n} went into the dish: ${seen.join(', ') || 'no switch'}`);
+        assert.ok(seen.slice(1).every((p) => p === 'ramp-dish down'), `ball ${n} after the dish: ${seen.join(', ')}`);
+        if (seen.length > 1) outAgain++;
+      } else assert.deepEqual(seen, [], `ball ${n} left the ramp at ${left}`);
+    }
+    assert.ok(ends.includes('the dish') && ends.includes('its mouth'), `some make the dish and some don't (${ends.join(', ')})`);
+    assert.ok(outAgain > 0, "a ball that stays in the dish more than 0.5 s touches the dish's switch again on its way out");
+    // With the gate over: one the gate turns out through the gap touches the gate's switch, once, and no other; one too
+    // slow to reach the gate falls back touching none. (The gate stays over: each ball is taken off before the next.)
+    const over = withPasses();
+    assert.equal(over.sim.setDiverter(true), true);
+    for (let i = 0; i < 0.25 / DT; i++) over.sim.step();
+    let id = -1, out = 0;
+    for (let n = 0; n < 20; n++) {
+      over.sim.remove(id);
+      over.hits.length = 0;
+      id = upTheRamp(over.sim, n, 20);
+      const { left } = leaving(over.sim, over.hits, id, 4);
+      const seen = passesOf(over.passes, id);
+      if (left === 'the opening') {
+        out++;
+        assert.ok(seen.length === 1 && seen[0].startsWith('ramp-gate '), `ball ${n} went out through the gap: ${seen.join(', ') || 'no switch'}`);
+      } else assert.deepEqual(seen, [], `ball ${n} left the ramp at ${left}`);
+    }
+    assert.ok(out >= 10, `only ${out} of 20 went out through the gap`);
+  }],
+  ['balls on the playfield, in the bumpers and round the lock touch no switch', () => {
+    // Balls let go with a push of up to 2 units/s (4 in the bumpers) any way, each followed 6 s or until it drains, and
+    // none touches a switch: on the playfield anywhere but up an orbit lane, in the shooter lane or on the left ramp;
+    // among the three pop bumpers, which kick them about; and round the lock, beside the left ramp's top under the
+    // gate's switch, with the gate at rest and over and the lock empty and holding a ball (which kicks a second out).
+    const t = TABLE_IN_USE;
+    const orbit = t.walls.find((w) => w.kind === 'orbit')!.points;
+    const pyramid = t.walls.find((w) => w.kind === 'pyramid')!.points;
+    const foot = Math.min(orbit[0][1], orbit[orbit.length - 1][1]);
+    const offRamp = (x: number, z: number) => fromLeftRamp(x, z) > (GATE_RAMP.width + (GATE_RAMP.flare ?? 0)) / 2 + R + 0.05;
+    // On the playfield: below the orbit lanes' feet, or above them inside the orbit's loop; not on the left ramp, under
+    // the dish or in the pyramid.
+    const onField = (x: number, z: number) =>
+      clearSpot([x, z], t) && offRamp(x, z) && Math.hypot(x - DISH.x, z - DISH.z) > DISH.r + R && !insideOutline([x, z], pyramid) && (z < foot || insideOutline([x, z], orbit));
+    const bumpers = t.bumpers.filter((b) => !b.y0);
+    const { lock } = t;
+    const groups: { name: string; count: number; box: [number, number, number, number]; push: number; fits: (x: number, z: number) => boolean; over?: boolean; held?: boolean }[] = [
+      { name: 'on the playfield', count: 60, box: [-4.9, 4.9, 0.5, TABLE.length - 0.5], push: 2, fits: onField },
+      { name: 'in the bumpers', count: 20, box: [Math.min(...bumpers.map((b) => b.x)) - 0.9, Math.max(...bumpers.map((b) => b.x)) + 0.9, Math.min(...bumpers.map((b) => b.z)) - 0.9, Math.max(...bumpers.map((b) => b.z)) + 0.9], push: 4, fits: onField },
+    ];
+    for (const over of [false, true]) {
+      for (const held of [false, true]) {
+        const fits = (x: number, z: number) => clearSpot([x, z], t) && offRamp(x, z) && (!held || Math.hypot(x - lock.x, z - lock.z) > 2 * R + 0.03);
+        groups.push({ name: `round the lock (the gate ${over ? 'over' : 'at rest'}, the lock ${held ? 'holding a ball' : 'empty'})`, count: 10, box: [lock.x - 0.9, lock.x + 0.9, lock.z - 0.9, lock.z + 0.9], push: 2, fits, over, held });
+      }
+    }
+    const touched: string[] = [];
+    groups.forEach((g, k) => {
+      const next = spotsFrom(101 + k);
+      for (let n = 0; n < g.count; n++) {
+        const { sim, passes } = withPasses();
+        if (g.over) {
+          assert.equal(sim.setDiverter(true), true);
+          for (let i = 0; i < 0.25 / DT; i++) sim.step();
+        }
+        if (g.held) sim.holdInLock(place(sim, lock.x, lock.z));
+        let x = 0, z = 0;
+        do [x, z] = [g.box[0] + next() * (g.box[1] - g.box[0]), g.box[2] + next() * (g.box[3] - g.box[2])]; while (!g.fits(x, z));
+        const a = next() * 2 * Math.PI, v = next() * g.push;
+        const id = place(sim, x, z, v * Math.cos(a), v * Math.sin(a));
+        for (let i = 0; i < 6 / DT && sim.items.has(id); i++) sim.step();
+        const seen = passesOf(passes, id);
+        if (seen.length) touched.push(`${g.name}: from (${x.toFixed(2)}, ${z.toFixed(2)}): ${seen.join(', ')}`);
+      }
+    });
+    assert.deepEqual(touched, [], `${touched.length} touched a switch:\n${touched.slice(0, 6).join('\n')}`);
   }],
   ['every flipper and spinner has its angle', () => {
     const { sim } = make();

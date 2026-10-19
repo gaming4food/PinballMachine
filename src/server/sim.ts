@@ -4,15 +4,17 @@
 // bodies swung toward up or rest. Bumpers and slings kick a ball away and report it; drop targets drop, and flip targets
 // turn to their backs (a bank of them all turned reports a match); a rising target (a pop-up or the mummy) stands down,
 // no wall at all, until the game raises it, and then a pop-up drops when hit and the mummy stays up and reports every
-// hit; the rollovers, the spinners, the lock and the kickback are sensors that report, and the lock, while it holds a
-// ball, kicks back out any other that reaches it; a saucer holds a slow ball a moment and kicks it out; the tomb's
-// door, in the doorway cut into the pyramid's front corner, is a wall until the game opens it, and then the doorway's
-// mouth catches any ball that touches it, holds it a moment and kicks it out; the diverter's gate, a kinematic body as
-// the flippers are, stands in a gap in the left ramp's rail until the game swings it over, slowly, across the ramp
-// (once no ball is on the ramp or in the dish above it), where it turns balls going up the ramp out through the gap,
-// down into the lock; a ball past the drain is taken off and reported. What the hits are worth, whose balls they are
-// and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish, the flip targets, the saucers
-// and the second spinner were built and proven in the Blender spike, spike/blender/sim-features.mts.)
+// hit; the rollovers, the spinners, the lock, the kickback and the switches with no art (one across each orbit lane,
+// one at the left ramp's top and one beside the gate's gap, each reporting a ball once a pass) are sensors that report,
+// and the lock, while it holds a ball, kicks back out any other that reaches it; a saucer holds a slow ball a moment
+// and kicks it out; the tomb's door, in the doorway cut into the pyramid's front corner, is a wall until the game opens
+// it, and then the doorway's mouth catches any ball that touches it, holds it a moment and kicks it out; the diverter's
+// gate, a kinematic body as the flippers are, stands in a gap in the left ramp's rail until the game swings it over,
+// slowly, across the ramp (once no ball is on the ramp or in the dish above it), where it turns balls going up the ramp
+// out through the gap, down into the lock; a ball past the drain is taken off and reported. What the hits are worth,
+// whose balls they are and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish, the flip
+// targets, the saucers and the second spinner were built and proven in the Blender spike,
+// spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
@@ -124,6 +126,19 @@ const BANK_SHOW = 1.0;
 /** An extra spinner's sensor is this tall (half of it each side of its middle), only as tall as a ball: so a ball on a
  * ramp over one doesn't turn it. */
 const SPINNER2_HALF_Y = 0.3;
+/**
+ * A switch's sensor stands this tall up from its floor (half of it each side of its middle), only as tall as a ball,
+ * as the extra spinner's does: so a ball on the right ramp over the right orbit lane's switch passes over it, and one
+ * on the playfield beside the left ramp passes under the gate's. It is this thick (half each side of its line): a ball
+ * at the fastest the table lets one go moves 0.25 a substep, less than a ball, so none passes one unseen.
+ */
+const SWITCH_HALF_Y = 0.3;
+const SWITCH_HALF_DEPTH = 0.05;
+/**
+ * A switch reports a ball once a pass: after it reports one it ignores that ball for this long (s), so a ball that
+ * rattles across it in its lane, or stalls on it and rolls back, is one pass.
+ */
+const SWITCH_IGNORE = 0.5;
 /** A ramp's rails are slick, so a ball glancing along one keeps its speed. */
 const RAIL = { friction: 0, restitution: 0.2 };
 /** How much a nudge shoves each ball: up the table, and a random bit sideways (units/s). */
@@ -139,7 +154,8 @@ const NEAR = { reach: 0.3, deg: 15 };
 const GATE_RESTITUTION = 0.2;
 
 export interface Hit {
-  kind: 'bumper' | 'sling' | 'target' | 'rollover' | 'spinner' | 'lock' | 'drain' | 'kickback' | 'saucer' | 'bank' | 'tomb';
+  /** What the ball touched. A `switch` is touched by a ball passing it either way: its velocity says which way. */
+  kind: 'bumper' | 'sling' | 'target' | 'rollover' | 'spinner' | 'lock' | 'drain' | 'kickback' | 'saucer' | 'bank' | 'tomb' | 'switch';
   id: string;
   ball: number;
 }
@@ -165,7 +181,8 @@ type Part =
   | { kind: 'spinner2'; index: number }
   | { kind: 'kickback' }
   | { kind: 'gate' }
-  | { kind: 'tomb' };
+  | { kind: 'tomb' }
+  | { kind: 'switch'; id: string };
 
 interface FlipperState {
   f: Flipper;
@@ -198,6 +215,19 @@ export class PinballSim {
   private readonly bankResets = new Map<string, number>();
   private readonly lastKick = new Map<string, number>();
   private readonly lockIgnoreUntil = new Map<number, number>();
+  /**
+   * The switches (table.switches): each a box centred `y` up, `half` its width either way along (ux, uz), the way it
+   * runs. They are sensors looked at by hand each substep (passSwitches), not Rapier's: with four more colliders in
+   * Rapier's world, the same shots came out differently once balls had been taken off and put on (one world used for
+   * shot after shot, as the tests and the game use it: of 300 random shots, the 28th first differed at its 22nd step,
+   * nowhere near a switch), so every measured rate of the table would have moved with no part of it moved. By hand,
+   * the physics is the same, step for step, with them or without.
+   */
+  private readonly switchBoxes: { id: string; x: number; y: number; z: number; ux: number; uz: number; half: number }[] = [];
+  /** The balls in each switch's box as the last substep ended (keyed `switch:ball`): a ball touches one coming in. */
+  private readonly inSwitch = new Set<string>();
+  /** Until when each switch ignores each ball it has just reported (keyed `switch:ball`): one pass, one hit. */
+  private readonly switchIgnoreUntil = new Map<string, number>();
   /** The lock's sensor, which the full lock asks which balls are in it (kickFromFullLock). */
   private lockSensor!: RAPIER.Collider;
   /** Every ball held still: the lock's, the saucers' (those also in saucerHold) and the tomb's (tombHold's). */
@@ -438,6 +468,13 @@ export class PinballSim {
       );
       this.flippers.push({ f, body, angle: f.restDeg, up: false });
     }
+
+    // The switches with no art: each a thin box across its lane at its angle, from the floor it stands on (the
+    // playfield, or a ramp's) up as tall as a ball (passSwitches).
+    for (const s of t.switches) {
+      const a = rad(s.angle ?? 0);
+      this.switchBoxes.push({ id: s.id, x: s.x, y: (s.y ?? 0) + SWITCH_HALF_Y, z: s.z, ux: Math.cos(a), uz: Math.sin(a), half: s.width / 2 });
+    }
   }
 
   /**
@@ -580,6 +617,8 @@ export class PinballSim {
     if (this.tombHold?.id === id) this.tombHold = null;
     this.tombIgnore.delete(id);
     for (const key of this.lastKick.keys()) if (key.endsWith(`:${id}`)) this.lastKick.delete(key);
+    for (const key of this.switchIgnoreUntil.keys()) if (key.endsWith(`:${id}`)) this.switchIgnoreUntil.delete(key);
+    for (const key of this.inSwitch) if (key.endsWith(`:${id}`)) this.inSwitch.delete(key);
   }
 
   /** Takes every ball off, returning their ids. */
@@ -923,6 +962,7 @@ export class PinballSim {
       if (!ball || !part || !this.items.has(ball.id)) return;
       this.touch(ball, part, now, toDrop);
     });
+    this.passSwitches(now);
     for (const [id, at] of [...this.bankResets]) {
       if (now < at) continue;
       this.bankResets.delete(id);
@@ -1048,6 +1088,30 @@ export class PinballSim {
     }
   }
 
+  /**
+   * The switches' sensors, by hand (switchBoxes): a ball touches a switch when its sphere comes to overlap the
+   * switch's box, having been clear of it as the last substep ended, as a Rapier sensor's touch starts. A ball held
+   * still touches none, since it passes nothing.
+   */
+  private passSwitches(now: number): void {
+    const R = TABLE.ballRadius;
+    for (const s of this.switchBoxes) {
+      for (const ball of this.items.values()) {
+        const key = `${s.id}:${ball.id}`;
+        const p = ball.body.translation();
+        const dx = p.x - s.x, dz = p.z - s.z;
+        // How far the ball's centre is past each of the box's faces: along it, across it, and up.
+        const along = Math.abs(dx * s.ux + dz * s.uz) - s.half, across = Math.abs(dz * s.ux - dx * s.uz) - SWITCH_HALF_DEPTH, up = Math.abs(p.y - s.y) - SWITCH_HALF_Y;
+        const inside = !this.held.has(ball.id) && Math.hypot(Math.max(0, along), Math.max(0, across), Math.max(0, up)) < R;
+        if (!inside) this.inSwitch.delete(key);
+        else if (!this.inSwitch.has(key)) {
+          this.inSwitch.add(key);
+          this.touch(ball, { kind: 'switch', id: s.id }, now, []);
+        }
+      }
+    }
+  }
+
   /** A ball has just touched a part of the table. */
   private touch(ball: Ball, part: Part, now: number, toDrop: number[]): void {
     switch (part.kind) {
@@ -1144,6 +1208,15 @@ export class PinballSim {
       case 'kickback':
         this.report({ kind: 'kickback', id: 'kickback', ball: ball.id });
         return;
+      case 'switch': {
+        // Once a pass: the same ball touching it again within SWITCH_IGNORE (rattling across it, or rolling back over
+        // it) is that pass still.
+        const key = `${part.id}:${ball.id}`;
+        if (now < (this.switchIgnoreUntil.get(key) ?? -Infinity)) return;
+        this.switchIgnoreUntil.set(key, now + SWITCH_IGNORE);
+        this.report({ kind: 'switch', id: part.id, ball: ball.id });
+        return;
+      }
       case 'gate':
         return;
       case 'tomb':
