@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { Quest, type QuestCue, type QuestEvent, type QuestOut, type QuestView } from '../src/server/quest';
 // Only the type: the game loads the physics, which the quest has no use for.
 import type { Toy } from '../src/server/game';
-import { GODS, GOD_COLOR, MODE_NAME, QUEST, tombPrize, type God } from '../src/shared/pinball';
+import { GODS, GOD_COLOR, isGod, MODE_NAME, QUEST, tombPrize, type God } from '../src/shared/pinball';
 import { TABLE_IN_USE } from '../src/shared/table';
 
 const tests: [string, () => void][] = [];
@@ -122,10 +122,15 @@ function watch(q: Quest) {
   };
 }
 
-test('the gods are Ra, Horus, Ankh and the Eye in that order, each with a colour and a mode name', () => {
+test('the gods are Ra, Horus, Ankh and the Eye in that order, each with a colour and a mode name, and isGod knows them', () => {
   assert.deepEqual([...GODS], ['ra', 'horus', 'ankh', 'eye']);
   assert.deepEqual(Object.keys(GOD_COLOR).sort(), [...GODS].sort());
   assert.deepEqual(MODE_NAME, { ra: 'SUN CHASE', horus: 'FALCON STRIKE', ankh: 'THE MUMMY WAKES', eye: 'TOMB RAID' });
+  // isGod is for what comes in from outside (a save file, the dev host's action): a god by value, and nothing else.
+  for (const god of GODS) assert.equal(isGod(god), true, god);
+  for (const x of ['zeus', '', 'RA', ' ra', 'constructor', 'toString', ['ra'], null, undefined, 0, 1, {}]) {
+    assert.equal(isGod(x), false, `${JSON.stringify(x) ?? 'undefined'} is no god`);
+  }
 });
 
 test("the quest's numbers fit the rules and the table: whole goals, Horus's no more than the pop-ups there are, the mummy one part", () => {
@@ -417,11 +422,16 @@ test("the finale's jackpots climb by QUEST.jackpot.step; a pop-up or the mummy c
   assert.deepEqual(said(q.event({ kind: 'popupDown', part: a })), exp({ points: [QUEST.goalPoints] }));
   assert.deepEqual(said(q.tick(QUEST.finaleRaise, true)), exp({ raise: [a] }), 'and comes back again');
 
-  // The mummy: only the hit that puts it down is goal points; it comes back as a pop-up does, by its part.
-  assert.deepEqual(q.event({ kind: 'mummyHit', down: false }), [], 'a hit that leaves it up');
+  // The mummy: every hit is goal points, as in The Mummy Wakes, the ones that leave it up too. The hit that puts it
+  // down also sets its return, by its part, as a pop-up's knock-down does.
+  for (const hit of [1, 2]) {
+    assert.deepEqual(said(q.event({ kind: 'mummyHit', down: false })), exp({ points: [QUEST.goalPoints] }), `hit ${hit}, which leaves it up`);
+  }
+  assert.deepEqual(q.tick(QUEST.finaleRaise * 10, true), [], 'a hit that leaves it up sets no return');
+  assert.deepEqual(said(q.event({ kind: 'mummyHit', down: true })), exp({ points: [QUEST.goalPoints] }), 'the hit that puts it down');
+  assert.deepEqual(q.tick(half, true), [], 'half its time');
+  // A second report of its going down is a hit like the others, and doesn't start its wait again.
   assert.deepEqual(said(q.event({ kind: 'mummyHit', down: true })), exp({ points: [QUEST.goalPoints] }));
-  assert.deepEqual(q.event({ kind: 'mummyHit', down: true }), [], 'a second report of its going down counts nothing');
-  assert.deepEqual(q.tick(half, true), []);
   assert.deepEqual(said(q.tick(half, true)), exp({ raise: MUMMY_IDS }), "the mummy comes back: the table's mummy part");
   // A pop-up and the mummy down together come back each at its own time, in the order they went down.
   q.event({ kind: 'mummyHit', down: true });
@@ -446,8 +456,8 @@ test('multiball ending ends the finale: every toy down, no god done, a finaleEnd
   assert.deepEqual(said(q.event({ kind: 'bank', god: 'ra' })).cues, [{ cue: 'modeStart', god: 'ra' }]);
   const again = crossed(...GODS);
   assert.deepEqual(again.view().finale, { jackpot: QUEST.jackpot.first });
-  // Multiball already on when the finale begins (the lock's, say, during the last mode). The quest can't know, so it asks
-  // for multiball as ever and the game starts no more balls; the finale then runs until that multiball ends. A
+  // Multiball already on when the finale begins (the lock's, say, during the last mode). The quest can't know, so it
+  // asks for multiball as ever and the game starts no more balls; the finale then runs until that multiball ends. A
   // multiball that ended before the finale began (an earlier one) neither ended the mode nor began anything.
   const mode = crossed(...GODS.slice(0, -1));
   mode.event({ kind: 'bank', god: 'eye' });
@@ -620,6 +630,13 @@ test("the dev switch starts a god's mode or the finale now, whatever ran ending 
   // From nothing, as a match of its bank would start it.
   assert.deepEqual(said(go(q.begin('horus'), 'begin')), exp({ toys: ['popups up'], cues: [{ cue: 'modeStart', god: 'horus' }] }));
   q.tick(1, true);
+  // Anything that isn't a god (the dev host's action takes what a client sends) starts nothing, and what runs runs on.
+  const running = { view: q.view(), save: q.save() };
+  for (const junk of ['zeus', '', 'constructor', undefined, null, 1, {}]) {
+    assert.deepEqual(go(q.begin(junk as God), 'begin junk'), [], `begin(${String(junk)}) gives nothing`);
+  }
+  assert.deepEqual({ view: q.view(), save: q.save() }, running, 'the mode runs on as it was');
+  assert.deepEqual(new Quest().begin('zeus' as God), [], 'and with nothing running');
   // Another god's mode while one runs: the first ends quietly (no modeLost, nothing paid) and the second starts afresh.
   const swapped = said(go(q.begin('ankh'), 'swap'));
   assert.deepEqual(swapped, exp({ toys: ['mummy up', 'popups down'], cues: [{ cue: 'modeStart', god: 'ankh' }] }));

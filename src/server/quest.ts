@@ -10,7 +10,7 @@
 // the stages. The game says a step's events before it ticks, so a goal hit in the step the time runs out still wins,
 // and once a mode is over nothing pays. Nothing here knows the table or the physics, so the rules are tested on their
 // own (npm run quest-test).
-import { GODS, QUEST, tombPrize, type God } from '../shared/pinball';
+import { GODS, isGod, QUEST, tombPrize, type God } from '../shared/pinball';
 // Only the type: game.ts imports this file, and a value import back would make a cycle.
 import type { Toy } from './game';
 
@@ -103,8 +103,6 @@ interface Finale {
   raises: Map<string, number>;
 }
 
-const isGod = (x: unknown): x is God => GODS.some((god) => god === x);
-
 /**
  * A saved quest as the constructor takes it, or null if it isn't one save() could have written: the shape and the
  * numbers must be right, and the finale is on exactly when every god is crossed off (and then no mode runs). A mode may
@@ -183,9 +181,11 @@ export class Quest {
 
   /**
    * The dev host's switch, and the tests': starts this god's mode now, even if it is done. Whatever ran ends without a
-   * cue or a prize, as it is neither won nor lost, and a finale that ends takes the quest with it.
+   * cue or a prize, as it is neither won nor lost, and a finale that ends takes the quest with it. Anything that isn't
+   * a god (the host passes on what a client sent) starts nothing, and what runs runs on.
    */
   begin(god: God): QuestOut[] {
+    if (!isGod(god)) return [];
     return [...this.abandon(), ...this.start(god)];
   }
 
@@ -307,7 +307,11 @@ export class Quest {
     return [{ kind: 'multiball' }, ...FINALE_TOYS.map((toy) => move(toy, true)), tell({ cue: 'finale' })];
   }
 
-  /** In the finale a ball in the tomb is a jackpot, and a pop-up or the mummy going down is goal points. */
+  /**
+   * In the finale a ball in the tomb is a jackpot, and a pop-up knocked down and every hit on the mummy are goal
+   * points, as in their modes. A pop-up, or the mummy when a hit puts it down, comes back up QUEST.finaleRaise seconds
+   * of play later (raiseDue).
+   */
   private finaleHit(finale: Finale, e: QuestEvent): QuestOut[] {
     switch (e.kind) {
       case 'tomb': {
@@ -316,20 +320,18 @@ export class Quest {
         return [pay(value), tell({ cue: 'jackpot', value })];
       }
       case 'popupDown':
-        return this.knockedDown(finale, e.part);
+        // One already down is waiting to come back, so a second report of it counts nothing, as in a mode.
+        if (finale.raises.has(e.part)) return [];
+        finale.raises.set(e.part, QUEST.finaleRaise);
+        return [pay(QUEST.goalPoints)];
       case 'mummyHit':
-        // Only the hit that puts it down: the others leave it up, and the table scores them as it always has.
-        return e.down ? this.knockedDown(finale, MUMMY_PART) : [];
+        // Every hit pays, as in The Mummy Wakes, but its wait is set once, by the hit that puts it down: a second
+        // report of its going down is a hit like the rest, and doesn't start the wait again.
+        if (e.down && !finale.raises.has(MUMMY_PART)) finale.raises.set(MUMMY_PART, QUEST.finaleRaise);
+        return [pay(QUEST.goalPoints)];
       default:
         return [];
     }
-  }
-
-  /** A part goes down for QUEST.finaleRaise seconds of play. One already down counts nothing, as in a mode. */
-  private knockedDown(finale: Finale, part: string): QuestOut[] {
-    if (finale.raises.has(part)) return [];
-    finale.raises.set(part, QUEST.finaleRaise);
-    return [pay(QUEST.goalPoints)];
   }
 
   /** Each part whose time down is up comes back on its own, and they come in the order they went down. */

@@ -128,6 +128,11 @@ export type God = 'ra' | 'horus' | 'ankh' | 'eye';
 /** The gods in the quest's order: the order they are crossed off in, and the order a match looks for the next god. */
 export const GODS: readonly God[] = ['ra', 'horus', 'ankh', 'eye'];
 
+/** Whether `x` is one of the gods, for what comes in from outside (a save file, the dev host's action): by value. */
+export function isGod(x: unknown): x is God {
+  return GODS.some((god) => god === x);
+}
+
 /**
  * Each god's colour in the quest: its bank's burst and flash when it is matched, and the burst at its toy (Horus's
  * pop-ups, Ankh's mummy, the Eye's tomb), as the lamps at the toys wear it (pinball-parts.ts).
@@ -149,7 +154,10 @@ export const MODE_NAME: Record<God, string> = {
 export const QUEST = {
   /** How long a mode runs, in seconds of play: its clock runs only while a ball is in play. */
   modeSeconds: 30,
-  /** What each goal hit scores, the one that finishes the mode too. */
+  /**
+   * What each goal hit scores, the one that finishes the mode too. In the finale it is what a pop-up knocked down and
+   * each hit on the mummy score, as in their modes.
+   */
   goalPoints: 2500,
   /** What a finished mode pays the ball that finishes it. Tomb Raid pays its countdown instead (tombPrize). */
   prize: 25000,
