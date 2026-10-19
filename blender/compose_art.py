@@ -1,6 +1,6 @@
 """The printed art for the Blender build (from the Blender spike): the playfield, the apron and the cabinet's front
 panel, composited from the generated pieces in the art folder (blender/art, made by gen_art.py) and placed by table
-units. Writes playfield-art13.png, apron-art13.png and front-art13.png, which build_table.py loads from blender/out.
+units. Writes playfield-art15.png, apron-art15.png and front-art15.png, which build_table.py loads from blender/out.
 Usage: python compose_art.py <art dir> <out dir>"""
 import sys
 from pathlib import Path
@@ -100,20 +100,20 @@ P(load('anubis_stand-41.png'), 2.425, 7.34, 0.63, 1.4, crop=(240, 150, 560, 740)
 frieze_ = load('frieze-62.png')
 P(frieze_, -2.55, 0.45, 2.7, 1.15, crop=(0, 250, 330, 470), feather=0.1)                # a reclining Anubis each side of the drain
 P(frieze_, 1.75, 0.45, 2.7, 1.15, crop=(438, 250, 768, 470), feather=0.1)
-save(pf, 'playfield-art13.png')
+save(pf, 'playfield-art15.png')
 
 GOLD_ONLY = False
 frieze = load('frieze-62.png')
 AW, AH = 8.6, 1.25
 apron = mirrored_tile(lapis, int(AW * PPU), int(AH * PPU)) * 0.85
 place(apron, -AW / 2, AH / 2, frieze, 0, 0, AW, AH, crop=(0, 250, 768, 610), feather=0.06)
-save(apron, 'apron-art13.png')
+save(apron, 'apron-art15.png')
 
 front = load('frieze-31.png')
 FW, FH = 11.7, 3.0
 panel = mirrored_tile(lapis, int(FW * PPU), int(FH * PPU)) * 0.85
 place(panel, -FW / 2, FH / 2, front, -3.4, 0, 4.6, 2.6, crop=(0, 180, 400, 640), feather=0.08)
 place(panel, -FW / 2, FH / 2, front, 3.4, 0, 4.6, 2.6, crop=(368, 180, 768, 640), feather=0.08)
-save(panel, 'front-art13.png')
+save(panel, 'front-art15.png')
 print('ok', W, H)
 

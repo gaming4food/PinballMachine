@@ -63,7 +63,7 @@ const scene = exportScene();
 writeFileSync(new URL(`../${SCENE}`, import.meta.url), JSON.stringify(scene, null, 1));
 console.log(`wrote ${SCENE}`);
 
-if (!['playfield-art13.png', 'front-art13.png'].every((f) => existsSync(new URL(`../${OUT}/${f}`, import.meta.url)))) {
+if (!['playfield-art15.png', 'front-art15.png'].every((f) => existsSync(new URL(`../${OUT}/${f}`, import.meta.url)))) {
   await run('python', ['-I', 'blender/compose_art.py', 'blender/art', OUT]);
 }
 

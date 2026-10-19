@@ -17,8 +17,8 @@ This runs, from the repo:
 
 1. `tools/export-scene.ts`: writes `blender/scene.json` (the table, the table's place in the world, the stage's camera
    and a few probe points' pixels on the stage's frame).
-2. `python -I blender/compose_art.py blender/art blender/out`, only if the composed art (`playfield-art13.png`,
-   `front-art13.png`) isn't in `blender/out` yet.
+2. `python -I blender/compose_art.py blender/art blender/out`, only if the composed art (`playfield-art15.png`,
+   `front-art15.png`) isn't in `blender/out` yet.
 3. Blender headless, as `tools/picture.ts` runs it (`--python-exit-code 1` makes a failing script a failing run):
 
        blender -b --factory-startup --python-exit-code 1 --python blender/build_table.py -- blender/scene.json blender/out 256 stage

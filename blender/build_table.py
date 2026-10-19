@@ -179,7 +179,7 @@ EYE_CAP = printed_material('eye of Horus cap', os.path.join(os.path.dirname(SCEN
 FALCON = printed_material('falcon plate', os.path.join(os.path.dirname(SCENE_JSON), 'art', 'falcon-11.png'), glow=2.4)
 
 def playfield_material(mask_img):
-    m_ = printed_material('lapis playfield', os.path.join(ART_DIR, 'playfield-art13.png'), mask_img)
+    m_ = printed_material('lapis playfield', os.path.join(ART_DIR, 'playfield-art15.png'), mask_img)
     p_ = m_.node_tree.nodes['Principled BSDF']
     src_ = p_.inputs['Base Color'].links[0].from_socket
     bc_ = m_.node_tree.nodes.new('ShaderNodeBrightContrast')
@@ -398,7 +398,7 @@ prism('front rail', [(FX0 - 0.05, FY0 - 0.45), (FX1 + 0.05, FY0 - 0.45), (FX1 + 
 # The front panel's printed art (an Anubis each side, winged suns), the coin door in the middle, and brass trim.
 fy = FY0 - 0.452
 facing_quad('front art', [(FX0 + 0.05, fy, CAB_BOTTOM + 0.15), (FX1 - 0.05, fy, CAB_BOTTOM + 0.15), (FX1 - 0.05, fy, 0.45), (FX0 + 0.05, fy, 0.45)],
-            [(0, 0), (1, 0), (1, 1), (0, 1)], printed_material('front art', os.path.join(ART_DIR, 'front-art13.png'), glow=0.15))
+            [(0, 0), (1, 0), (1, 1), (0, 1)], printed_material('front art', os.path.join(ART_DIR, 'front-art15.png'), glow=0.15))
 for z0_, z1_ in ((CAB_BOTTOM, CAB_BOTTOM + 0.12), (0.86, 1.0)):
     prism('front trim', [(FX0 - 0.06, FY0 - 0.5), (FX1 + 0.06, FY0 - 0.5), (FX1 + 0.06, FY0 - 0.44), (FX0 - 0.06, FY0 - 0.44)], z0_, z1_, BRASS, 0.01)
 door_y = FY0 - 0.5
