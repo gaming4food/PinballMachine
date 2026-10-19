@@ -1,6 +1,6 @@
-// What the pinball's server, stage and panel all read: the state the server sends, its hype moments and the toys' hit
-// cues, the rules of play (RULES), the quest's gods and numbers (QUEST), chat's words, and the snapshot's layout. The
-// table itself is table.ts.
+// What the pinball's server, stage and panel all read: the state the server sends (the quest's in it), its hype
+// moments and its cues (the toys' hits and the quest's moments), the rules of play (RULES), the quest's gods and
+// numbers (QUEST), chat's words, and the snapshot's layout. The table itself is table.ts.
 
 /** The pinball's state as its server sends it, in hello's `machine` and each 'machine' message. */
 export interface PinballState {
@@ -18,6 +18,18 @@ export interface PinballState {
   lastResult: { name: string; points: number; coins: number } | null;
   /** The ids of the hype buttons whose effect waits (the panel marks them Ready). Empty when none wait. */
   waiting: string[];
+  /**
+   * The Pharaoh's quest (server/quest.ts): the gods crossed off, in the quest's order; the god's mode that runs, if one
+   * does, with its seconds of play `left` at the table's time `at`, whether its clock is `running` (while a ball is in
+   * play: a stage counts `left` down from `at` while it is, and holds it while not), and `progress` of its `goal` hits;
+   * and the finale, while it runs, with what its next jackpot pays. A finale a restart saved is null until a ball is in
+   * play and it begins again.
+   */
+  quest: {
+    done: God[];
+    mode: { god: God; left: number; at: number; running: boolean; progress: number; goal: number } | null;
+    finale: { jackpot: number } | null;
+  };
 }
 
 /** The pinball's own message to the panel and the stage. */
@@ -58,35 +70,74 @@ export function pinballHypeOf(msg: unknown): PinballHypeMsg | null {
 }
 
 /**
- * A toy hit: the pinball's third message to its stages (never in hello). Stage 3's quest cues join `cue`. A fast ball
- * can touch a toy and be away again between two snapshots, so the server says each hit instead of leaving the stage to
- * guess it from where it draws the balls.
+ * A moment on the table: the pinball's third message to its stages, sent as it happens (never in hello), at `at` on the
+ * table's clock. Its `cue` says which, each kind with what it needs:
+ * - `toyHit`: a toy hit. A fast ball can touch a toy and be away again between two snapshots, so the server says each
+ *   hit instead of leaving the stage to guess it from where it draws the balls.
+ * - The quest's moments (server/quest.ts): a god's mode started (`modeStart`), each goal hit of it (`goal`), the mode
+ *   won with the `prize` it paid (`modeWon`) or lost (`modeLost`); a jackpot with the `value` it paid (`jackpot`); and
+ *   the finale begun (`finale`) and over (`finaleEnd`). A goal and a jackpot are at the ball's place, as a toy hit is.
  */
-export interface PinballCueMsg {
+export type PinballCueMsg = {
   kind: 'pinballCue';
-  cue: 'toyHit';
-  /** The id of the rising target hit (a pop-up or the mummy), or of the tomb. */
-  part: string;
-  /**
-   * Whether the hit put the part down: true for a pop-up's hit and for the mummy's third hit since it rose (the game's
-   * MUMMY_HITS). False for the mummy's other hits, including one after the third in the same step, and for the tomb's.
-   */
-  down: boolean;
-  /** Where the ball was at the hit, in the table's x and z (for the tomb's, where the tomb holds it). */
-  x: number;
-  z: number;
   /** When it happened, on the table's clock. */
   at: number;
-}
+} & (
+  | {
+      cue: 'toyHit';
+      /** The id of the rising target hit (a pop-up or the mummy), or of the tomb. */
+      part: string;
+      /**
+       * Whether the hit put the part down: true for a pop-up's hit and for the mummy's third hit since it rose (the
+       * game's MUMMY_HITS). False for the mummy's other hits, including one after the third in the same step, and for
+       * the tomb's.
+       */
+      down: boolean;
+      /** Where the ball was at the hit, in the table's x and z (for the tomb's, where the tomb holds it). */
+      x: number;
+      z: number;
+    }
+  | { cue: 'modeStart'; god: God }
+  | { cue: 'goal'; god: God; x: number; z: number }
+  | { cue: 'modeWon'; god: God; prize: number }
+  | { cue: 'modeLost'; god: God }
+  | { cue: 'jackpot'; value: number; x: number; z: number }
+  | { cue: 'finale' }
+  | { cue: 'finaleEnd' }
+);
+
+/** A toy hit's cue: what the stage's sounds and its toys' shows play. */
+export type PinballToyHit = Extract<PinballCueMsg, { cue: 'toyHit' }>;
+
+/** Whether each of these fields of `m` is a finite number. */
+const finite = (m: Record<string, unknown>, ...keys: string[]) => keys.every((key) => Number.isFinite(m[key]));
+/**
+ * What each kind of cue must have besides its kind and time (pinballCueOf). Keyed by every kind, so a kind the cue
+ * gains is a type error here until it is checked.
+ */
+const CUE_FIELDS: Record<PinballCueMsg['cue'], (m: Record<string, unknown>) => boolean> = {
+  toyHit: (m) => typeof m.part === 'string' && typeof m.down === 'boolean' && finite(m, 'x', 'z'),
+  modeStart: (m) => isGod(m.god),
+  goal: (m) => isGod(m.god) && finite(m, 'x', 'z'),
+  modeWon: (m) => isGod(m.god) && finite(m, 'prize'),
+  modeLost: (m) => isGod(m.god),
+  jackpot: (m) => finite(m, 'value', 'x', 'z'),
+  finale: () => true,
+  finaleEnd: () => true,
+};
 
 /**
- * A toy-hit cue from a machine's message, or null when it's anything else, a cue that is malformed, or one of a kind it
- * doesn't know (a page older than its server ignores it).
+ * A cue from a machine's message, or null when it's anything else, a cue of a kind this page doesn't know (a page older
+ * than its server ignores it), or one without its kind's own fields: a god that is one of GODS, numbers that are
+ * finite, a part that is a string and `down` a yes or a no.
  */
 export function pinballCueOf(msg: unknown): PinballCueMsg | null {
-  const m = msg as Partial<PinballCueMsg> | null;
-  if (m?.kind !== 'pinballCue' || m.cue !== 'toyHit' || typeof m.part !== 'string' || typeof m.down !== 'boolean') return null;
-  return Number.isFinite(m.x) && Number.isFinite(m.z) && Number.isFinite(m.at) ? (m as PinballCueMsg) : null;
+  if (typeof msg !== 'object' || msg === null) return null;
+  const m = msg as Record<string, unknown>;
+  if (m.kind !== 'pinballCue' || !Number.isFinite(m.at) || typeof m.cue !== 'string') return null;
+  // Its own properties only: a cue named like one of Object's (toString) is no kind of cue.
+  if (!Object.hasOwn(CUE_FIELDS, m.cue)) return null;
+  return CUE_FIELDS[m.cue as PinballCueMsg['cue']](m) ? (m as unknown as PinballCueMsg) : null;
 }
 
 /** The rules of play. Times are in seconds. */

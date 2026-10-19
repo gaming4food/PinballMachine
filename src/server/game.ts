@@ -7,18 +7,22 @@
 // coins, 70% to its owner and the rest shared by everyone who flipped it (the owner too, if they flipped). The quest's
 // toys (the pop-ups, the mummy, the tomb and the diverter's gate) are raised, opened and swung as the game is asked to
 // (setToy), each only when no ball is in its way; the mummy goes down on its third hit, and a ball in the tomb scores.
-// Each hit on a toy also goes to the stages, as a cue (cue).
+// Each hit on a toy also goes to the stages, as a cue (cue). The Pharaoh's quest (quest.ts has its rules) hears what
+// happens on the table and its clock, and the game does what it says (The quest, below): its modes and their toys,
+// their goals and prizes, the finale and its multiball, and its moments to the stages. It is saved with the high
+// scores.
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
-// its saver and the auto-save all wait with it. The one wall-clock check is whether the table is running at all, for
-// chat's flip words (chatFlip).
+// its saver, the auto-save and the quest all wait with it. The one wall-clock check is whether the table is running at
+// all, for chat's flip words (chatFlip).
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
 import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
-import { type HypeBuyer, LIT, parsePinballCommands, type PinballCueMsg, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
+import { type HypeBuyer, isGod, LIT, parsePinballCommands, type PinballCueMsg, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget, type Table } from '../shared/table';
-import { PinballSim, type Hit } from './sim';
+import { Quest, type QuestCue, type QuestEvent, type QuestOut, type QuestSave } from './quest';
+import { DT, PinballSim, type Hit } from './sim';
 
 /** How many high scores are kept. */
 const HIGH_SCORES = 10;
@@ -51,8 +55,27 @@ const TOYS = ['popups', 'mummy', 'tomb', 'diverter'] as const;
 export type Toy = (typeof TOYS)[number];
 const isToy = (x: unknown): x is Toy => TOYS.some((toy) => toy === x);
 const RISERS = { popups: 'drop', mummy: 'hold' } as const;
-/** The mummy goes down on this many hits since it rose. */
-const MUMMY_HITS = 3;
+const RISING_TOYS = Object.keys(RISERS) as (keyof typeof RISERS)[];
+/**
+ * The mummy goes down on this many hits since it rose. The Mummy Wakes can ask no more hits than this
+ * (QUEST.goals.ankh, which pinball-test holds to it): down, the mummy takes none until it is asked up again.
+ */
+export const MUMMY_HITS = 3;
+/** The switch across each orbit lane (pyramid.ts), by which Sun Chase counts a shot round the orbit (ORBIT_ROUND). */
+const ORBIT_SWITCHES = ['orbit-left', 'orbit-right'] as const;
+/** The left ramp's switch at its top, into the dish: every ball that gets in comes back down the ramp past it. */
+const DISH_SWITCH = 'ramp-dish';
+/** The left ramp's switch beside the gate's gap, into the lock: no ball comes back in through the gap. */
+const GATE_SWITCH = 'ramp-gate';
+/**
+ * An orbit shot goes round the orbit, up one lane and over the top, so it counts when a ball that passed one orbit
+ * switch going up the table comes down past the other lane's within this long (s). A pass up alone is no shot: of the
+ * real flips that pass the right lane's switch going up, only 46 of 69 go round (pyramid.ts), and the rest fall back.
+ * Round the orbit took 0.75 to 3.47 s from the pass up to the other lane's switch (1.23 s the median, in 302 balls that
+ * went round), so 4 s takes in every one. The other lane's switch is met going down: a ball that falls back from one
+ * lane and is flipped up the other meets that one going up, which is a pass up of its own and takes the first's place.
+ */
+export const ORBIT_ROUND = 4;
 /**
  * A flip word counts only within this long (wall-clock ms) of the table's last step. Every machine the city has made
  * hears every chat line, and the claw's and the Speedway's players say left and right too: while the pinball is
@@ -129,9 +152,16 @@ interface BallPlay {
   x: number;
 }
 
-/** What save() writes. */
+/** What save() writes: the high scores, and the quest as it is (Quest.save), which a restart takes up where it was. */
 interface SavedPinball {
   highScores: { name: string; points: number }[];
+  quest: QuestSave;
+}
+
+/** Whether a saved quest has nothing in it (no god done, no mode, no finale): what a quest just begun saves. */
+function emptyQuest(saved: unknown): boolean {
+  const s = saved as Partial<QuestSave> | null | undefined;
+  return Array.isArray(s?.done) && s.done.length === 0 && s.mode === null && s.finale === false;
 }
 
 export class PinballGame implements Machine {
@@ -172,6 +202,14 @@ export class PinballGame implements Machine {
   private readonly toyWaits = new Map<string, Toy>();
   /** The hits the mummy has taken since it last rose: its MUMMY_HITS-th puts it down. */
   private mummyHits = 0;
+  /** The Pharaoh's quest: its rules (quest.ts), which the game feeds and does as they say (The quest, below). */
+  private quest = new Quest();
+  /**
+   * Each ball's last pass up an orbit lane, by its switch, and when on the table's clock: the ball coming down past the
+   * other lane's switch within ORBIT_ROUND is an orbit shot (switchPassed). A later pass up takes its place, and a ball
+   * that leaves the table takes its own with it.
+   */
+  private readonly orbitUp = new Map<number, { id: string; at: number }>();
   /** Double score and the bought ball saver run until these, on the table's clock (-Infinity: off). */
   private doubleUntil = -Infinity;
   private saverUntil = -Infinity;
@@ -240,6 +278,16 @@ export class PinballGame implements Machine {
         .sort((a, b) => b.points - a.points)
         .slice(0, HIGH_SCORES);
       log.info(`pinball: ${this.scores.length} high scores from the last session`);
+      // The quest as it was: a mode with its time left and its progress, or a finale that begins again with the next
+      // ball in play (quest.ts). One the quest can't take starts afresh, which is said here as unread scores are: a
+      // file whose quest had something in it, and a quest from it with nothing.
+      this.quest = new Quest(saved.quest);
+      if (saved.quest !== undefined && !emptyQuest(saved.quest) && emptyQuest(this.quest.save())) {
+        log.warn('pinball: could not read the saved quest; starting it afresh');
+      }
+      // Its toys, asked for again: they come up from the first step, as the game asked for them before the restart.
+      const wanted = this.quest.toysWanted();
+      for (const toy of TOYS) if (wanted[toy]) this.setToy(toy, true);
     } catch (err) {
       log.warn('pinball: could not read the saved high scores; starting with none', err);
     }
@@ -247,7 +295,7 @@ export class PinballGame implements Machine {
 
   save(): void {
     const tmp = `${this.saveFile}.tmp`;
-    const saved: SavedPinball = { highScores: this.scores };
+    const saved: SavedPinball = { highScores: this.scores, quest: this.quest.save() };
     writeFileSync(tmp, JSON.stringify(saved));
     renameSync(tmp, this.saveFile);
   }
@@ -291,6 +339,7 @@ export class PinballGame implements Machine {
       lockLit: this.lockLit,
       lastResult: this.lastResult,
       waiting: this.saverWaiting ? ['saver'] : [],
+      quest: this.questState(),
     };
   }
 
@@ -385,10 +434,11 @@ export class PinballGame implements Machine {
   /**
    * From the control panel (a 'machine.action'). `{ kind: 'remove', userId }` takes that viewer's ball out of the line
    * (not off the table); a hype button (hypeId; the buttons are listed in entry.ts) is pressed for free, as often as
-   * the streamer likes (press); `{ kind: 'toy', toy, up }` raises or puts away a toy (setToy), but only where
-   * PINBALL_TOYS is '1', which `npm run dev:toys` sets for the dev host: the city never does, and shows no button for
-   * it. Anything can arrive, so anything else, a hype button this table hasn't got among it, a toy that isn't one, is
-   * ignored.
+   * the streamer likes (press). Two more are the dev host's, taken only where PINBALL_TOYS is '1', which
+   * `npm run dev:toys` sets: the city never does, and shows no button for them. `{ kind: 'toy', toy, up }` raises or
+   * puts away a toy (setToy), and `{ kind: 'quest', start }` starts a god's mode, or with 'finale' the finale, now
+   * (Quest.begin and beginFinale: whatever ran ends with no moment and no prize). Anything can arrive, so anything
+   * else, a hype button this table hasn't got among it, a toy that isn't one, a god that isn't one, is ignored.
    */
   action(action: unknown): void {
     const hype = hypeId(action);
@@ -396,9 +446,15 @@ export class PinballGame implements Machine {
       this.press(hype);
       return;
     }
-    const a = action as { kind?: unknown; userId?: unknown; toy?: unknown; up?: unknown } | null;
+    const a = action as { kind?: unknown; userId?: unknown; toy?: unknown; up?: unknown; start?: unknown } | null;
     if (a?.kind === 'toy') {
       if (process.env.PINBALL_TOYS === '1' && isToy(a.toy) && typeof a.up === 'boolean') this.setToy(a.toy, a.up);
+      return;
+    }
+    if (a?.kind === 'quest') {
+      if (process.env.PINBALL_TOYS !== '1') return;
+      if (a.start === 'finale') this.followQuest(this.quest.beginFinale(), null);
+      else if (isGod(a.start)) this.followQuest(this.quest.begin(a.start), null);
       return;
     }
     if (a?.kind !== 'remove' || typeof a.userId !== 'number') return;
@@ -425,10 +481,13 @@ export class PinballGame implements Machine {
     this.dropsUpAt = Infinity;
     this.rolloversLit.clear();
     this.centreLit.clear();
+    this.orbitUp.clear();
     this.sim.resetTargets();
-    // Every toy put away through the game: the pop-ups and the mummy down, the tomb shut, the gate at rest. The table
-    // is clear (a ball the tomb held went with the rest), so no ball is in the way and none has to wait. The sim's
-    // clear() leaves the gate where it was, so this is what sets it back.
+    // The quest cleared, with nothing paid and no moment (Quest.reset), and every toy put away through the game, the
+    // quest's and any the dev host's switch raised: the pop-ups and the mummy down, the tomb shut, the gate at rest.
+    // The table is clear (a ball the tomb held went with the rest), so no ball is in the way and none has to wait. The
+    // sim's clear() leaves the gate where it was, so this is what sets it back.
+    this.followQuest(this.quest.reset(), null);
     for (const toy of TOYS) this.setToy(toy, false);
     this.moveToys();
     // Bought hype must not outlive the reset: the saver and double score, and a saver still waiting, whose buyer gets
@@ -614,9 +673,26 @@ export class PinballGame implements Machine {
    * afresh has taken no hits; asked up again while up, it keeps its count.
    */
   setToy(toy: Toy, up: boolean): void {
+    this.ask(toy, up, this.partsOf(toy));
+  }
+
+  /**
+   * Asks for one rising target back up, by its id: a pop-up, or the mummy (the finale raises each again after it goes
+   * down, the mummy by the game's own three-hit rule). It waits for a ball in its way as a toy's parts do (moveToys),
+   * its toy is wanted up, and the mummy asked up afresh has taken no hits, as setToy has it. An id that is no rising
+   * target's does nothing.
+   */
+  raisePart(part: string): void {
+    const rise = this.table.targets.find((t) => t.id === part)?.rise;
+    const toy = RISING_TOYS.find((t) => RISERS[t] === rise);
+    if (toy) this.ask(toy, true, [part]);
+  }
+
+  /** What setToy and raisePart ask for: the toy wanted up (or down), and these of its parts moved to it (moveToys). */
+  private ask(toy: Toy, up: boolean, parts: string[]): void {
     if (toy === 'mummy' && up && !this.toyUp.mummy) this.mummyHits = 0;
     this.toyUp[toy] = up;
-    for (const part of this.partsOf(toy)) this.toyWaits.set(part, toy);
+    for (const part of parts) this.toyWaits.set(part, toy);
   }
 
   /** Whether the toy was last asked up (setToy): the mummy's third hit asks it down, and so does a reset. */
@@ -666,6 +742,7 @@ export class PinballGame implements Machine {
     this.autoSave();
     this.setFlippers();
     this.sim.step();
+    this.questClock();
     this.raiseDrops();
     this.moveToys();
     this.watchStuck();
@@ -796,6 +873,7 @@ export class PinballGame implements Machine {
     const b = this.balls.get(id)!;
     this.sim.remove(id);
     this.balls.delete(id);
+    this.orbitUp.delete(id);
     this.out.send({ t: 'despawn', at: this.sim.time, id, reason: 'cleared' });
     this.launch(b.owner, b);
     this.feed(`${b.owner ? `${b.owner.name}'s ball` : 'The house ball'} is stuck: back to the plunger.`, 'info', b.owner ?? undefined);
@@ -828,6 +906,8 @@ export class PinballGame implements Machine {
             if (this.mummyHits >= MUMMY_HITS) this.setToy('mummy', false);
           }
           this.cue(hit.id, down, hit.ball);
+          // And the quest hears of it: a pop-up knocked down, or a hit on the mummy, saying whether it put it down.
+          this.questEvent(rise === 'hold' ? { kind: 'mummyHit', down } : { kind: 'popupDown', part: hit.id }, hit.ball);
           break;
         }
         // Only the lock's two drop targets (the scarab and the eye) count toward it: the flip plaques have their banks.
@@ -847,7 +927,7 @@ export class PinballGame implements Machine {
         break;
       }
       case 'bank':
-        this.bankMatched(b, hit.id, points);
+        this.bankMatched(b, hit.id, points, hit.ball);
         break;
       case 'rollover':
         if (CENTRE_LAMPS.some((id) => id === hit.id)) {
@@ -879,9 +959,15 @@ export class PinballGame implements Machine {
         }
         break;
       case 'tomb':
-        // The ball the tomb caught scored above; the stages are told of the catch.
+        // The ball the tomb caught scored above; the stages are told of the catch, and so is the quest.
         this.cue(hit.id, false, hit.ball);
+        this.questEvent({ kind: 'tomb' }, hit.ball);
         break;
+      case 'switch':
+        // A switch scores nothing, and a shot it counts sends the state itself (followQuest). Most passes count nothing
+        // and change nothing, so they send no state to every stage.
+        this.switchPassed(hit.id, hit.ball);
+        return;
     }
     this.stateDirty = true;
   }
@@ -897,12 +983,17 @@ export class PinballGame implements Machine {
     this.out.send({ t: 'machine', msg });
   }
 
-  /** A bank's plaques all show their backs: its title to the stages, and a line in the feed with the bonus scored. */
-  private bankMatched(b: BallPlay, id: string, paid: number): void {
+  /**
+   * A bank's plaques all show their backs, by ball `ball` (its play `b`): its title to the stages, a line in the feed
+   * with the bonus scored, and then the match to the quest, which starts its god's mode (or the next god's not done)
+   * when no mode or finale runs.
+   */
+  private bankMatched(b: BallPlay, id: string, paid: number, ball: number): void {
     const name = id.replace(/^bank-/, '');
     this.moment(id);
     const who = b.owner ? b.owner.name : 'The house ball';
     this.feed(`${who} matched the ${name.charAt(0).toUpperCase()}${name.slice(1)} bank! +${paid.toLocaleString('en-US')}`, 'win', b.owner ?? undefined);
+    if (isGod(name)) this.questEvent({ kind: 'bank', god: name }, ball);
   }
 
   private doubled(points: number): number {
@@ -952,6 +1043,7 @@ export class PinballGame implements Machine {
     const b = this.balls.get(id);
     if (!b) return;
     this.balls.delete(id);
+    this.orbitUp.delete(id);
     this.out.send({ t: 'despawn', at: this.sim.time, id, reason: 'lost' });
     this.stateDirty = true;
     const now = this.sim.time;
@@ -967,7 +1059,11 @@ export class PinballGame implements Machine {
       this.sim.release(this.heldBall);
       this.heldBall = null;
     }
-    if (this.heldBall === null && this.extraBalls.length === 0 && this.balls.size <= 1) this.multiball = false;
+    // One ball left: multiball is over, and the quest hears of it going off (it ends the finale, and no mode).
+    if (this.multiball && this.heldBall === null && this.extraBalls.length === 0 && this.balls.size <= 1) {
+      this.multiball = false;
+      this.followQuest(this.quest.event({ kind: 'multiballEnded' }), null);
+    }
   }
 
   /**
@@ -1024,6 +1120,117 @@ export class PinballGame implements Machine {
     this.feedLog.push(item);
     if (this.feedLog.length > FEED_KEPT) this.feedLog.shift();
     this.out.send({ t: 'feed', item });
+  }
+
+  // --- The quest ---
+
+  /** Whether a ball is in play: the quest's clock runs only then (questClock), and stands still between balls. */
+  private get inPlay(): boolean {
+    return this.balls.size > 0;
+  }
+
+  /**
+   * The quest as the state carries it (Quest.view): a mode's time left as at the table's time now, and whether its
+   * clock runs. A stage counts the time down from there while it runs, so the state is sent again only when something
+   * else changes (followQuest), never for the clock alone: a ball launched or drained sends it anyway.
+   */
+  private questState(): PinballState['quest'] {
+    const { done, mode, finale } = this.quest.view();
+    return {
+      done,
+      mode: mode && { god: mode.god, left: mode.left, at: this.sim.time, running: this.inPlay, progress: mode.progress, goal: mode.goal },
+      finale,
+    };
+  }
+
+  /**
+   * The quest's clock, once a step and after the step's hits, so that a goal hit in the step its time runs out still
+   * wins (Quest.event, then Quest.tick). What it says has no ball of its own (a mode run out, a finale's toy back up, a
+   * saved finale begun), so any points in it go to nobody, as a house ball's do.
+   */
+  private questClock(): void {
+    this.followQuest(this.quest.tick(DT, this.inPlay), null);
+  }
+
+  /** Something the quest hears of, by ball `ball` (on the table, at its hit): what it says is done for that ball. */
+  private questEvent(e: QuestEvent, ball: number): void {
+    this.followQuest(this.quest.event(e), ball);
+  }
+
+  /**
+   * Does what the quest says (QuestOut), in order, for the ball whose event it was, or for none (null): its points go
+   * to that ball as they are, since double score doubles the table's own parts and not the quest's set prizes, or to
+   * nobody; a toy is moved (setToy) or one part raised (raisePart), each waiting for a ball in its way; the finale's
+   * multiball starts unless multiball is on already, when it brings no more balls; and each cue goes to the stages.
+   * What it says can change what the state shows (its mode and progress, the gods done, the finale), so the state is
+   * sent with it. A quest that says nothing has changed nothing the stages need: its clock counts down, and they count
+   * it down themselves (questState).
+   */
+  private followQuest(outs: QuestOut[], ball: number | null): void {
+    if (outs.length === 0) return;
+    const b = ball === null ? undefined : this.balls.get(ball);
+    for (const out of outs) {
+      switch (out.kind) {
+        case 'points':
+          if (b) this.score(b, out.points);
+          break;
+        case 'toy':
+          this.setToy(out.toy, out.up);
+          break;
+        case 'raise':
+          this.raisePart(out.part);
+          break;
+        case 'multiball':
+          if (!this.multiball) this.startMultiball(null);
+          break;
+        case 'cue':
+          this.questCue(out.cue, ball);
+          break;
+      }
+    }
+    this.stateDirty = true;
+  }
+
+  /**
+   * A quest moment to the stages (PinballCueMsg), at the table's time: a goal and a jackpot where the ball whose event
+   * it was is, as a toy hit is. Only an event's outs hold either, and an event's ball is on the table (the physics
+   * reports a hit only for a ball it still has); the quest's clock and multiball's end, which have no ball, say
+   * neither. Like a hype moment, a cue goes to every client and never in hello: a stage that opens later draws what
+   * runs from the state.
+   */
+  private questCue(cue: QuestCue, ball: number | null): void {
+    const at = this.sim.time;
+    if (cue.cue === 'goal' || cue.cue === 'jackpot') {
+      const p = ball === null ? undefined : this.sim.items.get(ball)?.body.translation();
+      if (!p) return;
+      this.out.send({ t: 'machine', msg: { kind: 'pinballCue', ...cue, x: p.x, z: p.z, at } satisfies PinballCueMsg });
+      return;
+    }
+    this.out.send({ t: 'machine', msg: { kind: 'pinballCue', ...cue, at } satisfies PinballCueMsg });
+  }
+
+  /**
+   * A ball passed a switch, either way (the physics reports one a pass), and the ball's velocity says which way: an
+   * orbit or a ramp shot for the quest, or nothing. A pass up an orbit lane is kept, and the shot counts when the ball
+   * comes down past the other lane's switch within ORBIT_ROUND, round the orbit. The dish's switch counts a ball going
+   * up the table only, since every ball that gets into the dish comes back down past it; the gate's counts either way,
+   * since none comes back in through the gap, and some the gate turns out are heading down the table as they meet it.
+   */
+  private switchPassed(id: string, ball: number): void {
+    const up = this.sim.items.get(ball)!.body.linvel().z > 0;
+    if (id === GATE_SWITCH || (id === DISH_SWITCH && up)) {
+      this.questEvent({ kind: 'ramp' }, ball);
+      return;
+    }
+    if (!ORBIT_SWITCHES.some((s) => s === id)) return;
+    if (up) {
+      this.orbitUp.set(ball, { id, at: this.sim.time });
+      return;
+    }
+    const pass = this.orbitUp.get(ball);
+    if (!pass || pass.id === id || this.sim.time - pass.at > ORBIT_ROUND) return;
+    this.orbitUp.delete(ball);
+    this.questEvent({ kind: 'orbit' }, ball);
   }
 
   // --- For the tests ---

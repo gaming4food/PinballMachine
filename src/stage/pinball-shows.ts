@@ -17,7 +17,7 @@
 // Nothing may flash more than 3 times a second, for the viewers a flashing picture can hurt. Each show keeps to that
 // alone (light-show.ts: FLASH_GAP), and the book keeps each moment to it as a whole. Multiball is the one moment of two
 // shows, so it needs care: see MULTIBALL_PAUSE.
-import { GOD_COLOR, type PinballCueMsg, type PinballHypeMsg } from '../shared/pinball';
+import { GOD_COLOR, type PinballCueMsg, type PinballHypeMsg, type PinballToyHit } from '../shared/pinball';
 import { TABLE, type Table } from '../shared/table';
 import { burst, chase, strobe, sweep, type Show } from './light-show';
 // Only the type: the parts load three.js and the pictures, which the book has no use for.
@@ -116,10 +116,11 @@ export class PinballShows {
 
   /**
    * A toy-hit cue, queued for its time: a pop-up knocked down, the mummy's hits (its third, which puts it down, is a
-   * row of its own) and the tomb's catch. A part the table hasn't got, or has but has no row for, does nothing.
+   * row of its own) and the tomb's catch. A part the table hasn't got, or has but has no row for, does nothing, and so
+   * does a cue of the quest's: the book has no rows for them.
    */
   cue(m: PinballCueMsg): void {
-    this.queue(m.at, this.cuePlay(m));
+    this.queue(m.at, m.cue === 'toyHit' ? this.cuePlay(m) : null);
   }
 
   /** Multiball, a press's or the lock's, from time `at`. */
@@ -221,7 +222,7 @@ export class PinballShows {
   }
 
   /** What a toy-hit cue does when its time comes, or null if the book has no row for its part. */
-  private cuePlay({ part: id, down, x, z, at }: PinballCueMsg): (() => void) | null {
+  private cuePlay({ part: id, down, x, z, at }: PinballToyHit): (() => void) | null {
     const { sinks } = this;
     const part = this.table.targets.find((t) => t.id === id);
     if (part?.rise === 'drop') {

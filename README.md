@@ -28,10 +28,13 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   Ra magnet each hold a slow ball a moment and kick it out; there is a spinner on each orbit, the sun bumper, rollovers
   up the centre lane (all four lit pay 1,000) and an upper-right flipper that moves with `right`. The three top lanes
   light the kickback, which kicks a ball out of the right outlane once. 870 points make a coin (`RULES.pointsPerCoin`).
-- Four field toys wait for the quest: three pop-up targets (each drops when hit), a mummy (it goes down on its third
-  hit), a tomb in the pyramid's front corner (it catches a ball at its door and kicks it out) and a diverter gate on a
-  ramp. The game raises and lowers them when asked (`PinballGame.setToy`), never into a ball; on the dev host,
-  `npm run dev:toys` and `npm run toy -- <popups|mummy|tomb|diverter|all> <up|down>` ask (`CLAUDE.md` says how).
+- Four field toys, which the Pharaoh's quest plays on: three pop-up targets (each drops when hit), a mummy (it goes
+  down on its third hit), a tomb in the pyramid's front corner (it catches a ball at its door and kicks it out) and a
+  diverter gate on a ramp. The game raises and lowers them when asked (`PinballGame.setToy`), never into a ball. A bank
+  matched starts its god's mode on its toy (Sun Chase, Falcon Strike, The Mummy Wakes, Tomb Raid), each with a goal
+  and a prize, and the four won begin the finale and its jackpots (`src/server/quest.ts`). On the dev host,
+  `npm run dev:toys` and `npm run toy -- <popups|mummy|tomb|diverter|all> <up|down>`, `-- mode <god>` or `-- finale`
+  ask (`CLAUDE.md` says how).
 - `src/` is the machine (the game and its Rapier physics in `src/server/`, the table as data in `src/shared/pyramid.ts`
   with its types in `table.ts`, the rules in `src/shared/pinball.ts`, the scene, scoreboard, sounds and flash in
   `src/stage/`, the table's picture and the plaques' in `src/assets/`, the card in `src/panel/`), and `tests/` its

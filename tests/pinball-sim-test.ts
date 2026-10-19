@@ -1390,8 +1390,8 @@ const checks: [string, () => void][] = [
   ["an orbit shot up each side touches its lane's switch going up, once; a launch round the arch passes the left one going down, if at all", () => {
     // Shots straight up the middle of each orbit lane from its foot, as pinball-layout-test fires its orbit shots (34
     // units/s), here at 32 to 36 units/s: each touches its own lane's switch once, going up, goes round over the top
-    // and comes down the other lane, touching that one's switch going down. (The game counts only a pass going up as
-    // an orbit shot.)
+    // and comes down the other lane, touching that one's switch going down. (The game counts the shot there, going
+    // down, and only after a pass up the other lane: game.ts's ORBIT_ROUND.)
     for (const [own, other, x, z] of [['orbit-left', 'orbit-right', -4.5, 6.8], ['orbit-right', 'orbit-left', 3.7, 8.0]] as const) {
       for (let n = 0; n < 5; n++) {
         const { sim, passes } = withPasses();

@@ -65,6 +65,7 @@ const state = (multiball: boolean): PinballState => ({
   lockLit: false,
   lastResult: null,
   waiting: [],
+  quest: { done: [], mode: null, finale: null },
 });
 
 test('the picks name every moment, each with no files yet (so each plays its synth)', () => {

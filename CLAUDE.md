@@ -22,8 +22,8 @@ the stage and the control panel.
 | `src/manifest.ts` | The server side's manifest: the machine interface version, the entry, how the server makes the game, and that it stops when no stage is open. |
 | `src/pages.ts` | The stage side: the scene, the scoreboard drawn over it, the snapshot type and its header. |
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
-| `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, moving the quest's toys, the high scores), the quest's rules on their own (`quest.ts`: the four god modes the banks start, their clock, goals and prizes, the finale and its jackpots, and what to save; plain logic with no physics) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
-| `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the hype moments and the toys' hit cues, `RULES`, the quest's gods and numbers (`QUEST`), chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
+| `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, moving the quest's toys and running the quest (feeding it the table's hits and its clock, and doing what it says), the high scores and the saved quest), the quest's rules on their own (`quest.ts`: the four god modes the banks start, their clock, goals and prizes, the finale and its jackpots, and what to save; plain logic with no physics) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
+| `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the quest's in it, the hype moments and the cues (the toys' hits and the quest's moments), `RULES`, the quest's gods and numbers (`QUEST`), chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
 | `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys and the lamps the light shows light among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the flash (The flash, below: the show book and the table's clock as drawn in `pinball-shows.ts`, the light shows and their player in `light-show.ts`, the screen flash in `screen-hits.ts`, the sparks and the tomb's beam in `sparks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
 | `src/assets/` | The table's picture (`pinball.png`) with its sidecar (`pinball.json`), and the live plaques' pictures (`plaques/`): made by `npm run picture` and `blender/plaques.py`, not by hand. |
 | `src/panel/` | The card: the line, with a Remove button on each viewer (`pinball-card.ts`). |
@@ -39,11 +39,13 @@ the stage and the control panel.
   Reset). Type `ball` there to line a ball up, and `left` or `right` to flip. Its wallet and save file are in
   `data-host/`.
 - `npm run dev:toys`: `npm run dev` with the toy switch on (`PINBALL_TOYS=1`; `-- --port N` for another port, 7841 by
-  default), so that the quest's field toys can be raised and lowered before the modes that will drive them exist. The
+  default), so that the quest's field toys can be raised and lowered, and its modes and finale started, by hand. The
   city never sets it and shows no button for it.
 - `npm run toy -- <popups|mummy|tomb|diverter|all> <up|down> [port]`: asks a running `dev:toys` host to raise or lower
-  those toys (the port is 7841 by default). The table steps only while a stage page is open, so they move once one is;
-  a host from plain `npm run dev` ignores the request. Two things to know when trying them:
+  those toys (the port is 7841 by default), and `npm run toy -- mode <ra|horus|ankh|eye> [port]` or
+  `npm run toy -- finale [port]` starts that god's mode or the finale now (whatever ran ends, with no prize). The table
+  steps only while a stage page is open, so the toys move once one is, and a mode's clock runs only while a ball is in
+  play; a host from plain `npm run dev` ignores the request. Two things to know when trying the toys:
   - A request is a move, not a standing order: a pop-up or the mummy that a ball knocks down stays down until it is
     asked up again.
   - With every toy up, the mummy shuts the left ramp (with it up, none of the 77 real flips that go up the ramp gets
@@ -53,7 +55,7 @@ the stage and the control panel.
   table as data, `RULES` and chat's words), quest-test (the quest's rules on their own: the four modes, the finale, the
   save and the Reset), pinball-sim-test (the physics), pinball-layout-test (every way round the
   table at its rate, the quest's toys up and down: no ball escapes or sticks; `-- <words>` runs only the checks whose
-  names hold them), pinball-test (the game, step by step), pinball-hype-test (the hype
+  names hold them), pinball-test (the game, step by step, the quest played through it too), pinball-hype-test (the hype
   buttons and paid support; `npm run pinball-hype-test -- <words>` runs only the tests whose names hold them),
   pinball-header-test (the stage reads the snapshot's header as the server writes it), pinball-hud-test (the scoreboard
   and the titles), pinball-sounds-test (when each sound plays), light-show-test (the light shows and their player, and
@@ -88,7 +90,8 @@ failure is real and fails again: read the step and find out why.
 - **Scoring.** Each part scores what the table says (`pyramid.ts`; double score doubles it): the saucer pays 750 and
   the magnet 250. The four rollovers up the centre lane light a lamp each; all four lit pay 1,000 and go out. Four banks
   of three turning plaques (Horus, Ra, Ankh and Eye): a hit turns a plaque to its back, and a bank with all three
-  turned is matched, pays 5,000, is titled on the stage (HORUS MATCHED and so on), and turns back a second later.
+  turned is matched, pays 5,000, is titled on the stage (HORUS MATCHED and so on), starts its god's mode of the quest
+  (below) and turns back a second later.
 - **The lock and the kickback.** The lock lights when both drop targets (the scarab and the eye, right of the pyramid in
   front of the Horus bank) are down; they come back up a second later, once no ball stands where one rises (the plaques
   keep their turns). A ball into the lit lock is held there and multiball brings 2 more balls in (from the line, then
@@ -111,15 +114,42 @@ failure is real and fails again: read the step and find out why.
   part, whether the hit put it `down` (a pop-up's does, and the mummy's third), where the ball was and the table's
   time. As a hype moment does, it goes to every client and never in hello, and the panel's card reads only the state.
   The server says each hit because a fast ball can touch a toy and be away again between two snapshots. A pop-up the
-  game puts away is no hit and sends none. Nothing in the city asks for the toys yet: on the dev host,
-  `npm run dev:toys` turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
+  game puts away is no hit and sends none. The quest asks for the toys (below), and on the dev host `npm run dev:toys`
+  turns on the `toy` machine action (`{ kind: 'toy', toy, up }`), which `npm run toy` sends.
+- **The quest**, the Pharaoh's: its rules are `quest.ts` and its numbers `QUEST` (`shared/pinball.ts`), and `game.ts`
+  feeds it what happens on the table and the table's clock, and does what it says. Four gods, in order Ra, Horus, Ankh
+  and the Eye, each crossed off when its mode is won. The quest is the table's: it carries across balls and a restart
+  (it is kept in the save file with the high scores), and the Reset clears it.
+  - **A mode.** A bank matched starts its god's mode, or the next god's not done (after the Eye comes Ra); a match while
+    a mode or the finale runs pays its 5,000 and starts nothing. The mode raises its toy: Sun Chase (Ra) swings the gate
+    over, Falcon Strike (Horus) raises the pop-ups, The Mummy Wakes (Ankh) the mummy, and Tomb Raid (the Eye) opens the
+    tomb. Its clock (`QUEST.modeSeconds` of play) runs only while a ball is in play, so the next ball picks it up.
+  - **Its goal.** Sun Chase's are shots round an orbit, up one lane past its switch and down past the other's within
+    `ORBIT_ROUND` (4 s; a pass up that falls back is no shot), and up the left ramp, into the dish past its switch going
+    up or out through the gate's gap. Falcon Strike's are pop-ups knocked down, each once; The Mummy Wakes', hits on the
+    mummy; Tomb Raid's, balls the tomb catches. Each goal hit pays `QUEST.goalPoints`, and the last pays the prize too
+    (Tomb Raid's counts down with its time) to the ball that makes it, puts the toy away and crosses the god off; double
+    score doubles neither. Out of time, the toy goes away and the god is left to try again.
+  - **The finale**, Pharaoh's Gold, begins as the fourth god is crossed off: multiball (2 more balls, from the line and
+    then the house, unless multiball is on already), the tomb open, the pop-ups and the mummy up. Each ball the tomb
+    catches is a jackpot, each worth more than the last (`QUEST.jackpot`); a pop-up knocked down and each hit on the
+    mummy pay goal points, and each comes back up `QUEST.finaleRaise` seconds of play after it goes down. It ends when
+    multiball does: the toys go away, and the quest starts over with no god done.
+  - **A restart** in the middle of a mode picks it up from the save, its time, its progress and its toy; in the middle
+    of the finale, the finale begins again with the next ball in play, since its multiball went with the balls.
+  - **To the stages**, each moment is a cue (`PinballCueMsg`, never in hello): a mode started, each goal hit (where the
+    ball was), the mode won with its prize or lost, a jackpot with its value (where the ball was), the finale begun and
+    over. What lasts is in the state (`PinballState.quest`): the gods done, the mode with its time left at a table time
+    and whether its clock runs (a stage counts it down itself, so the state isn't sent for the clock), its progress, and
+    the finale's next jackpot. On the dev host, `npm run toy -- mode <god>` and `npm run toy -- finale` start them (the
+    `quest` action, `{ kind: 'quest', start }`, taken only with `PINBALL_TOYS=1`).
 - **Paying.** A drained ball's points make coins (`RULES.pointsPerCoin`): 70% to its owner, and 30% split equally among
   everyone who flipped it, the owner included if they flipped; what's left over goes to the owner. The high scores
   (the best 10 balls) are kept in the save file (`machine-pinball.json`).
 - **Every timer runs on the table's clock** (`sim.time`), never the wall clock: the city stops stepping the machine
-  while no stage shows it (`runsUnseen: false`), and the ball, its saver and the auto-save all wait with it. The one
-  wall-clock check is the flip words' above. The stage's titles and sounds let go of what they kept when the table's
-  clock starts again (the server restarted while the page stayed open).
+  while no stage shows it (`runsUnseen: false`), and the ball, its saver, the auto-save and the quest's clock all wait
+  with it. The one wall-clock check is the flip words' above. The stage's titles and sounds let go of what they kept
+  when the table's clock starts again (the server restarted while the page stayed open).
 
 ## The hype buttons
 

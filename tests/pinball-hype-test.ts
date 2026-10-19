@@ -5,7 +5,8 @@
 // marks it Ready). Double score lasts 30 s, and a second press adds 30. A nudge jolts the balls, and is refused with none.
 // A purchase that waits is given back by a reset (a line only when the city says coins really went back), and a reset
 // clears a bought saver and double score too. Subs and gifts press one for free by their size, or the next that can
-// happen; the line thanks the supporter, and the city's card names what it set off.
+// happen; the line thanks the supporter, and the city's card names what it set off. Multiball bought during one of the
+// quest's modes leaves the mode running, and during the finale (whose multiball is on) it is refused.
 // Usage: npm run pinball-hype-test
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -17,7 +18,7 @@ import { entry } from '../src/entry';
 import { PinballGame } from '../src/server/game';
 import { DT } from '../src/server/sim';
 import { type PinballHypeMsg, pinballHypeOf, RULES } from '../src/shared/pinball';
-import { TABLE } from '../src/shared/table';
+import { TABLE, TABLE_IN_USE } from '../src/shared/table';
 
 await initPhysics();
 
@@ -310,6 +311,60 @@ test("support whose hype can't happen gives way to the next that can", () => {
     assert.equal(moments().at(-1)?.id, 'double');
     assert.equal(game.supportEffect({ kind: 'sub', tier: 2 }), 'DOUBLE SCORE!');
   } finally {
+    done();
+  }
+});
+
+test('a bought multiball during a mode leaves the mode running; during the finale it is refused as multiball already on', () => {
+  const { game, run, ballOn, bought, done } = aGame();
+  const was = process.env.PINBALL_TOYS;
+  /** Every ball on the table kept still at a spot of its own for `seconds` (none drains, hits a toy or sits stuck). */
+  const still = (seconds: number) => {
+    for (let i = 0; i < Math.round(seconds / DT); i++) {
+      const lift = Math.floor(game.sim.time) % 2 ? 0.4 : 0;
+      [...game.sim.items.values()].forEach((b, k) => {
+        b.body.setTranslation({ x: [-0.4, 0.4, -1.2][k], y: TABLE.ballRadius, z: [7.4, 9.0, 9.0][k] + lift }, true);
+        b.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      });
+      run(DT);
+    }
+  };
+  /** Ball `id` down the drain, as the table drains one. */
+  const drain = (id: number) => {
+    const body = game.sim.items.get(id)!.body;
+    body.setTranslation({ x: -0.4, y: TABLE.ballRadius, z: TABLE_IN_USE.drainZ - 0.05 }, true);
+    body.setLinvel({ x: 0, y: 0, z: -5 }, true);
+    run(DT);
+    assert.ok(!game.sim.items.has(id), `ball ${id} drained`);
+  };
+  const mode = () => game.state().quest.mode;
+  try {
+    const ball = ballOn('ana');
+    (game.sim as any).report({ kind: 'bank', id: 'bank-horus', ball });
+    run(DT);
+    assert.equal(mode()?.god, 'horus', 'the Horus bank matched starts Falcon Strike');
+    assert.equal(game.buyHype('multiball', bought('ben', 200)), null, 'multiball bought during it');
+    still(RULES.maxExtraBalls * 0.6 + 0.5);
+    assert.equal(game.sim.items.size, 1 + RULES.maxExtraBalls, 'its balls came');
+    assert.equal(mode()?.god, 'horus', 'the mode runs on through it');
+    // That multiball over (the balls it brought drained, past their savers), the mode still runs.
+    still(RULES.ballSaverStart);
+    for (const id of [...game.sim.items.keys()].filter((id) => id !== ball)) drain(id);
+    assert.equal(game.state().multiball, false, 'one ball left: multiball is over');
+    assert.equal(mode()?.god, 'horus', 'and the mode runs on after it');
+    assert.equal(mode()?.running, true);
+    // The finale's own multiball (here the dev host's quest switch starts the finale; pinball-test plays it through the
+    // table): one bought then is refused.
+    process.env.PINBALL_TOYS = '1';
+    game.action({ kind: 'quest', start: 'finale' });
+    assert.notEqual(game.state().quest.finale, null, 'the finale runs');
+    assert.equal(game.state().multiball, true, 'with its multiball');
+    const late = bought('cal', 200);
+    assert.equal(game.buyHype('multiball', late), 'multiball is already on');
+    assert.equal(late.refunds, 0, 'the city gives the coins back, not the game');
+  } finally {
+    if (was === undefined) delete process.env.PINBALL_TOYS;
+    else process.env.PINBALL_TOYS = was;
     done();
   }
 });

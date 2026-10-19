@@ -223,13 +223,14 @@ export class PinballSoundCues {
   }
 
   /**
-   * A toy's hit from the server (a pinballCue), queued to sound at its time (frame): a pop-up knocked down, or any hit
-   * of the mummy, is a target, with the ball where the cue says it was (for the mummy's rock; the cue names no ball of
-   * the stage's own, so it has the id -1). The tomb's catch makes no sound of its own. A part the table hasn't got does
-   * nothing, and nor does one that is no pop-up or mummy: the lock's drop targets and the plaques sound by their bits,
-   * so a cue for one would sound it twice.
+   * A toy's hit from the server (a pinballCue's toyHit), queued to sound at its time (frame): a pop-up knocked down, or
+   * any hit of the mummy, is a target, with the ball where the cue says it was (for the mummy's rock; the cue names no
+   * ball of the stage's own, so it has the id -1). The tomb's catch makes no sound of its own. A part the table hasn't
+   * got does nothing, and nor does one that is no pop-up or mummy: the lock's drop targets and the plaques sound by
+   * their bits, so a cue for one would sound it twice. The quest's cues sound nothing here.
    */
   cue(m: PinballCueMsg): void {
+    if (m.cue !== 'toyHit') return;
     const index = this.table.targets.findIndex((t) => t.id === m.part && t.rise !== undefined);
     if (index < 0) return;
     this.hits.push({ at: m.at, index, x: m.x, z: m.z });

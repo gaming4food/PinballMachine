@@ -1,7 +1,8 @@
 // The dev host with the toy switch on: `npm run dev:toys` is `npm run dev` (the stand-in host in
 // kit/src/kit/host/host.ts: the pinball on its own, with the city's wallet and a fake audience) with PINBALL_TOYS set
-// to 1, so that the panel's `toy` action (PinballGame.action) is taken and `npm run toy` can raise and lower the field
-// toys on it. The city never sets PINBALL_TOYS and shows no button for it. Everything else is as `npm run dev` has it:
+// to 1, so that the panel's `toy` and `quest` actions (PinballGame.action) are taken and `npm run toy` can raise and
+// lower the field toys on it, or start a mode of the quest or its finale. The city never sets PINBALL_TOYS and shows no
+// button for it. Everything else is as `npm run dev` has it:
 // the machine is src/manifest.ts, its pages are src's, the wallet and the save file are in data-host/, and the port is
 // --port (7841 by default; the owner's own play server may be on it, so a scratch run takes another).
 // Usage: npm run dev:toys [-- --port 7843]

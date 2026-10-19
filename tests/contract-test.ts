@@ -28,6 +28,7 @@ const idle: PinballState = {
   lockLit: false,
   lastResult: null,
   waiting: [],
+  quest: { done: [], mode: null, finale: null },
 };
 
 const checks: [string, () => void][] = [

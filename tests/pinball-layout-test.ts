@@ -829,11 +829,13 @@ const checks: [string, () => string][] = [
     return `of ${speeds.length * 3} rolled up the lane at 6 to 20 units/s, the magnet took ${byMagnet.length} (up to ${magnetMax}), the tomb ${byTomb.length} (from ${tombMin})`;
   }],
   ['of the balls that pass an orbit switch going up, at least 90% go on round to the other lane', () => {
-    // The game counts a ball passing an orbit switch going up as an orbit shot, so one that does should go on round:
-    // over the top and down the other lane, past that lane's switch. The table's shots up the orbits ('the left orbit,
-    // the right orbit and the lock': 34 units/s straight up each lane from its foot, the fixed spread) and up the left
-    // ramp (the tripwire's spread and grid), each on a table of its own and followed 4 s. (Real flips round the right
-    // orbit go round less often, at any height in its lane: pyramid.ts's orbit switches say how often, and why.)
+    // The game counts an orbit shot at the other lane's switch: a ball that passed one orbit switch going up, and comes
+    // down past the other lane's within 4 s (game.ts's ORBIT_ROUND), went round the orbit. So a ball that passes one
+    // going up should go on round, over the top and down the other lane past that lane's switch, or the shot counts
+    // for nothing. The table's shots up the orbits ('the left orbit, the right orbit and the lock': 34 units/s straight
+    // up each lane from its foot, the fixed spread) and up the left ramp (the tripwire's spread and grid), each on a
+    // table of its own and followed 4 s. (Real flips round the right orbit go round less often, at any height in its
+    // lane: pyramid.ts's orbit switches say how often, and why.)
     const other: Record<string, string> = { 'orbit-left': 'orbit-right', 'orbit-right': 'orbit-left' };
     const shots: [number, number, number, number][] = [
       ...SPREAD.map(([, fz]): [number, number, number, number] => [-4.5, 6.8, 0, 34 * fz]),
