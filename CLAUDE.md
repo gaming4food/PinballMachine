@@ -110,8 +110,8 @@ failure is real and fails again: read the step and find out why.
   part, whether the hit put it `down` (a pop-up's does, and the mummy's third), where the ball was and the table's
   time. As a hype moment does, it goes to every client and never in hello, and the panel's card reads only the state.
   The server says each hit because a fast ball can touch a toy and be away again between two snapshots. A pop-up the
-  game puts away is no hit and sends none. Nothing in the city asks for them yet: on the dev host, `npm run dev:toys`
-  turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
+  game puts away is no hit and sends none. Nothing in the city asks for the toys yet: on the dev host,
+  `npm run dev:toys` turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
 - **Paying.** A drained ball's points make coins (`RULES.pointsPerCoin`): 70% to its owner, and 30% split equally among
   everyone who flipped it, the owner included if they flipped; what's left over goes to the owner. The high scores
   (the best 10 balls) are kept in the save file (`machine-pinball.json`).
@@ -143,12 +143,12 @@ saved ball and a ball's result.
 
 ## The flash
 
-Each moment on the table plays as light on the stage: a light show over the table's lamps, a flash of the table's
-picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says what each plays, with its values:
+Each moment on the table plays some of these on the stage: a light show over the table's lamps, a flash of the table's
+picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says which each plays, with its values:
 
 - A bank matched bursts its god's colour (Ra gold, Horus blue, Ankh green, Eye red) from its plaques, with a flash in
-  it and sparks off each plaque. Multiball, a press's or the lock's, chases pink twice round the frame's rail lights,
-  then strobes every lamp white, with a white flash. The ball saver sweeps green up the table; double score strobes the
+  it and sparks off each plaque. Multiball, a press's or the lock's, flashes white and chases pink twice round the
+  frame's rail lights, then strobes every lamp white. The ball saver sweeps green up the table; double score strobes the
   ladders gold, with a gold flash; a nudge shakes the view 0.3 s; a payout bursts gold from where its coins burst.
 - The toys' hits, from the server's cues: a pop-up knocked down bursts blue, each of the mummy's hits green and the
   tomb's catch red, each with sparks at the ball; the mummy's third hit, which puts it down, bursts wider, flashes white
@@ -163,13 +163,19 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
 - **Fixed pools.** The sparks are one pool of `MAX_SPARKS` (400) and the coins one of 180, made at the start: a busy
   moment takes the oldest again. Nothing is made per frame.
 - **The table's clock.** The shows, the flash, the sparks, the beam and the coins run on the table's time as drawn
-  (`DrawnClock`), so they stand still while the table does. It steps at most 0.1 s, and holds still where the drawn
-  time slips back a little after a pause, since the flash's 3 a second needs a clock that never goes back. A moment
-  drawn more than 2 s after its time plays nothing, and the drawn time going back by more than a second (the server
-  restarted) clears what plays and lets go of the old clock's moments, as a fresh hello does. Two things count real
-  seconds instead: the glows' rise limit, since it guards what the viewers see, and a shake, which is the view's quake.
+  (`DrawnClock`), so they stand still while the table does. The shows and the flash go by its `now`, the latest drawn
+  time, which holds still where the drawn time slips back a little after a pause, since the flash's 3 a second needs a
+  clock that never goes back; the sparks, the beam and the coins move on by its step, at most 0.1 s. A moment drawn
+  more than 2 s after its time plays nothing, and the drawn time going back by more than a second (the server
+  restarted) clears what plays and lets go of the old clock's moments, as a fresh hello does. Two guards count real
+  seconds instead, from the browser's own clock (`performance.now()`): the glows' rise limits, and a last `RiseLimit`
+  on the screen flash's amount, which a hello never resets. They guard what the viewers see, and a host's `dt` or the
+  drawn time can run faster than real time (the city's `dt` sums to about 1.5 times it). A shake, the view's quake,
+  runs on the scene's frame clock, the sum of the host's `dt`.
 - The browser's console has `pinballScene`, with its `player`, `flash`, `sparks`, `beam` and `shows`, for looking
-  inside (`pinballScene.sparks.live()`, `pinballScene.beam.level`).
+  inside. Read `pinballScene.player.running`, `pinballScene.sparks.live()`, `pinballScene.beam.level` and
+  `pinballScene.flashUniforms.uFlashAmount.value`, not `flash.at()` or `player.lights()`: a look through either changes
+  what it looks at, and can drop flashes or let shows go.
 
 ## The table and its picture
 

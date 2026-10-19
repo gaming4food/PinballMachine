@@ -1,5 +1,5 @@
-// What the pinball's server, stage and panel all read: the state the server sends and its hype moments, the rules of
-// play (RULES), chat's words, and the snapshot's layout. The table itself is table.ts.
+// What the pinball's server, stage and panel all read: the state the server sends, its hype moments and the toys' hit
+// cues, the rules of play (RULES), chat's words, and the snapshot's layout. The table itself is table.ts.
 
 /** The pinball's state as its server sends it, in hello's `machine` and each 'machine' message. */
 export interface PinballState {
@@ -40,7 +40,7 @@ export interface HypeBuyer {
 }
 
 /**
- * A hype button's moment, the pinball's other message to its stages: its title and flash, as it happens. Never part of
+ * A hype button's moment, the pinball's second message to its stages: its title and flash, as it happens. Never part of
  * hello. `by` names who bought it from chat, or whose support set it off; the streamer's own press has none.
  */
 export interface PinballHypeMsg {

@@ -2,10 +2,10 @@
 // screen flash, sparks and shake the book gives it (a bank matched, multiball, the ball saver, double score, a nudge, a
 // payout, and the toys' hits: a pop-up knocked down, the mummy's hits and its third, the tomb's catch), in its god's
 // colour where it has one; that a part or an id with no row does nothing; that a moment plays at its time and not
-// before, that one drawn more than 2 s late is let go, and that the table's clock starting again lets go of everything
-// queued and clears what plays; that DrawnClock steps by the drawn time under a cap and never goes back; and that every
-// show the book plays ends and, played alone over the table's lamps, rises no lamp more than 3 times in any second. No
-// page or graphics card is needed.
+// before, that one drawn more than 2 s late is let go, and that the table's clock starting again clears what plays and
+// lets go of the moments queued on the old clock, keeping those already on the new one; that DrawnClock steps by the
+// drawn time under a cap and never goes back; and that every show the book plays ends and, played alone over the
+// table's lamps, rises no lamp more than 3 times in any second. No page or graphics card is needed.
 // Usage: npm run pinball-shows-test
 import assert from 'node:assert/strict';
 import type { PinballCueMsg, PinballHypeMsg } from '../src/shared/pinball';

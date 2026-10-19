@@ -202,8 +202,8 @@ export class PinballScene implements MachineScene {
   /** The show book: what each moment plays, through the player, the sparks, the flash and the view's quake. */
   readonly shows: PinballShows;
   /**
-   * The table's clock as drawn, for the flash: it holds still where the drawn time slips back a little, starts again
-   * where the table's clock does, and steps at most 0.1 s.
+   * The table's clock as drawn, for every effect (the shows, the flash, the sparks, the beam and the coins): it holds
+   * still where the drawn time slips back a little, starts again where the table's clock does, and steps at most 0.1 s.
    */
   private readonly tableClock = new DrawnClock();
   /** The screen flash on the picture's shader (below): the colour added over the picture, and how much of it. */
@@ -632,7 +632,8 @@ export class PinballScene implements MachineScene {
       this.burst.burst(pay.amount, at.x, at.z);
       this.shows.payout(at.x, at.z, pay.amount, now);
     }
-    // The sparks (the beam's motes among them), the beam and the coins move on by the table's step, as the shows do.
+    // The sparks (the beam's motes among them), the beam and the coins move on by the table clock's step (at most
+    // 0.1 s), where the shows and the flash above go by its `now`.
     this.sparks.update(step);
     this.beam.update(step);
     this.burst.update(step);
