@@ -23,7 +23,7 @@ the stage and the control panel.
 | `src/pages.ts` | The stage side: the scene, the scoreboard drawn over it, the snapshot type and its header. |
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
 | `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, moving the quest's toys, the high scores) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
-| `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the hype moments, `RULES`, chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
+| `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the hype moments and the toys' hit cues, `RULES`, chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
 | `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
 | `src/assets/` | The table's picture (`pinball.png`) with its sidecar (`pinball.json`), and the live plaques' pictures (`plaques/`): made by `npm run picture` and `blender/plaques.py`, not by hand. |
 | `src/panel/` | The card: the line, with a Remove button on each viewer (`pinball-card.ts`). |
@@ -103,9 +103,13 @@ failure is real and fails again: read the step and find out why.
   or held in the tomb; the gate, either way, with a ball in its sweep; and the gate, swinging over, with a ball on the
   left ramp or in the dish (over, it would shut that ball in). A request is a move, not a standing order: a pop-up a
   ball knocks down stays down until it is asked up again. The mummy goes down on its third hit since it rose; a ball
-  the tomb catches scores the tomb's points; a Reset puts every toy away. Nothing in the city asks for them yet: on the
-  dev host, `npm run dev:toys` turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends
-  it.
+  the tomb catches scores the tomb's points; a Reset puts every toy away. Each pop-up knocked down, each hit on the
+  mummy and each ball the tomb catches is also a cue to the stages (`PinballCueMsg`, read with `pinballCueOf`): the
+  part, whether the hit put it `down` (a pop-up's does, and the mummy's third), where the ball was and the table's
+  time. As a hype moment does, it goes to every client and never in hello, and the panel's card reads only the state.
+  The server says each hit because a fast ball can touch a toy and be away again between two snapshots. A pop-up the
+  game puts away is no hit and sends none. Nothing in the city asks for them yet: on the dev host, `npm run dev:toys`
+  turns on the `toy` machine action (`{ kind: 'toy', toy, up }`) and `npm run toy` sends it.
 - **Paying.** A drained ball's points make coins (`RULES.pointsPerCoin`): 70% to its owner, and 30% split equally among
   everyone who flipped it, the owner included if they flipped; what's left over goes to the owner. The high scores
   (the best 10 balls) are kept in the save file (`machine-pinball.json`).

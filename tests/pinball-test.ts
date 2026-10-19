@@ -3,8 +3,8 @@
 // saver, the table's clock, a stuck ball (nudged, then launched again), flip words only while the table runs, the high
 // scores and the reset, the parts of the pyramid, and the quest's toys (the game raises, opens and swings them as it is
 // asked, each waiting for a ball in its way; the mummy goes down on its third hit; a ball in the tomb scores and isn't
-// stuck; a reset puts every toy away; the dev host's toy action works only with PINBALL_TOYS). Each step builds on the
-// last, as the claw's claw-test does.
+// stuck; a reset puts every toy away; the dev host's toy action works only with PINBALL_TOYS; each hit on a toy is a
+// cue to the stages, which pinballCueOf reads). Each step builds on the last, as the claw's claw-test does.
 // Usage: npm run pinball-test (or npx tsx tests/pinball-test.ts)
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -15,7 +15,7 @@ import type { ServerMsg } from '@kit/shared';
 import { entry } from '../src/entry';
 import { PinballGame, type Toy } from '../src/server/game';
 import { DT, PinballSim } from '../src/server/sim';
-import { LIT, RULES, TOY } from '../src/shared/pinball';
+import { LIT, type PinballCueMsg, pinballCueOf, pinballHypeOf, pinballStateOf, RULES, TOY } from '../src/shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget } from '../src/shared/table';
 
 await initPhysics();
@@ -925,6 +925,98 @@ step('the toy action works only with PINBALL_TOYS', () => {
     if (was === undefined) delete process.env.PINBALL_TOYS;
     else process.env.PINBALL_TOYS = was;
   }
+});
+
+// --- The toys' hits as cues to the stages (PinballCueMsg) ---
+
+/** The toy-hit cues sent since `mark` (what msgs.length was then), in order. */
+const cuesSince = (mark: number) =>
+  msgs.slice(mark).flatMap((m) => (m.t === 'machine' ? [pinballCueOf(m.msg)] : [])).filter((c): c is PinballCueMsg => c !== null);
+/** Whether a cue's place is within 0.25 of (x, z). */
+const nearTo = (cue: PinballCueMsg, x: number, z: number) => Math.abs(cue.x - x) < 0.25 && Math.abs(cue.z - z) < 0.25;
+
+step("each toy hit is a cue to the stages: a pop-up knocked down, the mummy's hits (the third puts it down), a ball the tomb catches", () => {
+  const zed = viewer('zed', 'Zed');
+  const ball = freshBall(zed);
+  game.setToy('popups', true);
+  game.setToy('mummy', true);
+  // The ball is parked inside the pyramid: clear of every toy, and nowhere near the table's origin, so that the place
+  // in a cue can only be the ball's.
+  hold(ball, -0.4, 9, 2 * DT);
+  assert.equal(game.sim.targetsDown() & RISING, 0, 'the pop-ups and the mummy are up');
+
+  // A pop-up knocked down is one cue: where the ball is, and when.
+  let mark = msgs.length;
+  const where = game.sim.items.get(ball)!.body.translation();
+  const when = game.sim.time;
+  hitPart({ kind: 'target', id: popups[0].id, ball });
+  let cues = cuesSince(mark);
+  assert.equal(cues.length, 1, 'a pop-up knocked down is one cue');
+  assert.deepEqual(cues[0], { kind: 'pinballCue', cue: 'toyHit', part: popups[0].id, down: true, x: cues[0].x, z: cues[0].z, at: cues[0].at });
+  assert.ok(nearTo(cues[0], where.x, where.z), `at the ball's place (${where.x}, ${where.z}), not (${cues[0].x}, ${cues[0].z})`);
+  assert.ok(Math.abs(cues[0].at - when) < DT, `at the table's time ${when}, not ${cues[0].at}`);
+
+  // The mummy: every hit is a cue, and only the third, which puts it down, says so.
+  mark = msgs.length;
+  for (let i = 0; i < 3; i++) hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.deepEqual(cuesSince(mark).map((c) => [c.part, c.down]), [[mummy.id, false], [mummy.id, false], [mummy.id, true]], 'three hits, the third puts it down');
+  assert.equal(game.sim.targetsDown() & targetBit(mummy.id), targetBit(mummy.id), 'and it is down');
+  // A hit after the third in the same step (a second ball's) puts nothing down: the mummy is on its way down already.
+  game.setToy('mummy', true);
+  run(2 * DT);
+  mark = msgs.length;
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  (game.sim as any).report({ kind: 'target', id: mummy.id, ball });
+  hitPart({ kind: 'target', id: mummy.id, ball });
+  assert.deepEqual(cuesSince(mark).map((c) => c.down), [false, false, true, false], 'a hit after the third, in the same step, puts nothing down');
+
+  // The plaques and the lock's drop targets are no toys, and the game putting the pop-ups away is no hit.
+  mark = msgs.length;
+  hitPart({ kind: 'target', id: 'target-ra-1', ball });
+  hitPart({ kind: 'target', id: 'target-scarab', ball });
+  assert.deepEqual(cuesSince(mark), [], 'a plaque and a drop target send no cue');
+  game.setToy('popups', false);
+  run(0.5);
+  assert.equal(game.sim.targetsDown() & POPUP_BITS, POPUP_BITS, 'the pop-ups went down');
+  assert.deepEqual(cuesSince(mark), [], 'put away by the game, they send no cue');
+
+  // A ball the tomb catches, by the physics: one cue, where the tomb holds the ball. It puts nothing down.
+  game.setToy('tomb', true);
+  run(2 * DT);
+  mark = msgs.length;
+  rollAtTomb(ball);
+  for (let i = 0; i < 1 / DT && game.sim.heldBy(ball) !== 'tomb'; i++) run(DT);
+  assert.equal(game.sim.heldBy(ball), 'tomb', 'the tomb caught the ball');
+  cues = cuesSince(mark);
+  assert.equal(cues.length, 1, 'a catch is one cue');
+  assert.deepEqual([cues[0].part, cues[0].down], [TOMB.id, false]);
+  assert.ok(nearTo(cues[0], TOMB.held[0], TOMB.held[1]), `where the tomb holds the ball (${TOMB.held}), not (${cues[0].x}, ${cues[0].z})`);
+
+  // A cue is a moment, not part of the state: a page that opens later is sent the state alone.
+  const hello = game.hello();
+  assert.ok(hello.t === 'hello');
+  assert.equal((hello.machine as { kind: string }).kind, 'pinball', "hello's machine is still the state");
+});
+
+step('pinballCueOf reads a cue and nothing else', () => {
+  const cue: PinballCueMsg = { kind: 'pinballCue', cue: 'toyHit', part: popups[0].id, down: true, x: 1.5, z: 6.5, at: 12.5 };
+  assert.deepEqual(pinballCueOf(cue), cue, 'a cue comes back as it is');
+  assert.deepEqual(pinballCueOf(JSON.parse(JSON.stringify(cue))), cue, 'as it comes off the wire too');
+  const noPart: Record<string, unknown> = { ...cue };
+  delete noPart.part;
+  assert.equal(pinballCueOf({ kind: 'pinballHype', id: 'double', at: 3 }), null, 'a hype moment is not a cue');
+  assert.equal(pinballCueOf(noPart), null, 'a cue with no part');
+  assert.equal(pinballCueOf({ ...cue, down: 1 }), null, 'down is a boolean');
+  assert.equal(pinballCueOf({ ...cue, x: NaN }), null, 'x is a number');
+  assert.equal(pinballCueOf({ ...cue, at: '3' }), null, 'at is a number');
+  assert.equal(pinballCueOf({ ...cue, cue: 'jackpot' }), null, 'a cue this page does not know');
+  for (const other of [null, undefined, 'pinballCue', 7, { kind: 'pinball', state: {} }]) {
+    assert.equal(pinballCueOf(other), null, `${JSON.stringify(other)} is not a cue`);
+  }
+  // And the readers the stage and the panel's card already have pass a cue over.
+  assert.equal(pinballStateOf(cue), null, 'a cue is not a state');
+  assert.equal(pinballHypeOf(cue), null, 'nor a hype moment');
 });
 
 for (const [name, fn] of steps) {

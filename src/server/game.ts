@@ -7,6 +7,7 @@
 // coins, 70% to its owner and the rest shared by everyone who flipped it (the owner too, if they flipped). The quest's
 // toys (the pop-ups, the mummy, the tomb and the diverter's gate) are raised, opened and swung as the game is asked to
 // (setToy), each only when no ball is in its way; the mummy goes down on its third hit, and a ball in the tomb scores.
+// Each hit on a toy also goes to the stages, as a cue (cue).
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
@@ -15,7 +16,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
 import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
-import { type HypeBuyer, LIT, parsePinballCommands, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
+import { type HypeBuyer, LIT, parsePinballCommands, type PinballCueMsg, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget, type Table } from '../shared/table';
 import { PinballSim, type Hit } from './sim';
 
@@ -814,15 +815,22 @@ export class PinballGame implements Machine {
     this.score(b, points);
     switch (hit.kind) {
       case 'target': {
-        // The mummy goes down on its MUMMY_HITS-th hit since it rose (each hit scored above, the last too). A hit after
-        // that, from a second ball in the same step, asks it down again and changes nothing; asked up afresh, it
-        // starts again from none (setToy).
-        if (this.table.targets.some((t) => t.id === hit.id && t.rise === 'hold')) {
-          if (++this.mummyHits >= MUMMY_HITS) this.setToy('mummy', false);
+        // A pop-up or the mummy is a toy, and its hit is a cue to the stages. The physics has dropped a pop-up that was
+        // hit, so its cue says `down`. The mummy goes down on its MUMMY_HITS-th hit since it rose (each hit scored
+        // above, the last too), and only that hit's cue says `down`: a hit after that, from a second ball in the same
+        // step, asks it down again and changes nothing. Asked up afresh, it starts again from none (setToy).
+        const rise = this.table.targets.find((t) => t.id === hit.id)?.rise;
+        if (rise) {
+          let down = true;
+          if (rise === 'hold') {
+            this.mummyHits++;
+            down = this.mummyHits === MUMMY_HITS;
+            if (this.mummyHits >= MUMMY_HITS) this.setToy('mummy', false);
+          }
+          this.cue(hit.id, down, hit.ball);
           break;
         }
-        // Only the lock's two drop targets (the scarab and the eye) count toward it: the flip plaques have their banks,
-        // and the pop-ups only score (the physics has dropped them).
+        // Only the lock's two drop targets (the scarab and the eye) count toward it: the flip plaques have their banks.
         const drops = this.table.targets.filter(isLockTarget);
         if (!drops.some((t) => t.id === hit.id)) break;
         this.targetsHit.add(hit.id);
@@ -870,8 +878,23 @@ export class PinballGame implements Machine {
           this.feed('Kickback!', 'win', b.owner ?? undefined);
         }
         break;
+      case 'tomb':
+        // The ball the tomb caught scored above; the stages are told of the catch.
+        this.cue(hit.id, false, hit.ball);
+        break;
     }
     this.stateDirty = true;
+  }
+
+  /**
+   * A toy hit, to the stages (PinballCueMsg): the part, whether the hit put it down, where the ball is and when. Like a
+   * hype moment, it goes to every client and is never part of hello; the panel's card reads only the state. The physics
+   * reports a hit only for a ball it still has, so the ball is on the table here.
+   */
+  private cue(part: string, down: boolean, ball: number): void {
+    const { x, z } = this.sim.items.get(ball)!.body.translation();
+    const msg: PinballCueMsg = { kind: 'pinballCue', cue: 'toyHit', part, down, x, z, at: this.sim.time };
+    this.out.send({ t: 'machine', msg });
   }
 
   /** A bank's plaques all show their backs: its title to the stages, and a line in the feed with the bonus scored. */

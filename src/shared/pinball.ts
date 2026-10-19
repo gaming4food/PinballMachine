@@ -56,6 +56,38 @@ export function pinballHypeOf(msg: unknown): PinballHypeMsg | null {
   return m?.kind === 'pinballHype' && typeof m.id === 'string' && typeof m.at === 'number' ? (m as PinballHypeMsg) : null;
 }
 
+/**
+ * A toy hit: the pinball's third message to its stages (never in hello). Stage 3's quest cues join `cue`. A fast ball
+ * can touch a toy and be away again between two snapshots, so the server says each hit instead of leaving the stage to
+ * guess it from where it draws the balls.
+ */
+export interface PinballCueMsg {
+  kind: 'pinballCue';
+  cue: 'toyHit';
+  /** The id of the rising target hit (a pop-up or the mummy), or of the tomb. */
+  part: string;
+  /**
+   * Whether the hit put the part down: true for a pop-up's hit and for the mummy's third hit since it rose (the game's
+   * MUMMY_HITS). False for the mummy's other hits, including one after the third in the same step, and for the tomb's.
+   */
+  down: boolean;
+  /** Where the ball was at the hit, in the table's x and z (for the tomb's, where the tomb holds it). */
+  x: number;
+  z: number;
+  /** When it happened, on the table's clock. */
+  at: number;
+}
+
+/**
+ * A toy-hit cue from a machine's message, or null when it's anything else, a cue that is malformed, or one of a kind it
+ * doesn't know (a page older than its server ignores it).
+ */
+export function pinballCueOf(msg: unknown): PinballCueMsg | null {
+  const m = msg as Partial<PinballCueMsg> | null;
+  if (m?.kind !== 'pinballCue' || m.cue !== 'toyHit' || typeof m.part !== 'string' || typeof m.down !== 'boolean') return null;
+  return Number.isFinite(m.x) && Number.isFinite(m.z) && Number.isFinite(m.at) ? (m as PinballCueMsg) : null;
+}
+
 /** The rules of play. Times are in seconds. */
 export const RULES = {
   /** With no flip word from chat for this many seconds, the auto-save takes the flippers (till chat's next flip). */
