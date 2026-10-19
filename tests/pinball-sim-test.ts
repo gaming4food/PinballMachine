@@ -1,25 +1,26 @@
 // The pinball's physics (server/sim.ts), headless with the real Rapier: a launch goes up the plunger lane and onto the
 // table, no shot gets out through a wall, a ball left alone drains, the right flipper shoots to the upper table (up the
 // left ramp and round the left orbit) and the left flipper too (round the right orbit) and at the drop targets, a bumper
-// kicks, the kickback and the lock do what the game asks, flip targets turn and their banks match once, a saucer's ball
-// is held and let go cleanly, the quest's rising targets (the three pop-ups and the mummy) start down, rise when the
-// game raises them, never rise into a ball, and the pop-ups drop when hit while the mummy stays up and reports every
-// hit, the quest's tomb is a wall while shut and, open, catches a ball at its mouth at any speed, holds it just in
-// front of its door and kicks it out to a flipper, one ball at a time and not one it has just kicked out, never shuts
-// on a ball and never holds one the lock or a saucer has (nor they its), the quest's diverter (a gate on the left
-// ramp, over a gap in its rail) at rest leaves the ramp running as before and swung over sends balls going up it into
-// the lock, a ball leaving the ramp only through the gap, swinging at its own slow speed, never into a ball, and never
-// over while a ball is on its ramp or in the dish above it, the toys' bits say what's open and over (and a table with
-// no diverter has no gate to swing), and the snapshot is the 47-byte header (type, time, ball count, the three
-// flippers' angles, the lit bits, the targets down and turned, both spinners' angles, the toys' bits) then each ball's
-// body; a ball's owner is in its state, not the snapshot.
+// kicks, the kickback and the lock do what the game asks (and the lock, holding a ball, kicks a second back out and
+// never holds it), flip targets turn and their banks match once, a saucer's ball is held and let go cleanly, the
+// quest's rising targets (the three pop-ups and the mummy) start down, rise when the game raises them, never rise into
+// a ball, and the pop-ups drop when hit while the mummy stays up and reports every hit, the quest's tomb is a wall
+// while shut and, open, catches a ball at its mouth at any speed, holds it just in front of its door and kicks it out
+// to a flipper, one ball at a time and not one it has just kicked out, never shuts on a ball and never holds one the
+// lock or a saucer has (nor they its), the quest's diverter (a gate on the left ramp, over a gap in its rail) at rest
+// leaves the ramp running as before and swung over sends balls going up it into the lock, a ball leaving the ramp only
+// through the gap, swinging at its own slow speed, never into a ball, and never over while a ball is on its ramp or in
+// the dish above it, the toys' bits say what's open and over (and a table with no diverter has no gate to swing), and
+// the snapshot is the 47-byte header (type, time, ball count, the three flippers' angles, the lit bits, the targets
+// down and turned, both spinners' angles, the toys' bits) then each ball's body; a ball's owner is in its state, not
+// the snapshot.
 // (The pathways round the table are pinball-layout-test's.)
 // Usage: npm run pinball-sim-test (or npx tsx tests/pinball-sim-test.ts)
 import assert from 'node:assert/strict';
 import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { initPhysics } from '@kit/server';
 import { SNAP_STRIDE } from '@kit/shared';
-import { DT, LOCK_IGNORE, PinballSim, WALL_HALF, type Hit } from '../src/server/sim';
+import { DT, LOCK_IGNORE, LOCK_KICK, PinballSim, WALL_HALF, type Hit } from '../src/server/sim';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../src/shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget, type Table, type Target } from '../src/shared/table';
 
@@ -449,6 +450,120 @@ const checks: [string, () => void][] = [
     for (let i = 0; i < 1 / DT; i++) sim.step();
     const gone = sim.items.get(id)?.body.translation();
     assert.ok(!gone || Math.hypot(gone.x - l.x, gone.z - l.z) > 1, 'the released ball left the lock');
+  }],
+  ['the full lock kicks a second ball out along its kick, and never holds it', () => {
+    const l = TABLE_IN_USE.lock;
+    const [kx, kz] = LOCK_KICK.dir;
+    const k = Math.hypot(kx, kz);
+    /** Where the kicked ball is put: a ball's width and 0.02 out from the held ball's middle, along the kick. */
+    const spot: [number, number] = [l.x + ((2 * R + 0.02) * kx) / k, l.z + ((2 * R + 0.02) * kz) / k];
+    /** Whether ball `id` is where the kick puts a ball, as a step that kicked it ends (it has moved off a little). */
+    const atSpot = (sim: PinballSim, id: number) => {
+      const p = sim.items.get(id)!.body.translation();
+      return Math.hypot(p.x - spot[0], p.z - spot[1]) < LOCK_KICK.speed * DT + 0.02;
+    };
+    /** A table with a ball held in the lock as multiball holds it, and a second rolled down onto it from up the table. */
+    const full = () => {
+      const { sim, hits } = make();
+      const held = place(sim, l.x, l.z);
+      sim.holdInLock(held);
+      const id = place(sim, l.x, l.z + 1.2, 0, -2);
+      return { sim, hits, held, id };
+    };
+    /** Steps until ball `id`'s touch of the lock is reported (at most 1 s). */
+    const untilTouch = (sim: PinballSim, hits: Hit[], id: number, each = () => {}) => {
+      for (let i = 0; i < 1 / DT && !hits.some((h) => h.kind === 'lock' && h.ball === id); i++) {
+        each();
+        sim.step();
+      }
+      assert.ok(hits.some((h) => h.kind === 'lock' && h.ball === id), 'the second ball reached the lock');
+    };
+    {
+      // The kick's start is clear of every solid by 0.02 (as the tomb's held spot is): no ball is put into a wall.
+      const { sim } = make();
+      sim.step(); // Rapier's queries see the table's colliders once the world has stepped.
+      const found: RAPIER.Collider[] = [];
+      (sim as any).world.intersectionsWithShape({ x: spot[0], y: R, z: spot[1] }, { x: 0, y: 0, z: 0, w: 1 }, new RAPIER.Cylinder(0.1, R + 0.02 - 1e-4), (c: RAPIER.Collider) => {
+        found.push(c);
+        return true;
+      }, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
+      assert.deepEqual(found.map((c) => c.handle), [], 'where the kick puts a ball, it is 0.02 clear of everything');
+    }
+    {
+      // Its touch is the lock's hit as ever (the game, in multiball while the lock holds a ball, does nothing with it).
+      // In the same step it is put beside the held ball and kicked along LOCK_KICK, and it gets away down the table,
+      // never held, while the lock keeps its ball.
+      const { sim, hits, held, id } = full();
+      untilTouch(sim, hits, id);
+      assert.deepEqual(hits.filter((h) => h.kind === 'lock'), [{ kind: 'lock', id: 'lock', ball: id }], "its touch is the lock's hit");
+      assert.equal(sim.heldBy(id), null, 'not held');
+      assert.ok(atSpot(sim, id), 'kicked from beside the held ball');
+      const off = offBy(sim, id, LOCK_KICK.dir);
+      assert.ok(off < 5, `along the lock's kick (${off.toFixed(1)} degrees off it)`);
+      assert.ok(Math.abs(speedOf(sim, id) - LOCK_KICK.speed) < 0.5, `at its speed (${speedOf(sim, id).toFixed(2)} units/s)`);
+      for (let i = 0; i < 2 / DT && sim.items.has(id); i++) {
+        sim.step();
+        assert.equal(sim.heldBy(id), null, `never held (${sim.time.toFixed(2)} s)`);
+      }
+      const p = sim.items.get(id)?.body.translation();
+      assert.ok(!p || Math.hypot(p.x - l.x, p.z - l.z) > 2, 'it got away from the lock');
+      assert.equal(sim.heldBy(held), 'lock', 'and the lock keeps its ball');
+      assert.equal(hits.filter((h) => h.kind === 'lock').length, 1, 'touched once');
+    }
+    {
+      // Kept against the held ball in the lock's sensor (put back each step), the kicked ball is ignored there for
+      // LOCK_IGNORE from its kick, as a released one is, and then kicked out again: so one that came back to rest
+      // against the held ball would not stay.
+      const { sim, hits, id } = full();
+      untilTouch(sim, hits, id);
+      // The kick came in the step just taken, on its start's clock.
+      const until = sim.time - DT + LOCK_IGNORE;
+      const body = sim.items.get(id)!.body;
+      const back: [number, number] = [l.x - ((2 * R + 0.01) * kx) / k, l.z - ((2 * R + 0.01) * kz) / k];
+      const park = () => {
+        body.setTranslation({ x: back[0], y: R, z: back[1] }, true);
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      };
+      let again = -1;
+      for (let i = 0; i < 2 / DT && again < 0; i++) {
+        park();
+        const start = sim.time;
+        sim.step();
+        if (atSpot(sim, id)) again = start;
+      }
+      assert.ok(again >= until - 1e-6 && again < until + DT + 1e-6, `kicked again in the step from ${again.toFixed(3)} s, when its ignore was up (${until.toFixed(3)} s)`);
+      assert.equal(sim.heldBy(id), null, 'and never held');
+    }
+    {
+      // Not while another ball stands where the kicked one would be put: the second waits against the held ball, and
+      // goes as soon as that ball has gone.
+      const { sim, hits, id } = full();
+      const third = place(sim, spot[0], spot[1]);
+      const keep = () => {
+        const body = sim.items.get(third)!.body;
+        body.setTranslation({ x: spot[0], y: R, z: spot[1] }, true);
+        body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      };
+      untilTouch(sim, hits, id, keep);
+      for (let i = 0; i < 0.5 / DT; i++) {
+        keep();
+        sim.step();
+      }
+      const p = sim.items.get(id)!.body.translation();
+      assert.ok(Math.hypot(p.x - l.x, p.z - l.z) < l.radius + R, 'with the spot taken, it is still at the lock');
+      sim.remove(third);
+      sim.step();
+      assert.ok(atSpot(sim, id) && offBy(sim, id, LOCK_KICK.dir) < 5, 'with the spot clear, it is kicked at once');
+      assert.equal(sim.heldBy(id), null);
+    }
+    {
+      // The lock empty, a ball's touch is only the lock's hit: no kick (the game holds the ball, if the lock is lit).
+      const { sim, hits } = make();
+      const id = place(sim, l.x, l.z + 1.2, 0, -2);
+      untilTouch(sim, hits, id);
+      assert.ok(!atSpot(sim, id) && speedOf(sim, id) < LOCK_KICK.speed - 1, 'not kicked');
+    }
   }],
   ['a hit handler can take balls off mid-step: two drains together, cleared on the first', () => {
     const hits: Hit[] = [];

@@ -2,13 +2,14 @@
 // travelled at its rate, no ball gets off it, and nothing keeps a ball. These are the Blender spike's checks of the
 // layout (spike/blender/validate-layout10.mts and check-upper.mts) turned into assertions, at the spike's thresholds.
 // Each check stands alone: a table of its own, and the seeded random started again (seed 7; seed 3 for the drops round
-// the upper flipper, and a seed each for the drops and the shots round each of the quest's toys), so a failing check
-// can be run again to look into, whatever the others do. The aimed shots (the orbits, the lock, the left ramp, the
-// right spinner, the centre lane) have no random in them: ten shots each, with a fixed spread across ±5% of the aim
-// (SPREAD). The quest's toys (the pop-ups, the mummy, the tomb and the diverter's gate) are checked up and down: no
-// ball stuck or got off the table round them, the left ramp as it was with them down, the tomb's kick to a flipper,
-// the gate's shots into the lock, and how the magnet and the tomb share the centre lane. It runs in about a minute,
-// and prints one line per check.
+// the upper flipper, and a seed each for the drops and the shots round each of the quest's toys and for the drops round
+// the full lock), so a failing check can be run again to look into, whatever the others do. The aimed shots (the
+// orbits, the lock, the left ramp, the right spinner, the centre lane) have no random in them: ten shots each, with a
+// fixed spread across ±5% of the aim (SPREAD). The quest's toys (the pop-ups, the mummy, the tomb and the diverter's
+// gate) are checked up and down: no ball stuck or got off the table round them, the left ramp as it was with them
+// down, the tomb's kick to a flipper, the gate's shots into the lock, and how the magnet and the tomb share the centre
+// lane; and, with a ball held in the lock (which kicks a second one back out), none of the gate's shots and none of
+// the balls dropped round the lock stays on the table. It runs in about a minute, and prints one line per check.
 // Usage: npm run pinball-layout-test [-- <words>: only the checks whose names hold them]
 import assert from 'node:assert/strict';
 import { initPhysics } from '@kit/server';
@@ -714,6 +715,87 @@ const checks: [string, () => string][] = [
     assert.ok(reached.length >= dishToday, `only ${reached.length} reached the gate, where ${dishToday} make the dish with no gate (${each})`);
     assert.ok(locked >= 0.9 * reached.length, `only ${locked} of the ${reached.length} that reached the gate went into the lock (per shot, L the lock, g the gate only, - neither: ${each})`);
     return `at rest as with no gate (${rest.slice(0, 10)} ${rest.slice(10)}); over, ${locked} of the ${reached.length} that reached the gate into the lock (${each.slice(0, 10)} ${each.slice(10)})`;
+  }],
+  ['with a ball held in the lock, the gate over leaves none of the left ramp\'s shots on the table', () => {
+    // The gate sends the left ramp's shots into the lock, and from the first that starts multiball the lock holds that
+    // ball: so over, with a ball held, is the gate's own state. The tripwire's shots up the left ramp (the fixed spread
+    // and the grid), each on a table of its own with the gate over and a ball held in the lock as multiball holds it
+    // (holdInLock), the flippers at rest, each followed 12 s: none is still on the table then but the held ball and
+    // one lying still on a flipper.
+    const stuck: string[] = [];
+    let drained = 0, onFlipper = 0, metLock = 0;
+    for (const [fx, fz] of RAMP_SHOTS) {
+      hits = [];
+      sim = new PinballSim(L, (h) => hits.push(h));
+      assert.ok(sim.setDiverter(true), 'with no ball on the table the gate swings over');
+      for (let i = 0; i < 0.25 / DT; i++) sim.step();
+      const held = add(L.lock.x, L.lock.z, 0, 0);
+      sim.holdInLock(held);
+      const id = add(-0.1, 3.0, -23 * fx, 44 * fz);
+      let end = 'still on the table', still = 0;
+      for (let i = 0; i < 12 / DT; i++) {
+        sim.step();
+        const p = pos(id);
+        if (!p) { end = 'drained'; break; }
+        const v = sim.items.get(id)!.body.linvel();
+        still = onAFlipper(p) && Math.hypot(v.x, v.y, v.z) < 0.05 ? still + 1 : 0;
+        if (still > 1 / DT) { end = 'on a flipper'; break; }
+      }
+      assert.equal(sim.heldBy(held), 'lock', `shot (${fx}, ${fz}): the lock keeps the ball it holds`);
+      if (hits.some((h) => h.kind === 'lock' && h.ball === id)) metLock++;
+      if (end === 'drained') drained++;
+      else if (end === 'on a flipper') onFlipper++;
+      else {
+        const p = pos(id)!, v = sim.items.get(id)!.body.linvel();
+        stuck.push(`shot (${fx.toFixed(3)}, ${fz.toFixed(3)}) at (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}), ${Math.hypot(p.x - L.lock.x, p.z - L.lock.z).toFixed(2)} from the lock, at ${Math.hypot(v.x, v.y, v.z).toFixed(2)} units/s`);
+      }
+    }
+    assert.deepEqual(stuck, [], `${stuck.length} of the ${RAMP_SHOTS.length} still on the table after 12 s (${metLock} met the lock):\n${stuck.join('\n')}`);
+    return `${metLock} of the ${RAMP_SHOTS.length} met the lock holding a ball; none still on the table after 12 s (${drained} drained, ${onFlipper} lying on a flipper)`;
+  }],
+  ['60 balls dropped round the lock while it holds a ball, the toys up and down: none stuck, none out', () => {
+    // The ball the full lock kicks out must not come back to rest against the held ball, nor anywhere else. Balls let
+    // go round the lock every which way (where the gate's check drops them on the playfield, clear of the held ball),
+    // with a ball held in the lock as multiball holds it and every toy up (the gate over) or every toy down, the
+    // flippers at rest, each followed until it drains, 60 s at most, as the drops round each toy are.
+    const lines: string[] = [];
+    const bad: string[] = [];
+    for (const up of [false, true]) {
+      fresh(61 + +up);
+      let drained = 0, onFlipper = 0, metLock = 0;
+      for (let n = 0; n < 60; n++) {
+        hits = [];
+        sim = new PinballSim(L, (h) => hits.push(h));
+        if (up) raiseToys();
+        const held = add(L.lock.x, L.lock.z, 0, 0);
+        sim.holdInLock(held);
+        let s: P;
+        do s = inBox([{ x: -2.5, z: 12.5 }], 0.75); while (Math.hypot(s.x - L.lock.x, s.z - L.lock.z) < 2 * R + 0.03);
+        const id = add(s.x, s.z, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+        let end = 'stuck', still = 0;
+        for (let i = 0; i < 60 / DT; i++) {
+          sim.step();
+          if (up) keepUp();
+          const p = pos(id);
+          if (!p) { end = 'drained'; break; }
+          if (escaped(p)) { end = 'out'; break; }
+          const v = sim.items.get(id)!.body.linvel();
+          still = onAFlipper(p) && Math.hypot(v.x, v.y, v.z) < 0.05 ? still + 1 : 0;
+          if (still > 1 / DT) { end = 'on a flipper'; break; }
+        }
+        assert.equal(sim.heldBy(held), 'lock', 'the lock keeps the ball it holds');
+        if (hits.some((h) => h.kind === 'lock' && h.ball === id)) metLock++;
+        if (end === 'drained') drained++;
+        else if (end === 'on a flipper') onFlipper++;
+        else {
+          const p = pos(id)!;
+          bad.push(`toys ${up ? 'up' : 'down'}: from (${s.x.toFixed(2)}, ${s.z.toFixed(2)}) ${end} at (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}), ${Math.hypot(p.x - L.lock.x, p.z - L.lock.z).toFixed(2)} from the lock`);
+        }
+      }
+      lines.push(`toys ${up ? 'up' : 'down'} ${drained}+${onFlipper}, ${metLock} met the lock`);
+    }
+    assert.deepEqual(bad, [], `${bad.length} stuck or out:\n${bad.slice(0, 6).join('\n')}`);
+    return `none stuck, none out (drained + lying on a flipper: ${lines.join('; ')})`;
   }],
   ['the magnet and the tomb share the centre lane', () => {
     // With the tomb open: balls rolled up the centre lane from z 3.6 (across its middle, at 6 to 20 units/s, rolling)

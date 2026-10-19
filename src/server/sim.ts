@@ -4,15 +4,15 @@
 // bodies swung toward up or rest. Bumpers and slings kick a ball away and report it; drop targets drop, and flip targets
 // turn to their backs (a bank of them all turned reports a match); a rising target (a pop-up or the mummy) stands down,
 // no wall at all, until the game raises it, and then a pop-up drops when hit and the mummy stays up and reports every
-// hit; the rollovers, the spinners, the lock and the kickback are sensors that report; a saucer holds a slow ball a
-// moment and kicks it out; the tomb's door, in the doorway cut into the pyramid's front corner, is a wall until the
-// game opens it, and then the doorway's mouth catches any ball that touches it, holds it a moment and kicks it out; the
-// diverter's gate, a kinematic body as the flippers are, stands in a gap in the left ramp's rail until the game swings
-// it over, slowly, across the ramp (once no ball is on the ramp or in the dish above it), where it turns balls going up
-// the ramp out through the gap, down into the lock; a ball past the drain is taken off and reported. What the hits are
-// worth, whose balls they are and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish,
-// the flip targets, the saucers and the second spinner were built and proven in the Blender spike,
-// spike/blender/sim-features.mts.)
+// hit; the rollovers, the spinners, the lock and the kickback are sensors that report, and the lock, while it holds a
+// ball, kicks back out any other that reaches it; a saucer holds a slow ball a moment and kicks it out; the tomb's
+// door, in the doorway cut into the pyramid's front corner, is a wall until the game opens it, and then the doorway's
+// mouth catches any ball that touches it, holds it a moment and kicks it out; the diverter's gate, a kinematic body as
+// the flippers are, stands in a gap in the left ramp's rail until the game swings it over, slowly, across the ramp
+// (once no ball is on the ramp or in the dish above it), where it turns balls going up the ramp out through the gap,
+// down into the lock; a ball past the drain is taken off and reported. What the hits are worth, whose balls they are
+// and what's lit is the game's (game.ts): this is only the physics. (The ramps, the dish, the flip targets, the saucers
+// and the second spinner were built and proven in the Blender spike, spike/blender/sim-features.mts.)
 //
 // The table is in scene units (table.ts): x across, z up the table, y up off the playfield (the plane y = 0).
 import RAPIER from '@dimforge/rapier3d-simd-compat';
@@ -91,6 +91,25 @@ const KICKBACK_R = 0.6;
 const KICKBACK_SPEED = 30;
 /** How fast a ball let go from the lock leaves it (units/s), and which way: down and in, toward the flippers. */
 const LOCK_EJECT = { speed: 8, dir: [0.6, -0.8] as const };
+/**
+ * The lock full: a ball that reaches it while it holds another is kicked back out, as a saucer kicks. It is put beside
+ * the held ball (its middle a ball's width and LOCK_KICK_CLEAR out from the held ball's, along `dir`) and sent along
+ * `dir` at `speed` (units/s, the lock's own release speed), down the lane by the left ramp toward the left flipper.
+ * Left there instead, 7 of the 27 of the layout test's left-ramp shots that the gate over sends into the lock came to
+ * rest against the held ball. Measured 2026-10-19 with a ball held and the flippers at rest, those 27 are each kicked
+ * once and come within a flipper's reach a median 1.35 s later, none caught by the Scarab saucer and none left on the
+ * table, and so do the 30 of 120 balls dropped round the lock and the 26 of 40 rolled up the lane that reach it; in
+ * the stress run's 3,250 runs with a ball held and random flips, none got off the table and none came to rest against
+ * the held ball. Kicked anywhere from -75 to -120 degrees (straight down the table is -90) at 4 to 13 units/s, those
+ * shots and drops get away as well, since gravity takes a ball from below the held one whatever the kick: the speed
+ * sets only how soon it reaches a flipper (1.2 s at 12, 1.5 at 4). At -82.5 every kicked ball went into the Scarab
+ * saucer and back up to the bumpers; kicked up the table or to the left, none got away; and along the release's own
+ * way, (0.6, -0.8), the ball would be put into bumper-1. At -97.5 it is put 0.25 clear of bumper-1 and 0.33 of the
+ * ramp's side. (Exported for the tests, which follow the kick.)
+ */
+export const LOCK_KICK = { speed: 8, dir: [-0.13, -0.99] as [number, number] };
+/** How far apart the held ball and the one the full lock kicks out are put, surface to surface. */
+const LOCK_KICK_CLEAR = 0.02;
 /**
  * After it's let go, a ball doesn't set the lock off again for this long (s); and one kicked out of a saucer or the
  * tomb isn't caught again that soon. (Exported for the tests, which time the tomb's ignore by it.)
@@ -179,6 +198,8 @@ export class PinballSim {
   private readonly bankResets = new Map<string, number>();
   private readonly lastKick = new Map<string, number>();
   private readonly lockIgnoreUntil = new Map<number, number>();
+  /** The lock's sensor, which the full lock asks which balls are in it (kickFromFullLock). */
+  private lockSensor!: RAPIER.Collider;
   /** Every ball held still: the lock's, the saucers' (those also in saucerHold) and the tomb's (tombHold's). */
   private readonly held = new Set<number>();
   /** The extra spinners' turns (table.spinners, in order). */
@@ -275,8 +296,8 @@ export class PinballSim {
     return RAPIER.ColliderDesc.cylinder(hy, r).setTranslation(x, y0 + hy, z);
   }
 
-  private sensor(desc: RAPIER.ColliderDesc, part: Part): void {
-    this.fixed(desc.setSensor(true), part);
+  private sensor(desc: RAPIER.ColliderDesc, part: Part): RAPIER.Collider {
+    return this.fixed(desc.setSensor(true), part);
   }
 
   private build(): void {
@@ -355,7 +376,7 @@ export class PinballSim {
     for (const r of t.rollovers) this.sensor(this.post(r.x, r.z, ROLLOVER_R), { kind: 'rollover', id: r.id });
     const sp = t.spinner;
     this.sensor(RAPIER.ColliderDesc.cuboid(sp.width / 2, hy, 0.05).setTranslation(sp.x, hy, sp.z), { kind: 'spinner' });
-    this.sensor(this.post(t.lock.x, t.lock.z, t.lock.radius), { kind: 'lock' });
+    this.lockSensor = this.sensor(this.post(t.lock.x, t.lock.z, t.lock.radius), { kind: 'lock' });
     t.spinners.forEach((s2, index) => {
       this.spin2.push({ angle: 0, speed: 0, ball: 0 });
       this.sensor(RAPIER.ColliderDesc.cuboid(s2.width / 2, SPINNER2_HALF_Y, 0.05).setTranslation(s2.x, SPINNER2_HALF_Y, s2.z), { kind: 'spinner2', index });
@@ -963,6 +984,7 @@ export class PinballSim {
         this.saucerIgnore.set(id, now + LOCK_IGNORE);
       }
     }
+    this.kickFromFullLock(now);
     for (const ball of [...this.items.values()]) {
       if (this.held.has(ball.id)) continue;
       const v = ball.body.linvel();
@@ -1152,6 +1174,41 @@ export class PinballSim {
     this.held.add(ball.id);
     this.tombHold = { id: ball.id, until: now + tomb.spec.hold };
     this.report({ kind: 'tomb', id: tomb.spec.id, ball: ball.id });
+  }
+
+  /**
+   * While the lock holds a ball, any other ball in its sensor is kicked back out, as a saucer kicks: put beside the
+   * held ball, on the side LOCK_KICK goes, and sent off along it; and the lock ignores it for LOCK_IGNORE, as it does a
+   * ball it lets go. (The gate over turns the left ramp's shots out onto the held ball, and left there 7 of the layout
+   * test's 27 that went in came to rest against it.) Not a ball something holds, nor one the lock is ignoring, nor
+   * while another ball stands where the kicked one would be put: that one is tried again next step, and so is one
+   * still in the sensor when its ignore is over. The touch that brings a ball in is the lock's hit as ever, and the
+   * kick reports nothing of its own: the game holds a ball only in the lit lock outside multiball, and the lock holds
+   * one only in multiball.
+   */
+  private kickFromFullLock(now: number): void {
+    let holding = false;
+    for (const id of this.held) if (this.heldBy(id) === 'lock') holding = true;
+    if (!holding) return;
+    const R = TABLE.ballRadius;
+    const [dx, dz] = LOCK_KICK.dir;
+    const len = Math.hypot(dx, dz) || 1;
+    const out = 2 * R + LOCK_KICK_CLEAR;
+    const x = this.table.lock.x + (out * dx) / len, z = this.table.lock.z + (out * dz) / len;
+    for (const ball of this.items.values()) {
+      if (this.held.has(ball.id) || now < (this.lockIgnoreUntil.get(ball.id) ?? -Infinity)) continue;
+      if (!this.world.intersectionPair(this.lockSensor, ball.body.collider(0))) continue;
+      let clear = true;
+      for (const other of this.items.values()) {
+        const p = other.body.translation();
+        if (other !== ball && Math.hypot(p.x - x, p.z - z) < 2 * R) clear = false;
+      }
+      if (!clear) continue;
+      ball.body.setTranslation({ x, y: R, z }, true);
+      ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      ball.body.setLinvel({ x: (LOCK_KICK.speed * dx) / len, y: 0, z: (LOCK_KICK.speed * dz) / len }, true);
+      this.lockIgnoreUntil.set(ball.id, now + LOCK_IGNORE);
+    }
   }
 
   private targetIndex(id: string): number {

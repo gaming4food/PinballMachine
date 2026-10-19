@@ -89,8 +89,9 @@ failure is real and fails again: read the step and find out why.
 - **The lock and the kickback.** The lock lights when both drop targets (the scarab and the eye, right of the pyramid in
   front of the Horus bank) are down; they come back up a second later, once no ball stands where one rises (the plaques
   keep their turns). A ball into the lit lock is held there and multiball brings 2 more balls in (from the line, then
-  the house's, which pay nobody); the held ball is let go when the others are down to one. All 3 top rollovers light
-  the kickback, which kicks a ball out of the right outlane once.
+  the house's, which pay nobody); the held ball is let go when the others are down to one. While the lock holds a
+  ball, another that reaches it is kicked back out toward the flippers (sim.ts's LOCK_KICK), so none comes to rest
+  against the held one. All 3 top rollovers light the kickback, which kicks a ball out of the right outlane once.
 - **Second chances.** A ball that drains within 5 s of its first launch, or under a bought ball saver, comes straight
   back with its points. A ball that stays put 4 s gets the table nudged (a ball a saucer, the magnet or the tomb holds
   isn't stuck); one still stuck after 3 nudges is taken off and launched again up the plunger lane for the same owner,
