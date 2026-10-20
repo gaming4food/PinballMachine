@@ -980,8 +980,10 @@ export class TableParts {
       let color = glow.lamp.color;
       // The quest's lasting look. While a mode runs, the rail lights and the arrows glow lit in its god's colour, where
       // that's the brighter (the game lights none of them). The mode's toy lamp blinks in place of the game's light on
-      // it, whether its toy is up or down: the game would hold a standing toy's lamp lit, which would hide the blink.
-      // The blink's two levels are the game's own blinking lamps' (GLOW_LIT and GLOW_DIM), which never count as a rise.
+      // it while its toy is up (by the glow's own toy test, as the game's light goes): the game would hold a standing
+      // toy's lamp lit, which would hide the blink. While its toy is down it stays dark, as the game has it, since a
+      // lamp blinking at a knocked-down pop-up would say it was there to hit. The blink's two levels are the game's own
+      // blinking lamps' (GLOW_LIT and GLOW_DIM), which never count as a rise.
       // While the finale runs, the ring chases at a show's brightness, rising once a lap.
       const role = this.questRoles[i];
       const god = this.questGod;
@@ -997,7 +999,8 @@ export class TableParts {
       }
       if (god !== null && role.toyOf === god) {
         const phase = this.questNow * 2;
-        level = phase - Math.floor(phase) < 0.5 ? GLOW_LIT : GLOW_DIM;
+        const up = glow.toy?.(this.down, this.toys) ?? false;
+        level = !up ? 0 : phase - Math.floor(phase) < 0.5 ? GLOW_LIT : GLOW_DIM;
         color = GOD_COLOR[god];
       }
       // The shows' light where it's the brighter, in its colour.

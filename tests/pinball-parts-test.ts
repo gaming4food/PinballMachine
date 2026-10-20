@@ -1116,7 +1116,7 @@ const QUEST_GOLD = 0xffc23a;
 const GLOW_LIT = 0.45;
 const GLOW_DIM = 0.15;
 
-test("while a mode runs the rail lights and orbit arrows glow in its god's colour and its toy's lamp blinks in it; with none, they're as before", () => {
+test("while a mode runs the rail lights and orbit arrows glow in its god's colour and its toy's lamp blinks in it while the toy is up, dark while it's down; with none, they're as before", () => {
   // A frame every 1/120 s of the table's clock, with a dt half as long again (the city's): the blink goes by `now`.
   const step = 1 / 120;
   const [, popup2] = RISING_AT;
@@ -1134,7 +1134,9 @@ test("while a mode runs the rail lights and orbit arrows glow in its god's colou
     const toys = TOY_LAMP_OF[god];
     assert.deepEqual(parts.lamps.toys[god].map((l) => parts.glows[parts.lamps.all.indexOf(l)].id), toys, `${god}'s toy lamps`);
     const shown = parts.glows.map(() => [] as number[]);
-    const blinks = new Map(toys.map((id) => [id, [] as number[]]));
+    // The second pop-up is down, so its lamp stays dark: a lamp blinking where a pop-up isn't would say it was there.
+    const downLamp = 'popup-2';
+    const blinks = new Map(toys.filter((id) => id !== downLamp).map((id) => [id, [] as number[]]));
     for (let k = 0; k * step < 2; k++) {
       const now = 40 + k * step;
       parts.setQuestLook({ god, finale: false }, now);
@@ -1145,6 +1147,8 @@ test("while a mode runs the rail lights and orbit arrows glow in its god's colou
         const what = `${god}: ${g.id} at ${now.toFixed(3)}: ${g.material.opacity} in ${g.material.color.getHexString()}`;
         if (isDecor(g.id)) {
           assert.ok(g.object.visible && near(g.material.opacity, GLOW_LIT) && g.material.color.getHex() === color, `${what}, steady in the god's colour`);
+        } else if (g.id === downLamp && toys.includes(g.id)) {
+          assert.ok(!g.object.visible && g.material.opacity === 0, `${what}, dark while its pop-up is down`);
         } else if (toys.includes(g.id)) {
           assert.ok(g.object.visible && g.material.color.getHex() === color, `${what}, in the god's colour`);
           assert.ok(near(g.material.opacity, GLOW_LIT) || near(g.material.opacity, GLOW_DIM), `${what}, at a blink's levels`);
@@ -1157,8 +1161,8 @@ test("while a mode runs the rail lights and orbit arrows glow in its god's colou
         }
       });
     }
-    // The toy's lamp blinks twice a second on the table's clock, lit then dim, whether its toy is up or (the second
-    // pop-up) down: lit from the start, and lit again 3 times more in the 2 s.
+    // The toy's lamp blinks twice a second on the table's clock, lit then dim, while its toy is up: lit from the start,
+    // and lit again 3 times more in the 2 s.
     for (const [id, seen] of blinks) {
       let relit = 0;
       for (let k = 1; k < seen.length; k++) if (seen[k] > seen[k - 1]) relit++;
