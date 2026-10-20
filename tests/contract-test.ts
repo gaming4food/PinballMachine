@@ -53,7 +53,7 @@ const checks: [string, () => void][] = [
     assert.equal(panel.id, entry.id);
     assert.equal(typeof panel.card, 'function');
     assert.equal(entry.id, 'pinball');
-    assert.equal(entry.release, 'development');
+    assert.equal(entry.release, 'released');
     assert.equal(manifest.server.runsUnseen, false);
   }],
   ["the entry's seven hype buttons, in order, each for sale from chat", () => {

@@ -314,9 +314,8 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
 The owner imports it into coin-op-city (`npm run machine:import -- pinball <this repo>`, which refuses uncommitted
 changes, reads each file of `src/` from the commit (the picture and the plaques are in `src/assets/`, so they go with
 it), checksums it, and checks it typechecks and passes coin-op-city's tests). Nothing here reaches a streamer until
-then. The pinball is in development (`src/entry.ts` says `release: 'development'`): only the owner's own PC plays it,
-and everywhere else it is Coming soon, until `release` is set to `'released'` here and it is imported again and the app
-released.
+then. The pinball is released (`src/entry.ts` says `release: 'released'`): streamers get it with the next app release,
+on its own plan or All machines, as the claw.
 
 ## Standing rules
 

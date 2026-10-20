@@ -12,7 +12,7 @@ export const entry = {
   testLabel: 'Launch a ball (as a test viewer)',
   testChat: 'ball',
   rainsAtZero: false,
-  release: 'development',
+  release: 'released',
   howTo: [
     '<b>ball</b> puts your ball in the line, and it launches when its turn comes',
     '<b>left</b> · <b>right</b> flip the flippers, all of chat together',
