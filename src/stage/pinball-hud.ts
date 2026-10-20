@@ -30,15 +30,19 @@ import {
 
 /** How long a title is up (pinball.css's title animation runs as long), as the claw's hype titles. */
 export const TITLE_SECONDS = 2.2;
-/** A moment this long past when its time is drawn is let go (a page catching up), as the claw's. */
+/**
+ * A title more than this late for its turn is let go (a page catching up), as the claw's. Its turn is the start of its
+ * slot: its moment, or the end of the title before it if that is later, so a title is not late for having waited
+ * behind another.
+ */
 const STALE_SECONDS = 2;
 /**
- * A quest title is let go this long past its moment: it may wait behind two titles first. The moments come together: a
- * bank matched is HORUS MATCHED and then the mode it starts, and the fourth god's win is its prize, then MULTIBALL!
- * (from the state) and then PHARAOH'S GOLD!. With STALE_SECONDS the second of any two would be 2.2 s late when its turn
- * came, and let go.
+ * And a title more than this long past its moment is let go, however it waited. One moment can have several titles (a
+ * bank matched is HORUS MATCHED and then the mode it starts; the fourth god's win is its prize and then PHARAOH'S
+ * GOLD!), and each is shown in its turn: up to three, the third two titles' time after its moment. A fourth, or a
+ * title kept waiting by a flurry, is let go, whether it is a hype title or a quest's.
  */
-const QUEST_STALE_SECONDS = STALE_SECONDS + 2 * TITLE_SECONDS;
+const MAX_WAIT_SECONDS = STALE_SECONDS + 2 * TITLE_SECONDS;
 /** The state turning multiball on within this long of a press's moment is that press, already titled. */
 const SAME_MULTIBALL = 3;
 /**
@@ -83,8 +87,7 @@ type QuestMode = NonNullable<PinballState['quest']['mode']>;
 
 /**
  * A title waiting for its time (null: the next frame), its look (data-title), and the line over it, if any. It has the
- * colour of its kind (pinball.css) unless it has a `color` of its own, as a quest title has its god's. It is let go
- * when it is more than `stale` seconds past its time, where that isn't STALE_SECONDS.
+ * colour of its kind (pinball.css) unless it has a `color` of its own, as a quest title has its god's.
  */
 interface Title {
   at: number | null;
@@ -92,7 +95,6 @@ interface Title {
   words: string;
   by?: { text: string; color?: number };
   color?: number;
-  stale?: number;
 }
 
 const points = (n: number) => n.toLocaleString('en-US');
@@ -111,7 +113,7 @@ function timeLeft(mode: QuestMode, simTime: number): number {
 
 /** A quest cue's title, at its time; null for the cues with none: a goal hit, a toy's hit and the finale's end. */
 function questTitle(c: PinballCueMsg): Title | null {
-  const title = (kind: string, words: string, color: number): Title => ({ at: c.at, kind, words, color, stale: QUEST_STALE_SECONDS });
+  const title = (kind: string, words: string, color: number): Title => ({ at: c.at, kind, words, color });
   switch (c.cue) {
     case 'modeStart':
       return title('mode-start', `${MODE_NAME[c.god]}!`, GOD_COLOR[c.god]);
@@ -259,8 +261,10 @@ export class PinballHud {
     this.showResult(state);
     this.showQuest(state);
     if (!was) return;
-    // Multiball the lock started: no press's moment came for it.
-    if (!was.multiball && state.multiball && this.multiballMoments === 0 && this.lastMultiball <= this.simTime - SAME_MULTIBALL) {
+    // Multiball the lock started: no press's moment came for it. The finale's is the finale's: its title says it
+    // (PHARAOH'S GOLD!, from its cue), whether the fourth god's win began the finale or the next ball after a restart.
+    const finaleBegan = state.quest.finale !== null && was.quest.finale === null;
+    if (!was.multiball && state.multiball && !finaleBegan && this.multiballMoments === 0 && this.lastMultiball <= this.simTime - SAME_MULTIBALL) {
       this.lastMultiball = this.simTime;
       this.queue({ at: null, kind: 'multiball', words: 'MULTIBALL!' });
     }
@@ -383,8 +387,10 @@ export class PinballHud {
         this.multiballMoments = Math.max(0, this.multiballMoments - 1);
         this.lastMultiball = next.at;
       }
-      if (simTime - at > (next.stale ?? STALE_SECONDS)) continue;
-      this.show(next, at);
+      // Its slot starts at its moment, or when the title before it ended if that was later.
+      const start = Math.max(at, this.lastUntil);
+      if (simTime - start > STALE_SECONDS || simTime - at > MAX_WAIT_SECONDS) continue;
+      this.show(next, start);
       return;
     }
   }
@@ -404,8 +410,9 @@ export class PinballHud {
     this.multiballMoments = kept.filter((t) => t.kind === 'multiball' && t.at !== null).length;
   }
 
-  private show(t: Title, at: number): void {
-    this.until = Math.max(at, this.lastUntil) + TITLE_SECONDS;
+  /** Shows a title in its slot, which starts at `start` (see tick) and runs for TITLE_SECONDS. */
+  private show(t: Title, start: number): void {
+    this.until = start + TITLE_SECONDS;
     this.run = !this.run;
     this.words.textContent = t.words;
     if (t.by) {

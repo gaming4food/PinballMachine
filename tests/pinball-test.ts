@@ -1026,6 +1026,30 @@ step('pinballCueOf reads a cue and nothing else', () => {
   assert.equal(pinballHypeOf(cue), null, 'nor a hype moment');
 });
 
+step('pinballStateOf gives a state whose quest is missing or no object the empty quest, on a copy, and any other state back as it is', () => {
+  const state = game.state();
+  assert.equal(pinballStateOf({ kind: 'pinball', state }), state, 'a state with a quest comes back as the very object');
+  // A server older than the quest sends none (a page can meet one for a moment), so every reader of the state may take
+  // its quest as there. A quest that is no object is as good as none.
+  const empty = { done: [], mode: null, finale: null };
+  const missing: Partial<PinballState> = { ...state };
+  delete missing.quest;
+  const sent: [string, object][] = [
+    ['missing', missing],
+    ['undefined', { ...state, quest: undefined }],
+    ['null', { ...state, quest: null }],
+    ['a string', { ...state, quest: 'ra' }],
+    ['a number', { ...state, quest: 7 }],
+  ];
+  for (const [what, was] of sent) {
+    const before = JSON.stringify(was);
+    const got = pinballStateOf({ kind: 'pinball', state: was });
+    assert.deepEqual(got, { ...state, quest: empty }, `a quest that is ${what}: the empty quest, and the rest of the state as it was`);
+    assert.notEqual(got, was, `${what}: on a copy`);
+    assert.equal(JSON.stringify(was), before, `${what}: the message is left as it came`);
+  }
+});
+
 // --- The quest, played through the game (quest.ts's rules, fed from the table's hits and the table's clock) ---
 
 /** The quest as the state shows it. */

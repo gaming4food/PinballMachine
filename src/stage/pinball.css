@@ -41,8 +41,9 @@
 /*
  * The Pharaoh's quest, over the balls: the four gods as lamps (lit as they are crossed off, each in its god's colour,
  * --c), and under them the banner of the mode that runs, in its god's colour (--c), with a bar of its time left; the
- * finale's banner is gold and has no bar. PinballHud sets the colours and writes the bar's width every frame, so the
- * bar has no transition of its own: it would only lag the countdown.
+ * finale's banner is gold and has no bar. PinballHud sets the colours and writes the bar's width whenever it changes (a
+ * tenth of a percent of the mode's time, so on most frames while the time runs), so the bar has no transition of its
+ * own: it would only lag the countdown.
  */
 .pinball-gods {
   display: flex;
@@ -138,7 +139,14 @@ body.no-commands #pinball-hud .cmd {
 }
 
 body.no-commands
-  #pinball-hud[data-phase='idle']:not(:has(.pinball-result:not([hidden]), .pinball-next:not([hidden]), .pinball-banner:not([hidden]), .pinball-gods:not([hidden]))) {
+  #pinball-hud[data-phase='idle']:not(
+    :has(
+      .pinball-result:not([hidden]),
+      .pinball-next:not([hidden]),
+      .pinball-banner:not([hidden]),
+      .pinball-gods:not([hidden])
+    )
+  ) {
   display: none;
 }
 

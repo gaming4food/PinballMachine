@@ -354,6 +354,7 @@ test("Tomb Raid's banner counts its prize down with its time; the finale's shows
   const goal = part('goal');
   const bar = part('bar');
   const fill = part('fill');
+  const gods = part('pinball-gods');
   const eye = (more: Partial<Mode> = {}) => msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus', 'ankh'], mode: mode('eye', more) }) }));
   hud.message(eye());
   hud.tick(100);
@@ -391,9 +392,11 @@ test("Tomb Raid's banner counts its prize down with its time; the finale's shows
   hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: jackpot + QUEST.jackpot.step } }) })));
   assert.equal(names.textContent, `PHARAOH'S GOLD · JACKPOT ${money(jackpot + QUEST.jackpot.step)}`);
 
-  // A finale a restart saved waits for a ball: no banner yet (the lamps show, with all four lit).
+  // A finale a restart saved waits for a ball: no banner yet, but the lamps show, all four lit.
   hud.message(msgOf(state({ phase: 'idle', quest: quest({ done: [...GODS] }) })));
   assert.equal(banner.hidden, true);
+  assert.equal(gods.hidden, false);
+  assert.deepEqual(gods.children.map((lamp) => lamp.dataset.lit), ['on', 'on', 'on', 'on']);
   // The quest starts over, and the next mode shows its bar and its goal again.
   hud.message(msgOf(state({ phase: 'playing', quest: quest({ mode: mode('horus', { progress: 1 }) }) })));
   assert.equal(banner.hidden, false);
@@ -510,12 +513,31 @@ test("a page opened mid-mode shows the banner and the lamps from hello's state, 
   }
 });
 
-test("a quest title waits its turn behind the titles of its moment: a bank's match, then the mode it starts; the fourth god's win, MULTIBALL! and PHARAOH'S GOLD!", () => {
+/**
+ * The titles that show, in order, with the time each first showed, as the stage draws every `step` seconds from `from`
+ * to `to`: each once, however many frames it is up for (the stage restarts its animation for each, flipping data-run).
+ */
+function titlesShown({ hud, shown, title }: ReturnType<typeof board>, from: number, to: number, step = 0.05): { words: string; at: number }[] {
+  const seen: { words: string; at: number }[] = [];
+  let run: string | undefined;
+  for (let i = 0; from + i * step <= to; i++) {
+    const t = from + i * step;
+    hud.tick(t);
+    const words = shown();
+    if (words !== null && title.dataset.run !== run) seen.push({ words, at: t });
+    run = words === null ? undefined : title.dataset.run;
+  }
+  return seen;
+}
+/** Whether a title first showed at `want`, to the frame (the step it was looked for at). */
+const showedAt = (got: { at: number }, want: number, step = 0.05) => Math.abs(got.at - want) <= step + 1e-9;
+
+test("a bank's match shows its title and then the mode it starts, each in its turn", () => {
   const { hud, shown } = board();
   hud.message(msgOf(state({ phase: 'playing' })));
   hud.tick(9);
-  // A bank matched starts a mode: the bank's title (a hype moment) and the mode's start come at the same moment, and
-  // the start, second in line, is shown when the first is done, TITLE_SECONDS after its moment.
+  // The bank's title (a hype moment) and the mode's start come at the same moment: the start is second in line, and is
+  // shown when the first is done, TITLE_SECONDS after its moment.
   hud.message(moment('bank-horus', 10));
   hud.message(cue(10, { cue: 'modeStart', god: 'horus' }));
   hud.tick(10);
@@ -524,38 +546,138 @@ test("a quest title waits its turn behind the titles of its moment: a bank's mat
   assert.equal(shown(), 'FALCON STRIKE!', 'its turn');
   hud.tick(10 + 2 * TITLE_SECONDS);
   assert.equal(shown(), null, 'and gone after its own time');
-
-  // The fourth god's win: its prize, the finale's multiball (titled from the state, which comes at once) and the finale
-  // itself, all at the moment of the win. The stage draws a little behind: the cues wait for their time.
-  const prize = tombPrize(12);
-  hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus', 'ankh'], mode: mode('eye', { at: 90 }) }) })));
-  hud.tick(99.9);
-  hud.message(cue(100, { cue: 'modeWon', god: 'eye', prize }));
-  hud.message(cue(100, { cue: 'finale' }));
-  hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
-  let t = 99.9;
-  hud.tick(t);
-  assert.equal(shown(), 'MULTIBALL!');
-  t += TITLE_SECONDS;
-  hud.tick(t);
-  assert.equal(shown(), `TOMB RAID! +${money(prize)}`);
-  t += TITLE_SECONDS;
-  hud.tick(t);
-  assert.equal(shown(), "PHARAOH'S GOLD!", 'the finale, three titles in');
-  t += TITLE_SECONDS;
-  hud.tick(t);
-  assert.equal(shown(), null);
 });
 
-test('a quest title far past its moment is let go (a page catching up), and the next shows at its time', () => {
+test("the fourth god's win shows its prize and then PHARAOH'S GOLD!, with no MULTIBALL! for the finale's multiball", () => {
+  const b = board();
+  const prize = tombPrize(12);
+  b.hud.message(msgOf(state({ phase: 'playing', quest: quest({ done: ['ra', 'horus', 'ankh'], mode: mode('eye', { at: 90 }) }) })));
+  b.hud.tick(99.9);
+  // At the moment of the win the cues come, and the state with the finale begun and its multiball on. The stage draws a
+  // little behind the server, so the cues wait for their time.
+  b.hud.message(cue(100, { cue: 'modeWon', god: 'eye', prize }));
+  b.hud.message(cue(100, { cue: 'finale' }));
+  b.hud.message(msgOf(state({ phase: 'playing', multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
+  const titles = titlesShown(b, 99.9, 112);
+  assert.deepEqual(titles.map((t) => t.words), [`TOMB RAID! +${money(prize)}`, "PHARAOH'S GOLD!"], 'the finale says multiball itself');
+  assert.ok(showedAt(titles[0], 100) && showedAt(titles[1], 100 + TITLE_SECONDS), `each in its turn (${titles.map((t) => t.at)})`);
+});
+
+test("a saved finale begun by the next ball shows PHARAOH'S GOLD! and no MULTIBALL! either", () => {
+  const b = board();
+  // A restart saved the finale: every god is done and it waits for a ball (so the state has no finale yet).
+  b.hud.message(msgOf(state({ phase: 'launching', quest: quest({ done: [...GODS] }) })));
+  b.hud.tick(49.9);
+  // The next ball is in play: the finale begins, with its multiball.
+  b.hud.message(cue(50, { cue: 'finale' }));
+  b.hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 1, name: 'Alex', score: 0 }], multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
+  assert.deepEqual(titlesShown(b, 49.9, 60).map((t) => t.words), ["PHARAOH'S GOLD!"]);
+});
+
+test('one rule for every title, hype or quest: three of one moment each show in their turn, and a fourth is let go', () => {
+  const b = board();
+  b.hud.message(msgOf(state({ phase: 'playing' })));
+  // Four titles at one moment, as a flurry can make: two hype titles, a quest title, and a hype title behind them all.
+  b.hud.message(moment('double', 10));
+  b.hud.message(moment('saver', 10));
+  b.hud.message(cue(10, { cue: 'jackpot', value: QUEST.jackpot.first, x: 0, z: 0 }));
+  b.hud.message(moment('nudge', 10));
+  const titles = titlesShown(b, 9.95, 25);
+  assert.deepEqual(titles.map((t) => t.words), ['DOUBLE SCORE!', 'BALL SAVER!', `JACKPOT ${money(QUEST.jackpot.first)}!`], 'the fourth, NUDGE!, is let go');
+  // Each in the slot after the one before: the third, a quest title, 2 titles (4.4 s) after its moment.
+  assert.ok(titles.every((t, k) => showedAt(t, 10 + k * TITLE_SECONDS)), `at 10, 12.2 and 14.4 (${titles.map((t) => t.at.toFixed(2))})`);
+});
+
+test('a hype title waiting behind two quest titles is shown, not starved', () => {
+  const b = board();
+  b.hud.message(msgOf(state({ phase: 'playing' })));
+  b.hud.message(cue(10, { cue: 'modeWon', god: 'horus', prize: QUEST.prize }));
+  b.hud.message(cue(10, { cue: 'jackpot', value: QUEST.jackpot.first, x: 0, z: 0 }));
+  b.hud.message(moment('double', 10));
+  const titles = titlesShown(b, 9.95, 25);
+  assert.deepEqual(titles.map((t) => t.words), [`FALCON STRIKE! +${money(QUEST.prize)}`, `JACKPOT ${money(QUEST.jackpot.first)}!`, 'DOUBLE SCORE!']);
+  assert.ok(showedAt(titles[2], 10 + 2 * TITLE_SECONDS), `the hype title in its turn, 4.4 s after its moment (${titles[2].at.toFixed(2)})`);
+});
+
+test('a title more than 2 s late for its turn is let go, hype or quest, and is never shown for even a frame', () => {
   const { hud, shown } = board();
   hud.message(msgOf(state()));
-  hud.message(cue(10, { cue: 'jackpot', value: QUEST.jackpot.first, x: 0, z: 0 }));
-  hud.tick(20);
-  assert.equal(shown(), null, '10 s late');
+  // On a free slot: a hype title 2.5 s late, and a quest title 5 s late, which is inside what a title may wait behind
+  // others (6.4 s) but is a page catching up here, so let go and not flashed for one frame.
+  hud.message(moment('double', 10));
+  hud.tick(12.5);
+  assert.equal(shown(), null, 'a hype title 2.5 s late');
+  hud.message(cue(20, { cue: 'jackpot', value: QUEST.jackpot.first, x: 0, z: 0 }));
+  hud.tick(25);
+  assert.equal(shown(), null, 'a quest title 5 s late');
   hud.message(cue(30, { cue: 'jackpot', value: QUEST.jackpot.first + QUEST.jackpot.step, x: 0, z: 0 }));
-  hud.tick(30);
-  assert.equal(shown(), `JACKPOT ${money(QUEST.jackpot.first + QUEST.jackpot.step)}!`);
+  hud.tick(40);
+  assert.equal(shown(), null, 'a quest title 10 s late');
+  // Behind another title: the first shows, and then the page stalls. The second is only 5 s past its moment, but its
+  // turn comes 2.8 s after the first ended, which is late for its slot, so it is let go (else it would show for a frame).
+  hud.message(moment('saver', 50));
+  hud.message(cue(50, { cue: 'modeStart', god: 'ra' }));
+  hud.tick(50);
+  assert.equal(shown(), 'BALL SAVER!');
+  hud.tick(55);
+  assert.equal(shown(), null, 'its turn came 2.8 s late');
+  // The next moment shows at its time as ever.
+  hud.message(moment('nudge', 60));
+  hud.tick(60);
+  assert.equal(shown(), 'NUDGE!');
+});
+
+test('in a flurry the titles are served in the order of their moments, hype and quest alike: neither starves the other', () => {
+  const { hud, shown, title } = board();
+  hud.message(msgOf(state({ phase: 'playing' })));
+  // For a minute: a quest title (a jackpot) every 1.5 s, and between them a hype title (a coin-bought one) every 3 s.
+  const due: { at: number; msg: object }[] = [];
+  for (let k = 0; k < 40; k++) due.push({ at: 10 + 1.5 * k, msg: cue(10 + 1.5 * k, { cue: 'jackpot', value: QUEST.jackpot.first + 1000 * k, x: 0, z: 0 }) });
+  for (let k = 0; k < 20; k++) due.push({ at: 10.75 + 3 * k, msg: moment(['double', 'saver', 'nudge'][k % 3], 10.75 + 3 * k) });
+  due.sort((a, b) => a.at - b.at);
+  let next = 0;
+  let run: string | undefined;
+  let quests = 0;
+  let hypes = 0;
+  for (let i = 0; 9.9 + i * 0.05 <= 100; i++) {
+    const t = 9.9 + i * 0.05;
+    // Each moment reaches the page a little before the stage draws it.
+    while (next < due.length && due[next].at - 0.1 <= t) hud.message(due[next++].msg);
+    hud.tick(t);
+    const words = shown();
+    if (words !== null && title.dataset.run !== run) {
+      if (words.startsWith('JACKPOT')) quests++;
+      else hypes++;
+    }
+    run = words === null ? undefined : title.dataset.run;
+  }
+  // Not all can be shown (each takes 2.2 s), but each kind gets at least half the share of its titles the other gets.
+  const note = `${hypes} of 20 hype titles and ${quests} of 40 quest titles shown`;
+  assert.ok(hypes / 20 >= quests / 40 / 2, `the hype titles are starved: ${note}`);
+  assert.ok(quests / 40 >= hypes / 20 / 2, `the quest titles are starved: ${note}`);
+});
+
+test('a state with no quest (from a server older than it) shows no banner and no lamps, and the scoreboard carries on', () => {
+  const { hud, part, shown } = board();
+  /** A state as a server older than the quest sends it: with no `quest` at all. */
+  const old = (more: Partial<PinballState> = {}) => {
+    const s: Partial<PinballState> = state(more);
+    delete s.quest;
+    return msgOf(s as PinballState);
+  };
+  hud.message(old({ phase: 'playing', balls: [{ owner: 7, name: 'Alex', score: 100 }] }));
+  hud.tick(1);
+  assert.equal(part('pinball-banner').hidden, true, 'no banner');
+  assert.equal(part('pinball-gods').hidden, true, 'no lamps');
+  assert.ok(part('pinball-ball').text().includes('Alex'), 'the rest of the scoreboard is drawn');
+  // Its titles still come from the states: multiball, and a new last ball.
+  hud.message(old({ phase: 'playing', multiball: true, balls: [{ owner: 7, name: 'Alex', score: 100 }] }));
+  hud.tick(1.1);
+  assert.equal(shown(), 'MULTIBALL!');
+  hud.message(old({ phase: 'playing', multiball: true, lastResult: { name: 'Bea', points: 800, coins: 3 } }));
+  hud.tick(4);
+  assert.equal(shown(), '800 POINTS');
+  for (const t of [4.1, 5, 6.5, 9]) hud.tick(t);
 });
 
 test("the table's clock starting again lets go the quest's titles still waiting on the old clock, and the new ones show", () => {

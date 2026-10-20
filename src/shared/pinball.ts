@@ -38,12 +38,22 @@ export interface PinballMsg {
   state: PinballState;
 }
 
-/** The state in a message from the pinball, or null for any other message (or one without a valid state). */
+/**
+ * The state in a message from the pinball, or null for any other message (or one without a valid state). A state whose
+ * quest is missing or isn't an object is given the empty quest, so that every reader of the state can take its quest as
+ * there.
+ */
 export function pinballStateOf(msg: unknown): PinballState | null {
   if (typeof msg !== 'object' || msg === null) return null;
   const m = msg as { kind?: unknown; state?: unknown };
   if (m.kind !== 'pinball' || typeof m.state !== 'object' || m.state === null) return null;
-  return m.state as PinballState;
+  const state = m.state as PinballState;
+  // The server and the stage ship together, but a page can meet an older server for a moment (a stage rebuilt while the
+  // server it talks to still runs the last version), and the states of one from before the quest have none. They get
+  // the empty quest on a shallow copy, so the message is left as it came and the usual path makes nothing.
+  const quest: unknown = state.quest;
+  if (typeof quest === 'object' && quest !== null) return state;
+  return { ...state, quest: { done: [], mode: null, finale: null } };
 }
 
 /** How a hype moment names the viewer who bought it, or whose support set it off. */
