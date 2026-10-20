@@ -14,7 +14,7 @@
 // state carries them.
 // Usage: npm run pinball-hype-test
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Economy, hypeAction, type HypePurchase, initPhysics, roomInfo, type StreamEvent, type User } from '@kit/server';
@@ -684,8 +684,13 @@ test('the Reset ends every event and pays nothing; a restart brings none back', 
     hold(0.5);
     const on = game.state().events;
     assert.ok(on.sandstorm && on.curse && on.mummy, 'all three on');
-    // A restart in the middle of them: saved, and a new game read from the file has none.
+    // A restart in the middle of them: saved, and a new game read from the file has none. The file itself holds none
+    // of them, so a new game can't have read them back and dropped them by luck.
     game.save();
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(saved).sort(), ['highScores', 'quest'], 'the save holds the high scores and the quest');
+    assert.ok(!('events' in saved), 'the save holds no events');
+    assert.ok(!/sandstorm|curse|summon|wind/i.test(JSON.stringify(saved)), `the save holds no event and no summon: ${JSON.stringify(saved)}`);
     const again = new PinballGame(roomInfo(entry.id, entry.label), economy, { send: () => {} }, file);
     again.load();
     assert.deepEqual(again.state().events, NO_EVENTS, 'a restart brings none back');
