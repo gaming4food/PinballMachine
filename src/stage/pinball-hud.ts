@@ -59,6 +59,9 @@ const HYPE_TITLES: Record<string, string> = {
   saver: 'BALL SAVER!',
   double: 'DOUBLE SCORE!',
   nudge: 'NUDGE!',
+  sandstorm: 'SANDSTORM!',
+  curse: "PHARAOH'S CURSE!",
+  mummy: 'THE MUMMY RISES!',
   'bank-horus': 'HORUS MATCHED',
   'bank-ra': 'RA MATCHED',
   'bank-ankh': 'ANKH MATCHED',
@@ -125,11 +128,11 @@ function questTitle(c: PinballCueMsg): Title | null {
       return title('jackpot', `JACKPOT ${points(c.value)}!`, GOLD);
     case 'finale':
       return title('finale', "PHARAOH'S GOLD!", GOLD);
+    case 'summonDown':
+      return title('summon-down', `MUMMY DOWN! +${points(c.value)}`, GOLD);
     case 'goal':
     case 'toyHit':
     case 'finaleEnd':
-    // The summoned mummy put down gets its title with the events' scoreboard; till then it has none.
-    case 'summonDown':
       return null;
   }
 }
@@ -300,7 +303,7 @@ export class PinballHud {
   }
 
   private showFlags(s: PinballState): void {
-    const on = [s.multiball && 'MULTIBALL', s.doubleUntil !== null && '2× SCORE', s.saverUntil !== null && 'BALL SAVER', s.lockLit && 'LOCK LIT'].filter(Boolean) as string[];
+    const on = [s.multiball && 'MULTIBALL', s.doubleUntil !== null && '2× SCORE', s.saverUntil !== null && 'BALL SAVER', s.lockLit && 'LOCK LIT', s.events.sandstorm !== null && 'SANDSTORM', s.events.curse !== null && 'CURSED', s.events.mummy !== null && 'MUMMY'].filter(Boolean) as string[];
     this.flags.textContent = on.join(' · ');
     this.flags.hidden = on.length === 0;
   }

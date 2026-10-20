@@ -7,7 +7,7 @@
 // Built in Node from fake elements, as the claw's turn box is tested.
 // Usage: npm run pinball-hud-test
 import assert from 'node:assert/strict';
-import { type God, GOD_COLOR, GODS, type PinballHypeMsg, type PinballState, QUEST, tombPrize } from '../src/shared/pinball';
+import { type God, GOD_COLOR, GODS, type PinballHypeMsg, type PinballState, QUEST, RULES, tombPrize } from '../src/shared/pinball';
 // The overlay is the stage's: its CSS and any pictures and sound files are stubbed (stub-assets.ts), so it loads in Node.
 import './stub-assets';
 
@@ -493,6 +493,48 @@ test("each quest title at its time, in its colour: a mode's start, won with its 
   hud.tick(at + 1);
   assert.equal(shown(), 'MULTIBALL!');
   assert.equal(title.style.getPropertyValue('--c'), '', "a quest title's colour is not left on the next title");
+});
+
+test("each event's title names its buyer; MUMMY DOWN! +10,000 shows at its cue's time in gold", () => {
+  const { hud, shown, title, by } = board();
+  hud.message(msgOf(state()));
+  let at = 10;
+  for (const [id, words] of [['sandstorm', 'SANDSTORM!'], ['curse', "PHARAOH'S CURSE!"], ['mummy', 'THE MUMMY RISES!']] as const) {
+    hud.message(moment(id, at, { by: { name: 'Alex', color: 0x22ff88 } }));
+    hud.tick(at - 0.1);
+    assert.equal(shown(), null, `${words}: not before its time`);
+    hud.tick(at);
+    assert.equal(shown(), words);
+    assert.equal(by.textContent, 'Alex', `${words} names its buyer`);
+    hud.tick(at + TITLE_SECONDS);
+    assert.equal(shown(), null, `${words}: gone`);
+    at += TITLE_SECONDS + 1;
+  }
+  hud.message(cue(at, { cue: 'summonDown', value: RULES.summonPrize, x: 1, z: 2 }));
+  hud.tick(at - 0.1);
+  assert.equal(shown(), null, 'not before its cue');
+  hud.tick(at);
+  assert.equal(shown(), `MUMMY DOWN! +${money(RULES.summonPrize)}`);
+  assert.equal(shown(), 'MUMMY DOWN! +10,000');
+  assert.equal(title.style.getPropertyValue('--c'), css(GOLD), 'in gold');
+  hud.tick(at + TITLE_SECONDS);
+  assert.equal(shown(), null, 'gone');
+});
+
+test('the flags show while each event lasts, from the state alone, and go when it ends', () => {
+  const { hud, part } = board();
+  const flags = part('pinball-flags');
+  // A page opened late: its first state already has the events on.
+  hud.message(msgOf(state({ phase: 'playing', events: { sandstorm: { until: 150, dir: 1 }, curse: { until: 140 }, mummy: { until: 130 } } })));
+  assert.equal(flags.hidden, false);
+  assert.equal(flags.textContent, 'SANDSTORM · CURSED · MUMMY');
+  hud.message(msgOf(state({ phase: 'playing', events: { sandstorm: { until: 150, dir: -1 }, curse: null, mummy: null } })));
+  assert.equal(flags.textContent, 'SANDSTORM');
+  hud.message(msgOf(state({ phase: 'playing', multiball: true, events: { sandstorm: null, curse: { until: 160 }, mummy: null } })));
+  assert.equal(flags.textContent, 'MULTIBALL · CURSED');
+  hud.message(msgOf(state({ phase: 'playing' })));
+  assert.equal(flags.hidden, true, 'gone when each ends');
+  assert.equal(flags.textContent, '');
 });
 
 test("a page opened mid-mode shows the banner and the lamps from hello's state, and no title", () => {
