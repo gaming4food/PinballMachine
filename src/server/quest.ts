@@ -110,7 +110,9 @@ interface Finale {
 /**
  * A saved quest as the constructor takes it, or null if it isn't one save() could have written: the shape and the
  * numbers must be right, and the finale is on exactly when every god is crossed off (and then no mode runs). A mode may
- * have more time than QUEST.modeSeconds now (the numbers were tuned since), and is cut to it.
+ * have more time than QUEST.modeSeconds now, or progress at or past its god's goal now (the numbers were tuned since:
+ * Sun Chase's goal went from 3 shots to 2), and is cut to them: its progress to one short of the goal, so the next goal
+ * hit wins it. Dropping the quest instead would lose the gods done with it.
  */
 function readSave(saved: unknown): QuestSave | null {
   if (typeof saved !== 'object' || saved === null) return null;
@@ -122,8 +124,8 @@ function readSave(saved: unknown): QuestSave | null {
   if (finale || typeof mode !== 'object') return null;
   const { god, left, progress } = mode as { god?: unknown; left?: unknown; progress?: unknown };
   if (!isGod(god) || typeof left !== 'number' || !Number.isFinite(left) || left <= 0) return null;
-  if (typeof progress !== 'number' || !Number.isInteger(progress) || progress < 0 || progress >= QUEST.goals[god]) return null;
-  return { done: gods, mode: { god, left: Math.min(left, QUEST.modeSeconds), progress }, finale };
+  if (typeof progress !== 'number' || !Number.isInteger(progress) || progress < 0) return null;
+  return { done: gods, mode: { god, left: Math.min(left, QUEST.modeSeconds), progress: Math.min(progress, QUEST.goals[god] - 1) }, finale };
 }
 
 /**

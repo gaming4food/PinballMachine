@@ -564,6 +564,13 @@ test("a save mid-mode comes back with its time, progress and toy; a save mid-fin
   // A time longer than a mode's now (the numbers were tuned since) is cut to it.
   const longer = new Quest({ done: [], mode: { god: 'ra', left: QUEST.modeSeconds * 2, progress: 0 }, finale: false });
   assert.equal(longer.view().mode?.left, QUEST.modeSeconds);
+  // Progress at or past a god's goal now (the goal was lowered since: Sun Chase's was 3 shots) is cut to one short of
+  // it, with the mode and the gods done kept: the next goal hit wins it.
+  for (const progress of [QUEST.goals.ra, QUEST.goals.ra + 1, 3]) {
+    const lowered = new Quest({ done: ['eye'], mode: { god: 'ra', left: 5, progress }, finale: false });
+    assert.deepEqual(lowered.view(), { done: ['eye'], mode: { god: 'ra', left: 5, progress: QUEST.goals.ra - 1, goal: QUEST.goals.ra }, finale: null }, `progress ${progress}`);
+    assert.equal(said(lowered.event({ kind: 'orbit' })).cues.at(-1)?.cue, 'modeWon', `progress ${progress}: the next shot wins`);
+  }
   // Gods in any order, repeated or not, are the gods done, in the quest's order.
   assert.deepEqual(new Quest({ done: ['eye', 'ra', 'eye'], mode: null, finale: false }).view().done, ['ra', 'eye']);
 
@@ -596,7 +603,6 @@ test("a save mid-mode comes back with its time, progress and toy; a save mid-fin
     ['progress negative', { done: [], mode: { ...ra, progress: -1 }, finale: false }],
     ['progress a fraction', { done: [], mode: { ...ra, progress: 0.5 }, finale: false }],
     ['progress a string', { done: [], mode: { ...ra, progress: '1' }, finale: false }],
-    ['progress at its goal (it would have been won)', { done: [], mode: { ...ra, progress: QUEST.goals.ra }, finale: false }],
     ['a finale and a mode', { done: [...GODS], mode: ra, finale: true }],
     ['a finale with gods not all done', { done: ['ra'], mode: null, finale: true }],
     ['every god done and no finale', { done: [...GODS], mode: null, finale: false }],
