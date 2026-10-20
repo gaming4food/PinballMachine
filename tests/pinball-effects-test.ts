@@ -10,8 +10,10 @@
 // is one that would first show less than FLASH_GAP after the last first showed, so the picture never brightens sooner
 // than that, at any frame rate, nor rises more than 3 times a second. Its amount still goes through a RiseLimit, which
 // has nothing left to hold, and given the browser's clock through one more that counts real seconds, so that a table
-// clock running fast still rises the picture at most 3 times in a real second; a hello never resets that one. No page
-// or graphics card is needed.
+// clock running fast still rises the picture at most 3 times in a real second; a hello never resets that one. The
+// sandstorm's sand (stage/sand.ts) blows across from the windward edge from a pool of its own (240), and none enters
+// with no wind; its haze (hazeAt) eases in and out over 0.8 s to at most 0.18, and the stage draws it through
+// easeHaze, which never lets it change faster than that. No page or graphics card is needed.
 // Usage: npm run pinball-effects-test
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -25,6 +27,7 @@ import './stub-assets';
 const { CoinBurst } = await import('../src/stage/coin-burst');
 const { MAX_SPARKS, Sparks, TombBeam } = await import('../src/stage/sparks');
 const { doorway, pictureDepth } = await import('../src/stage/table-mesh');
+const { easeHaze, HAZE, hazeAt, MAX_GRAINS, Sand } = await import('../src/stage/sand');
 type Sparks = InstanceType<typeof Sparks>;
 
 // The same run every time: Math.random seeded with the claw's tests' generator (16807).
@@ -1317,6 +1320,141 @@ test('a flash that has been drawn is not made brighter by one asked for its time
   const merged = look(late, 9);
   assert.equal(merged.color, BLUE);
   assert.ok(near(merged.amount, FLASH_CAP * Math.exp(-7 * 0.05), 1e-12));
+});
+
+/** Grain i of the sand as the stage's renderer reads it: where it is, and how bright (0 once it is out). */
+function grain(s: InstanceType<typeof Sand>, i: number) {
+  const pos = s.points.geometry.attributes.position.array;
+  const col = s.points.geometry.attributes.color.array;
+  return { x: pos[3 * i], y: pos[3 * i + 1], z: pos[3 * i + 2], a: col[4 * i + 3] };
+}
+
+test('sand blows across from the windward edge and leaves; none enter with no wind; the pool never grows', () => {
+  const step = 1 / 120;
+  const half = TABLE.width / 2;
+  for (const dir of [1, -1] as const) {
+    const sand = new Sand();
+    const position = sand.points.geometry.attributes.position;
+    const color = sand.points.geometry.attributes.color;
+    assert.equal(MAX_GRAINS, 240);
+    assert.equal(position.count, MAX_GRAINS, 'a pool of 240');
+    assert.equal(sand.live(), 0, 'none alight at the start');
+    // Each grain's place at the last frame, to see each move with the wind and down the table.
+    const was = new Map<number, { x: number; z: number }>();
+    let entered = 0;
+    let most = 0;
+    for (let k = 0; k * step < 6; k++) {
+      sand.blow(dir, 100 + k * step);
+      sand.update(step);
+      most = Math.max(most, sand.live());
+      for (let i = 0; i < MAX_GRAINS; i++) {
+        const g = grain(sand, i);
+        if (g.a === 0) {
+          assert.ok(g.y < -100, `${dir}: grain ${i} out of sight once it is out`);
+          was.delete(i);
+          continue;
+        }
+        assert.ok(Math.abs(g.x) <= half + 1e-6 && g.z >= -1e-6 && g.z <= TABLE.length + 1e-6 && g.y > 0, `${dir}: grain ${i} over the table at (${g.x}, ${g.y}, ${g.z})`);
+        const before = was.get(i);
+        if (!before) {
+          // A new grain comes in at the windward edge, a frame's flight in at most.
+          entered++;
+          assert.ok(Math.abs(g.x + dir * half) <= 6 * step + 1e-5, `${dir}: grain ${i} enters at the windward edge, at x ${g.x}`);
+        } else {
+          const dx = (g.x - before.x) * dir;
+          assert.ok(dx >= 4 * step - 1e-5 && dx <= 6 * step + 1e-5, `${dir}: grain ${i} crosses at 4 to 6 a second (${dx / step})`);
+          assert.ok(g.z <= before.z + 1e-6, `${dir}: grain ${i} drifts down the table, never up it`);
+        }
+        was.set(i, { x: g.x, z: g.z });
+      }
+    }
+    // About 60 a second, steadily: 6 s of wind is about 360 grains, and the pool is never more than full.
+    assert.ok(entered >= 340 && entered <= 380, `${dir}: ${entered} grains in 6 s`);
+    assert.ok(most <= MAX_GRAINS, `${dir}: at most ${most} alight`);
+    assert.ok(most >= 90, `${dir}: the table full of sand (${most} alight)`);
+    // The wind drops: none enter, and those in flight finish crossing and leave.
+    let left = sand.live();
+    for (let k = 0; k * step < 3; k++) {
+      sand.blow(0, 106 + k * step);
+      sand.update(step);
+      assert.ok(sand.live() <= left, `${dir}: no grain enters with no wind`);
+      left = sand.live();
+    }
+    assert.equal(sand.live(), 0, `${dir}: all of them gone 3 s after the wind dropped`);
+    // The buffers are the ones made at the start.
+    assert.equal(sand.points.geometry.attributes.position, position);
+    assert.equal(sand.points.geometry.attributes.color, color);
+    assert.equal(position.array.length, MAX_GRAINS * 3);
+    // Nothing moves while the table's clock stands still.
+    sand.blow(dir, 200);
+    sand.update(step);
+    const still = Array.from({ length: MAX_GRAINS }, (_, i) => grain(sand, i));
+    sand.blow(dir, 200);
+    sand.update(0);
+    still.forEach((g, i) => assert.deepEqual(grain(sand, i), g, `${dir}: grain ${i} still at update(0)`));
+    sand.clear();
+    assert.equal(sand.live(), 0, 'clear() lets every grain go');
+  }
+  // Sand is its own pool: sparks thrown while it blows have all the sparks' 400, and the sand's 240 are its own.
+  const sparks = new Sparks();
+  const sand = new Sand();
+  for (let k = 0; k < 600; k++) {
+    sand.blow(1, k * step);
+    sand.update(step);
+  }
+  sparks.burst(0, 0.4, 8, 0xffffff, 1000);
+  assert.equal(sparks.live(), MAX_SPARKS, 'the sparks have all of theirs');
+  assert.ok(sand.live() > 0 && sand.live() <= MAX_GRAINS);
+});
+
+test('hazeAt eases in over 0.8 s, holds at most 0.18, eases out, and never changes faster', () => {
+  assert.equal(HAZE.color, 0xd9a35a);
+  assert.equal(HAZE.most, 0.18);
+  assert.equal(HAZE.ease, 0.8);
+  // No storm, no haze.
+  assert.equal(hazeAt(null, null, 5), 0);
+  assert.equal(hazeAt(null, 20, 5), 0);
+  // A storm first seen at 10, until 20.
+  const at = (t: number) => hazeAt(10, 20, t);
+  assert.equal(at(9), 0, 'none before it was seen');
+  assert.equal(at(10), 0, 'none at the moment it was seen');
+  assert.ok(near(at(10.4), 0.09), `half way in at 0.4 s: ${at(10.4)}`);
+  assert.ok(near(at(10.8), 0.18), 'all the way in at 0.8 s');
+  assert.ok(near(at(15), 0.18), 'held at 0.18');
+  assert.ok(near(at(19.6), 0.09), `half way out 0.4 s before its end: ${at(19.6)}`);
+  assert.equal(at(20), 0, 'gone at its end');
+  assert.equal(at(25), 0, 'and after');
+  // A page opened in the middle of the storm shows it as if it began long ago.
+  assert.ok(near(hazeAt(-Infinity, 20, 15), 0.18), 'opened mid-storm: eased in already');
+  // Never more than 0.18, never below 0, and never faster than the ease (0.18 in 0.8 s), a short storm too.
+  const fastest = HAZE.most / HAZE.ease;
+  for (const [seen, until] of [[10, 20], [10, 11], [10, 10.5], [-Infinity, 12]] as const) {
+    const dt = 1 / 240;
+    let last = hazeAt(seen, until, 8);
+    for (let t = 8 + dt; t < 22; t += dt) {
+      const h = hazeAt(seen, until, t);
+      assert.ok(h >= 0 && h <= HAZE.most + 1e-12, `${seen}-${until} at ${t}: ${h}`);
+      assert.ok(Math.abs(h - last) <= fastest * dt + 1e-9, `${seen}-${until} at ${t}: ${last} to ${h} in ${dt} s`);
+      last = h;
+    }
+  }
+  // A second storm bought in the ease out moves its end on, so hazeAt jumps back up; easeHaze, which the stage draws it
+  // through, takes it there no faster than the ease.
+  const dt = 1 / 144;
+  let shown = 0;
+  let until = 20;
+  let most = 0;
+  for (let t = 10; t < 32; t += dt) {
+    if (t >= 19.7) until = 30;
+    const was = shown;
+    shown = easeHaze(shown, hazeAt(10, until, t), dt);
+    most = Math.max(most, Math.abs(shown - was) / dt);
+    assert.ok(shown >= 0 && shown <= HAZE.most + 1e-12);
+  }
+  assert.ok(most <= fastest + 1e-9, `the drawn haze changes at most ${fastest} a second: ${most}`);
+  assert.equal(shown, 0, 'gone after the second end');
+  assert.equal(easeHaze(0.1, 0.18, 0), 0.1, 'it stands still while the clock does');
+  assert.equal(easeHaze(0.1, 0.18, Number.NaN), 0.1, 'and at a step that is no number');
 });
 
 let failed = 0;

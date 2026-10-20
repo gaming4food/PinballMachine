@@ -161,6 +161,27 @@ test('a sweep lights each lamp once, in order up the table', () => {
   });
 });
 
+test('a sweep along x lights each lamp once, in order across the table, the way it is asked', () => {
+  // Out of order in the list and at different heights up the table, so that the order is the sweep's own across it.
+  const lamps = [3, -4.5, 0.5, -1, 4.8, -3].map((x, i) => lamp(x, 2 + 2.5 * i));
+  for (const [from, to] of [[-5, 5], [5, -5]] as const) {
+    const show = sweep(lamps, { from, to, color: GOLD, seconds: 1, axis: 'x' });
+    assert.equal(show.seconds, 1);
+    // The line moves 10 a second, so it is at a lamp |x - from| / 10 seconds in, whatever its z.
+    lamps.forEach((l) => {
+      const seen = levels(show, l);
+      assert.equal(riseTimes(seen, DT).length, 1, `x ${l.x} lights once`);
+      const at = seen.indexOf(Math.max(...seen)) * DT;
+      assert.ok(Math.abs(at - Math.abs(l.x - from) / 10) <= 2 * DT, `x ${l.x}, sweeping from ${from}, is brightest as the line passes it, not at ${at}`);
+    });
+    // The light itself, with the line 0.5 s in at 0: 1 - |x| / 1.5, and none 1.5 or more away.
+    lamps.forEach((l) => {
+      const level = 1 - Math.abs(l.x) / 1.5;
+      assertLight(keep(show.light(l, 0.5)), level > 0 ? { level, color: GOLD } : null, `x ${l.x}, 0.5 s in`);
+    });
+  }
+});
+
 test('a burst lights the nearest lamps first, out to its reach and no further', () => {
   const [x0, z0, reach] = [0, 8, 6];
   const lampAt = (d: number, bearing: number) => lamp(x0 + d * Math.cos(bearing), z0 + d * Math.sin(bearing));

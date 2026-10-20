@@ -82,15 +82,17 @@ function showOf(
 
 /**
  * A line moving up the table from z `from` to z `to` over `seconds`, lighting each lamp as it passes: at 1 - |z - line|
- * / 1.5, so a lamp lights as the line comes within 1.5 of it, is brightest as it passes and goes out 1.5 beyond.
+ * / 1.5, so a lamp lights as the line comes within 1.5 of it, is brightest as it passes and goes out 1.5 beyond. With
+ * `axis` 'x' the line runs across the table instead, from x `from` to x `to` (the sandstorm's, with its wind).
  */
 export function sweep(
   lamps: readonly ShowLamp[],
-  o: { from: number; to: number; color: number; seconds: number },
+  o: { from: number; to: number; color: number; seconds: number; axis?: 'x' | 'z' },
 ): Show {
+  const across = o.axis === 'x';
   return showOf(new Set(lamps), o.seconds, o.color, (lamp, tau) => {
     const line = o.from + ((o.to - o.from) * tau) / o.seconds;
-    return 1 - Math.abs(lamp.z - line) / SWEEP_HALF;
+    return 1 - Math.abs((across ? lamp.x : lamp.z) - line) / SWEEP_HALF;
   });
 }
 

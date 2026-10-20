@@ -8,7 +8,10 @@
 // The quest's moments have rows too, each in its god's colour where it has one: a mode's start sweeps the lamps up into
 // its toy, a goal bursts where it was hit, a mode won chases the ring and then strobes, a mode lost fades every lamp to
 // dark and back, and a jackpot and the finale strobe gold with a gold flash and a shake (a jackpot rains coins too).
-// The light that lasts while a mode or the finale runs isn't the book's: the parts take it from the state each frame
+// So do chat's events: a sandstorm sweeps every lamp across the table with its wind, amber, and shakes the view;
+// Pharaoh's curse strobes every lamp red with a red flash; the summoned mummy sweeps the lamps up into its lamp, green;
+// and the mummy put down bursts gold from where it was hit, with a gold flash, sparks and a shake. The light that lasts
+// while a mode, the finale or an event runs isn't the book's: the parts take it from the state each frame
 // (pinball-parts.ts setQuestLook), so a stage opened late shows it.
 //
 // It keeps no clock of its own. A moment is queued for its time, and frame(t), the time the stage draws (which stops
@@ -23,7 +26,7 @@
 // Nothing may flash more than 3 times a second, for the viewers a flashing picture can hurt. Each show keeps to that
 // alone (light-show.ts: FLASH_GAP), and the book keeps each moment to it as a whole. Multiball and a mode won are the
 // moments of two shows, a chase and then a strobe, so they need care: see MULTIBALL_PAUSE.
-import { GOD_COLOR, type God, type PinballCueMsg, type PinballHypeMsg, type PinballToyHit } from '../shared/pinball';
+import { GOD_COLOR, type God, type PinballCueMsg, type PinballHypeMsg, type PinballState, type PinballToyHit } from '../shared/pinball';
 import { TABLE, type Table } from '../shared/table';
 import { burst, chase, darken, strobe, sweep, type Fade, type Show } from './light-show';
 // Only the type: the parts load three.js and the pictures, which the book has no use for.
@@ -90,6 +93,9 @@ const QUEST_GOLD = GOD_COLOR.ra;
 /** A jackpot rains a coin for every this many points it pays, and never more than the coins' pool (coin-burst.ts). */
 const POINTS_PER_RAINED_COIN = 1000;
 const MOST_RAINED_COINS = 180;
+/** The sandstorm's amber (the picture's amber lamps), and Pharaoh's curse's red. */
+const STORM_AMBER = 0xffa030;
+const CURSE_RED = 0xff2a2a;
 
 /** The middle of some places on the table: the mean of their x and of their z. */
 function middleOf(places: readonly { x: number; z: number }[]): { x: number; z: number } {
@@ -112,6 +118,8 @@ export class PinballShows {
   private readonly waiting: Moment[] = [];
   /** The time last drawn: -Infinity before the first frame, and after a reset. */
   private t = -Infinity;
+  /** The pinball's state as the server last said (state), for the sandstorm's wind: null before the first. */
+  private latest: PinballState | null = null;
 
   constructor(
     private readonly table: Table,
@@ -121,9 +129,10 @@ export class PinballShows {
 
   /**
    * A hype moment, queued for its time: a bank matched (`bank-<god>`, of a bank the table has), the ball saver, double
-   * score and the nudge. Multiball has no row here, whoever pressed it: the sound cues decide it once, for a press and
-   * for the lock alike, and the stage sends their one decision to multiball(), so the press's moment played here too
-   * would show it twice. An id with no row does nothing.
+   * score and the nudge, and chat's events (the sandstorm, Pharaoh's curse and the summoned mummy). Multiball has no
+   * row here, whoever pressed it: the sound cues decide it once, for a press and for the lock alike, and the stage
+   * sends their one decision to multiball(), so the press's moment played here too would show it twice. An id with no
+   * row does nothing.
    */
   hype(m: PinballHypeMsg): void {
     this.queue(m.at, this.hypePlay(m));
@@ -151,6 +160,14 @@ export class PinballShows {
     } else {
       this.queue(m.at, this.questPlay(m));
     }
+  }
+
+  /**
+   * The pinball's state, each time the server sends it: the book keeps the latest, for which way a sandstorm's wind
+   * blows when its moment plays.
+   */
+  state(s: PinballState): void {
+    this.latest = s;
   }
 
   /** Multiball, a press's or the lock's, from time `at`. */
@@ -234,6 +251,27 @@ export class PinballShows {
       };
     }
     if (id === 'nudge') return () => sinks.shake(0.3);
+    if (id === 'sandstorm') {
+      // Every lamp, across the table from the windward edge the way the wind blows: the storm's, from the latest state
+      // when the moment plays (so a state that comes just after its moment still turns it), and toward +x with none.
+      return () => {
+        const dir = this.latest?.events.sandstorm?.dir ?? 1;
+        const half = TABLE.width / 2;
+        sinks.play(sweep(lamps.all, { from: -dir * half, to: dir * half, color: STORM_AMBER, seconds: 1, axis: 'x' }), at);
+        sinks.shake(0.4);
+      };
+    }
+    if (id === 'curse') {
+      return () => {
+        sinks.play(strobe(lamps.all, { color: CURSE_RED, times: 3, rate: 2.5 }), at);
+        sinks.flash(CURSE_RED, 0.5, at);
+      };
+    }
+    if (id === 'mummy') {
+      // Every lamp swept from the bottom of the table up into the mummy's lamp, as a mode's start sweeps into its toy.
+      const to = this.toyZ('ankh');
+      return () => sinks.play(sweep(lamps.all, { from: 0, to, color: GOD_COLOR.ankh, seconds: 1 }), at);
+    }
 
     // A bank matched: the bank's god gives the colour, and the table's bank its plaques.
     const god = id.startsWith('bank-') ? id.slice('bank-'.length) : '';
@@ -253,7 +291,7 @@ export class PinballShows {
 
   /**
    * What a cue of the quest's does when its time comes (but a mode won's, which cue() queues as two moments), or null
-   * for the finale's end, which has no row, and for the summoned mummy put down, which has none yet.
+   * for the finale's end, which has no row. The summoned mummy put down (chat's event) is here too.
    */
   private questPlay(m: Exclude<PinballCueMsg, PinballToyHit | { cue: 'modeWon' }>): (() => void) | null {
     const { sinks, lamps } = this;
@@ -298,8 +336,13 @@ export class PinballShows {
       case 'finaleEnd':
         return null;
       case 'summonDown':
-        // The summoned mummy's own row comes with the events' look; till then it plays nothing.
-        return null;
+        // The burst and the sparks are where the ball put it down.
+        return () => {
+          this.lightBurst(m.x, m.z, 4, 0.6, QUEST_GOLD, at);
+          sinks.flash(QUEST_GOLD, 0.6, at);
+          sinks.sparks(m.x, 0.4, m.z, QUEST_GOLD, 24);
+          sinks.shake(0.5);
+        };
     }
   }
 

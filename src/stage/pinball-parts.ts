@@ -10,9 +10,10 @@
 // bumper and sling cues, and over the frame's rail lights, the orbits' arrows and a lamp at each toy (by its bits).
 // Every glow is a lamp to the light shows as well (light-show.ts, played by the stage: setShowLights), whose light
 // shows over the game's where it's the brighter. The quest's lasting look (setQuestLook, from the state) lights the
-// rail lights, the arrows and a mode's toy lamp in its god's colour, and chases the ring through the finale; and the
-// fades' dim (setDim) darkens all of it. Whatever lights a glow, it rises no more than 3 times a second, for the
-// viewers a flashing picture can hurt.
+// rail lights, the arrows and a mode's toy lamp in its god's colour, and chases the ring through the finale; with
+// chat's events, it pulses the rail lights and the arrows red while Pharaoh's curse is on and blinks the summoned
+// mummy's lamp green; and the fades' dim (setDim) darkens all of it. Whatever lights a glow, it rises no more than 3
+// times a second, for the viewers a flashing picture can hurt.
 //
 // Without the picture (it failed to load) the stand-in look is drawn instead (`usePicture(false)`): the bumper caps
 // and sling rubbers that flash, and the inserts, over the stand-in table (table-mesh.ts). The shows light none of it.
@@ -156,6 +157,23 @@ const TOY_LAMP_OF: Record<God, (id: string) => boolean> = {
  */
 const FINALE_LAP = 0.9;
 const CHASE_TAIL = 5;
+/**
+ * Pharaoh's curse (chat's event): the rail lights and the orbits' arrows pulse in its red, CURSE_PULSE seconds a pulse,
+ * lit for the first half and dim for the second.
+ */
+const CURSE_RED = 0xff2a2a;
+const CURSE_PULSE = 1;
+
+/**
+ * The quest's lasting look, from the state: the god whose mode runs (null for none), whether the finale runs, whether
+ * Pharaoh's curse is on, and whether the summoned mummy is (chat's events).
+ */
+export interface QuestLook {
+  god: God | null;
+  finale: boolean;
+  curse: boolean;
+  summoned: boolean;
+}
 
 /** Each target's emblem (build_table.py's EMBLEMS); every flip plaque's back is the sun disc. */
 const EMBLEMS: Record<string, string> = {
@@ -460,6 +478,8 @@ export class TableParts {
   /** The quest's lasting look last set (setQuestLook), and the time it was set at; and the dim last set (setDim). */
   private questGod: God | null = null;
   private questFinale = false;
+  private questCurse = false;
+  private questSummoned = false;
   private questNow = 0;
   private dim = 1;
   /** The colour finaleChase gives the lamp it was last asked about (a field, so nothing is made per frame). */
@@ -881,11 +901,16 @@ export class TableParts {
    * one does, and whether the finale runs; `now` is the table's clock as drawn (DrawnClock's), which the toy lamp's
    * blink and the finale's chase go by. While a mode runs, the rail lights and the orbits' arrows glow steadily in its
    * god's colour, and its toy's lamp blinks in it twice a second; while the finale runs, the ring chases, gold and the
-   * rainbow on alternate laps. The game's own lamps keep their colours, because they still mean something.
+   * rainbow on alternate laps. Chat's events: while Pharaoh's curse is on, the rail lights and the arrows pulse red
+   * once a second in place of a mode's colour (the finale's chase still runs over them); while the summoned mummy is
+   * on, its lamp blinks green as a mode's toy lamp does. The game's own lamps keep their colours, because they still
+   * mean something.
    */
-  setQuestLook(look: { god: God | null; finale: boolean }, now: number): void {
+  setQuestLook(look: QuestLook, now: number): void {
     this.questGod = look.god;
     this.questFinale = look.finale;
+    this.questCurse = look.curse;
+    this.questSummoned = look.summoned;
     this.questNow = now;
   }
 
@@ -984,24 +1009,37 @@ export class TableParts {
       // toy's lamp lit, which would hide the blink. While its toy is down it stays dark, as the game has it, since a
       // lamp blinking at a knocked-down pop-up would say it was there to hit. The blink's two levels are the game's own
       // blinking lamps' (GLOW_LIT and GLOW_DIM), which never count as a rise.
-      // While the finale runs, the ring chases at a show's brightness, rising once a lap.
+      // Pharaoh's curse pulses the same lamps red at those same two levels, so it never counts as a rise either, in
+      // place of a mode's colour; the finale's chase runs over it, at a show's brightness, rising once a lap as it does
+      // with no curse. The summoned mummy's lamp blinks green as a mode's toy lamp does, by the mummy's own toy test,
+      // dark while it's down.
       const role = this.questRoles[i];
       const god = this.questGod;
-      if (this.questFinale && role.place >= 0) {
+      const ringChases = this.questFinale && role.place >= 0;
+      if (this.questCurse && role.decor) {
+        const pulse = this.questNow / CURSE_PULSE;
+        const cursed = pulse - Math.floor(pulse) < 0.5 ? GLOW_LIT : GLOW_DIM;
+        if (cursed > level) {
+          level = cursed;
+          color = CURSE_RED;
+        }
+      } else if (!ringChases && god !== null && role.decor && GLOW_LIT > level) {
+        level = GLOW_LIT;
+        color = GOD_COLOR[god];
+      }
+      if (ringChases) {
         const chased = this.finaleChase(role.place) * GLOW_SHOW;
         if (chased > level) {
           level = chased;
           color = this.chaseColor;
         }
-      } else if (god !== null && role.decor && GLOW_LIT > level) {
-        level = GLOW_LIT;
-        color = GOD_COLOR[god];
       }
-      if (god !== null && role.toyOf === god) {
+      const blinkGod = god !== null && role.toyOf === god ? god : this.questSummoned && role.toyOf === 'ankh' ? 'ankh' : null;
+      if (blinkGod !== null) {
         const phase = this.questNow * 2;
         const up = glow.toy?.(this.down, this.toys) ?? false;
         level = !up ? 0 : phase - Math.floor(phase) < 0.5 ? GLOW_LIT : GLOW_DIM;
-        color = GOD_COLOR[god];
+        color = GOD_COLOR[blinkGod];
       }
       // The shows' light where it's the brighter, in its colour.
       const { limit, show } = this.glowLights[i];

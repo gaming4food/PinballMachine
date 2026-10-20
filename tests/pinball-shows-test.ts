@@ -2,16 +2,17 @@
 // screen flash, sparks and shake the book gives it (a bank matched, multiball, the ball saver, double score, a nudge, a
 // payout, and the toys' hits: a pop-up knocked down, the mummy's hits and its third, the tomb's catch), in its god's
 // colour where it has one; that each of the quest's cues plays its row (a mode started, a goal, a mode won or lost, a
-// jackpot, the finale); that a part or an id with no row does nothing; that a moment plays at its time and not
-// before, that one drawn more than 2 s late is let go, and that the table's clock starting again clears what plays and
-// lets go of the moments queued on the old clock, keeping those already on the new one; that DrawnClock steps by the
-// drawn time under a cap and never goes back; and that every show the book plays ends and, played alone over the
-// table's lamps, rises no lamp more than 3 times in any second, the quest's rows too. No page or graphics card is
+// jackpot, the finale) and each of chat's events its row (a sandstorm with its wind, the curse, the summoned mummy and
+// the mummy put down); that a part or an id with no row does nothing; that a moment plays at its time and not before,
+// that one drawn more than 2 s late is let go, and that the table's clock starting again clears what plays and lets go
+// of the moments queued on the old clock, keeping those already on the new one; that DrawnClock steps by the drawn time
+// under a cap and never goes back; and that every show the book plays ends and, played alone over the table's lamps,
+// rises no lamp more than 3 times in any second, the quest's rows and chat's events' too. No page or graphics card is
 // needed.
 // Usage: npm run pinball-shows-test
 import assert from 'node:assert/strict';
-import { GOD_COLOR, GODS, type God, type PinballCueMsg, type PinballHypeMsg } from '../src/shared/pinball';
-import { TABLE_IN_USE, type Table } from '../src/shared/table';
+import { GOD_COLOR, GODS, type God, type PinballCueMsg, type PinballHypeMsg, type PinballState } from '../src/shared/pinball';
+import { TABLE, TABLE_IN_USE, type Table } from '../src/shared/table';
 import { burst, chase, DARK_BELOW, darken, LIT_ABOVE, LightShowPlayer, strobe, sweep, type Fade, type LampLight, type Show } from '../src/stage/light-show';
 // The show book is numbers only, so it loads with no stubs.
 import { DrawnClock, PinballShows, type ShowSinks } from '../src/stage/pinball-shows';
@@ -71,6 +72,13 @@ const modeLost = (god: God, at: number): PinballCueMsg => ({ kind: 'pinballCue',
 const jackpot = (value: number, x: number, z: number, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'jackpot', value, x, z, at });
 const finale = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'finale', at });
 const finaleEnd = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'finaleEnd', at });
+/** The summoned mummy put down, where it was hit: chat's event's cue, paying its 10,000. */
+const summonDown = (x: number, z: number, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'summonDown', value: 10000, x, z, at });
+/** A state with a sandstorm on, its wind blowing toward `dir` along x: all the book reads of a state is its events. */
+const stormState = (dir: 1 | -1) => ({ events: { sandstorm: { until: 100, dir }, curse: null, mummy: null } }) as unknown as PinballState;
+/** The sandstorm's amber (the picture's amber lamps) and Pharaoh's curse's red. */
+const STORM_AMBER = 0xffa030;
+const CURSE_RED = 0xff2a2a;
 /** Each god's toy lamps, by their glows' ids: the gate's for Ra, the pop-ups' for Horus, the mummy's, the doorstep's. */
 const TOY_LAMP_IDS: Record<God, string[]> = { ra: ['gate'], horus: ['popup-1', 'popup-2', 'popup-3'], ankh: ['mummy'], eye: ['doorstep'] };
 const glowLamp = (id: string) => parts.glows.find((g) => g.id === id)!.lamp;
@@ -436,6 +444,69 @@ test("each quest cue's row: a mode's start sweeps into its toy, a goal bursts wh
   assert.deepEqual(over.calls, [], "the finale's end plays nothing");
 });
 
+test("each event's row: the storm sweeps with the wind and shakes, the curse strobes red with a flash, the mummy sweeps to its lamp, the mummy put down bursts gold with sparks, a flash and a shake", () => {
+  const half = TABLE.width / 2;
+  // A sandstorm: every lamp swept across the table along x, from the windward edge in the wind's direction (the
+  // storm's, from the state at its moment), in amber, over 1 s, and a shake of 0.4 s. No flash.
+  for (const dir of [1, -1] as const) {
+    const { shows, calls, kind } = book();
+    shows.state(stormState(dir));
+    shows.hype(hype('sandstorm', 4));
+    assert.equal(calls.length, 0, 'the storm: queued till its time');
+    shows.frame(4);
+    assert.equal(calls.length, 2, `the storm blowing ${dir}: a sweep and a shake`);
+    const [swept] = kind('play');
+    assert.equal(swept.at, 4);
+    assertSameShow(swept.show, sweep(lamps.all, { from: -dir * half, to: dir * half, color: STORM_AMBER, seconds: 1, axis: 'x' }), `the storm's sweep toward ${dir}`);
+    assert.deepEqual(kind('shake'), [{ kind: 'shake', seconds: 0.4 }]);
+    assert.deepEqual(kind('flash'), []);
+  }
+  // The direction is the state's when the moment plays, so a state that comes just after the moment still turns it.
+  const later = book();
+  later.shows.hype(hype('sandstorm', 4));
+  later.shows.state(stormState(-1));
+  later.shows.frame(4);
+  assertSameShow(later.kind('play')[0].show, sweep(lamps.all, { from: half, to: -half, color: STORM_AMBER, seconds: 1, axis: 'x' }), "the storm's sweep from a state after its moment");
+  // With no storm in any state seen (an older server's), it sweeps toward +x.
+  const none = book();
+  none.shows.hype(hype('sandstorm', 4));
+  none.shows.frame(4);
+  assertSameShow(none.kind('play')[0].show, sweep(lamps.all, { from: -half, to: half, color: STORM_AMBER, seconds: 1, axis: 'x' }), "the storm's sweep with no state");
+
+  // Pharaoh's curse: every lamp strobed red, 3 at 2.5 a second, and a red flash at 0.5.
+  const cursed = book();
+  cursed.shows.hype(hype('curse', 6));
+  cursed.shows.frame(6);
+  assert.equal(cursed.calls.length, 2, 'the curse: a strobe and a flash');
+  assert.equal(cursed.kind('play')[0].at, 6);
+  assertSameShow(cursed.kind('play')[0].show, strobe(lamps.all, { color: CURSE_RED, times: 3, rate: 2.5 }), "the curse's strobe");
+  assert.deepEqual(cursed.kind('flash'), [{ kind: 'flash', color: CURSE_RED, strength: 0.5, at: 6 }]);
+
+  // The summoned mummy: every lamp swept from z 0 up to the mummy's lamp, green, over 1 s, and nothing else.
+  const mummyLamp = glowLamp('mummy');
+  const risen = book();
+  risen.shows.hype(hype('mummy', 8));
+  risen.shows.frame(8);
+  assert.equal(risen.calls.length, 1, 'the mummy: a sweep alone');
+  assert.equal(risen.kind('play')[0].at, 8);
+  assertSameShow(risen.kind('play')[0].show, sweep(lamps.all, { from: 0, to: mummyLamp.z, color: GOD_COLOR.ankh, seconds: 1 }), "the mummy's sweep");
+  let reached = false;
+  for (let i = 0; i * LOOK < 1; i++) reached ||= risen.kind('play')[0].show.light(mummyLamp, i * LOOK) !== null;
+  assert.ok(reached, "the sweep reaches the mummy's lamp");
+
+  // The summoned mummy put down: a gold burst from where it was hit, reach 4 over 0.6 s, a gold flash at 0.6, 24 gold
+  // sparks there and a shake of 0.5 s.
+  const down = book();
+  down.shows.cue(summonDown(1.25, 12.5, 10));
+  down.shows.frame(10);
+  assert.equal(down.calls.length, 4, 'the mummy put down: a burst, a flash, sparks and a shake');
+  assert.equal(down.kind('play')[0].at, 10);
+  assertSameShow(down.kind('play')[0].show, burst(lamps.all, { x: 1.25, z: 12.5, reach: 4, color: GOLD, seconds: 0.6 }), "the mummy put down's burst");
+  assert.deepEqual(down.kind('flash'), [{ kind: 'flash', color: GOLD, strength: 0.6, at: 10 }]);
+  assert.deepEqual(down.kind('sparks'), [{ kind: 'sparks', x: 1.25, y: 0.4, z: 12.5, color: GOLD, count: 24 }]);
+  assert.deepEqual(down.kind('shake'), [{ kind: 'shake', seconds: 0.5 }]);
+});
+
 test("a cue for a part the table hasn't got, or a hype id with no show, does nothing", () => {
   const { shows, calls } = book();
   // Parts with no row: ids the table doesn't have (and names an object has), targets it has that the book gives nothing
@@ -770,6 +841,17 @@ function everyMoment(): [string, (s: PinballShows) => void][] {
   for (const value of [50000, 1000000]) moments.push([`a jackpot of ${value}`, (s) => s.cue(jackpot(value, tomb.held[0], tomb.held[1], 0))]);
   moments.push(['the finale', (s) => s.cue(finale(0))]);
   moments.push(["the finale's end", (s) => s.cue(finaleEnd(0))]);
+  // Chat's events: a sandstorm each way, the curse, the summoned mummy, and the mummy put down where it stands.
+  for (const dir of [1, -1] as const) {
+    moments.push([`a sandstorm blowing ${dir}`, (s) => {
+      s.state(stormState(dir));
+      s.hype(hype('sandstorm', 0));
+    }]);
+  }
+  moments.push(['the curse', (s) => s.hype(hype('curse', 0))]);
+  moments.push(['the mummy summoned', (s) => s.hype(hype('mummy', 0))]);
+  const mummy = TABLE_IN_USE.targets.find((t) => t.rise === 'hold')!;
+  moments.push(['the summoned mummy put down', (s) => s.cue(summonDown(mummy.x, mummy.z, 0))]);
   return moments;
 }
 
@@ -778,11 +860,12 @@ function drawFor5s(shows: PinballShows): void {
   for (let i = 0; i <= 100; i++) shows.frame(i * 0.05);
 }
 
-test("every row the book plays, the quest's too, ends, and played alone rises no lamp more than 3 times in any second", () => {
+test("every row the book plays, the quest's and chat's events' too, ends, and played alone rises no lamp more than 3 times in any second", () => {
   const moments = everyMoment();
   // 4 banks, multiball, the saver, double, a nudge, 5 payouts, 3 pop-ups, the mummy twice and the tomb; and the quest's:
-  // 5 for each of the 4 gods, 2 jackpots, the finale and its end.
-  assert.equal(moments.length, 4 + 1 + 3 + 5 + 3 + 2 + 1 + 5 * 4 + 2 + 2);
+  // 5 for each of the 4 gods, 2 jackpots, the finale and its end; and chat's events: a sandstorm each way, the curse,
+  // the mummy summoned and put down.
+  assert.equal(moments.length, 4 + 1 + 3 + 5 + 3 + 2 + 1 + 5 * 4 + 2 + 2 + 2 + 1 + 1 + 1);
   /** The moments with no light show: the nudge shakes the view, a mode lost fades the lamps, the finale's end is nothing. */
   const unshown = ['nudge', ...GODS.map((god) => `${god}'s mode lost`), "the finale's end"];
   let shown = 0;

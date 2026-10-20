@@ -17,8 +17,9 @@
 // The quest's flash plays over the table: the show book (pinball-shows.ts) turns each moment (a hype moment, a toy's
 // hit from the server's cues, multiball, a payout) into a light show over the table's lamps (light-show.ts, lit through
 // pinball-parts.ts), a flash of the picture (screen-hits.ts, in the picture's own shader), sparks (sparks.ts) and a
-// shake, and the open tomb sends up its beam. They run on the table's clock as drawn (DrawnClock), so they stand still
-// while the table does, and nothing of theirs flashes more than 3 times a second.
+// shake, and the open tomb sends up its beam. Chat's sandstorm blows sand across the table (sand.ts) and hazes the
+// picture amber, in the same shader, easing in and out over 0.8 s. They run on the table's clock as drawn (DrawnClock),
+// so they stand still while the table does, and nothing of theirs flashes more than 3 times a second.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -46,14 +47,15 @@ import {
   WIDTH,
 } from '@kit/stage';
 import picture from '../assets/pinball.png';
-import { type God, pinballCueOf, pinballHypeOf, type PinballState, pinballStateOf, TOY } from '../shared/pinball';
+import { pinballCueOf, pinballHypeOf, type PinballState, pinballStateOf, TOY } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { CoinBurst } from './coin-burst';
 import { LightShowPlayer } from './light-show';
 import { type PinballHeader, readPinballHeader } from './pinball-header';
 import { ballSaved } from './pinball-hud';
-import { TableParts } from './pinball-parts';
+import { type QuestLook, TableParts } from './pinball-parts';
 import { DrawnClock, PinballShows } from './pinball-shows';
+import { easeHaze, HAZE, hazeAt, Sand } from './sand';
 import { type DrawnBall, PinballSoundCues, PinballVoice } from './pinball-sounds';
 import { ScreenFlash } from './screen-hits';
 import { Sparks, TombBeam } from './sparks';
@@ -61,6 +63,9 @@ import { CYAN, PINK, pictureDepth, standInTable } from './table-mesh';
 import './pinball.css';
 
 export { ballSaved, PinballHud, TITLE_SECONDS } from './pinball-hud';
+
+/** Whether one of chat's events (the state's, until its time on the table's clock) is on at table time `now`. */
+const onAt = (event: { until: number } | null | undefined, now: number): boolean => event != null && now < event.until;
 
 /** How far the camera looks down from level, in degrees. */
 const CAMERA_PITCH = 40;
@@ -199,6 +204,8 @@ export class PinballScene implements MachineScene {
   readonly sparks = new Sparks();
   /** The open tomb's beam, in the table group: its motes are sparks. */
   readonly beam = new TombBeam(TABLE_IN_USE, this.sparks);
+  /** The sandstorm's sand, a pool of its own, in the table group. */
+  readonly sand = new Sand();
   /** The show book: what each moment plays, through the player, the sparks, the flash and the view's quake. */
   readonly shows: PinballShows;
   /**
@@ -207,9 +214,19 @@ export class PinballScene implements MachineScene {
    */
   private readonly tableClock = new DrawnClock();
   /** The quest's lasting look: refilled each frame from the state and handed to the parts, which keep it. */
-  private readonly questLook: { god: God | null; finale: boolean } = { god: null, finale: false };
+  private readonly questLook: QuestLook = { god: null, finale: false, curse: false, summoned: false };
   /** The screen flash on the picture's shader (below): the colour added over the picture, and how much of it. */
   private readonly flashUniforms = { uFlash: { value: new THREE.Color(0, 0, 0) }, uFlashAmount: { value: 0 } };
+  /** The sandstorm's haze on the picture's shader: its colour, and how much of the picture is mixed toward it. */
+  private readonly hazeUniforms = { uHaze: { value: new THREE.Color(HAZE.color) }, uHazeAmount: { value: 0 } };
+  /**
+   * The haze as drawn (easeHaze), when the stage first saw the storm now on (DrawnClock's `now`; null with none), and
+   * whether the next frame is the first to look at a state (or the first after a hello): a storm on then is shown eased
+   * in already, as if it began long ago.
+   */
+  private haze = 0;
+  private stormSeen: number | null = null;
+  private hazeFresh = true;
   private readonly ballGeo = new THREE.SphereGeometry(TABLE.ballRadius, 32, 24);
   private readonly ballMat = new THREE.MeshStandardMaterial({ color: 0xd4d8e2, metalness: 1, roughness: 0.12, envMapIntensity: 1.4 });
   private readonly balls = new Map<number, BallView>();
@@ -330,6 +347,8 @@ export class PinballScene implements MachineScene {
           // The screen flash (screen-hits.ts): the colour to add over the picture, and how much of it, set each frame
           // (update). At 0 the picture is drawn as it was rendered.
           ...this.flashUniforms,
+          // The sandstorm's haze, likewise: the colour the picture is mixed toward, and how much (0 with no storm).
+          ...this.hazeUniforms,
         },
         vertexShader: /* glsl */ `
           varying vec2 vUv;
@@ -338,13 +357,17 @@ export class PinballScene implements MachineScene {
           uniform sampler2D uMap;
           uniform vec3 uFlash;
           uniform float uFlashAmount;
+          uniform vec3 uHaze;
+          uniform float uHazeAmount;
           varying vec2 vUv;
           ${INVERSE_ACES_GLSL}
           void main() {
             vec4 texel = texture2D(uMap, vUv);
             // The flash is added to the picture as it was rendered, before the tone mapping is run back, and by the
             // picture's alpha, so it lights the table and not the city that shows through the picture's clear parts.
-            gl_FragColor = vec4(inverseAces(texel.rgb + uFlash * uFlashAmount * texel.a), texel.a);
+            // The haze is mixed in first, by the picture's alpha as the flash is, so the flash shows bright through it.
+            vec3 hazed = mix(texel.rgb, uHaze, uHazeAmount * texel.a);
+            gl_FragColor = vec4(inverseAces(hazed + uFlash * uFlashAmount * texel.a), texel.a);
           }`,
         transparent: true,
         depthWrite: false,
@@ -358,8 +381,8 @@ export class PinballScene implements MachineScene {
     this.standIn = standInTable(TABLE_IN_USE, look, TABLE.width, TABLE.length);
     this.standIn.visible = false;
     this.depth = pictureDepth(TABLE_IN_USE, TABLE.width, TABLE.length);
-    // The sparks and the beam are in the table's own coordinates, as the parts are.
-    this.table.add(this.standIn, this.depth, this.parts.group, this.burst.group, this.sparks.points, this.beam.group);
+    // The sparks, the beam and the sand are in the table's own coordinates, as the parts are.
+    this.table.add(this.standIn, this.depth, this.parts.group, this.burst.group, this.sparks.points, this.beam.group, this.sand.points);
     this.scene.add(this.table);
     this.table.updateMatrixWorld(true);
     this.addLights();
@@ -463,6 +486,7 @@ export class PinballScene implements MachineScene {
     if (state) {
       this.state = state;
       this.cues.state(state);
+      this.shows.state(state);
     }
   }
 
@@ -608,7 +632,20 @@ export class PinballScene implements MachineScene {
     // since the player lets go of its finished fades only there.
     this.questLook.god = this.state?.quest.mode?.god ?? null;
     this.questLook.finale = this.state ? this.state.quest.finale !== null : false;
+    // Chat's events, each on until its time on the table's clock.
+    const events = this.state?.events;
+    this.questLook.curse = onAt(events?.curse, now);
+    this.questLook.summoned = onAt(events?.mummy, now);
     this.parts.setQuestLook(this.questLook, now);
+    // The sandstorm: its wind's sand, and its haze, eased in from when the stage first saw it and out to its end.
+    const storm = events?.sandstorm ?? null;
+    this.sand.blow(storm && now < storm.until ? storm.dir : 0, now);
+    if (!storm) this.stormSeen = null;
+    else if (this.stormSeen === null) this.stormSeen = this.hazeFresh ? -Infinity : now;
+    const hazeGoal = hazeAt(this.stormSeen, storm?.until ?? null, now);
+    this.haze = this.hazeFresh ? hazeGoal : easeHaze(this.haze, hazeGoal, step);
+    if (this.state) this.hazeFresh = false;
+    this.hazeUniforms.uHazeAmount.value = this.haze;
     this.parts.setDim(this.player.dimAt(now));
     // Both results are the player's and the flash's own, filled in again at their next call: read at once.
     const flashed = this.flash.at(now, real);
@@ -647,6 +684,7 @@ export class PinballScene implements MachineScene {
     // 0.1 s), where the shows and the flash above go by its `now`.
     this.sparks.update(step);
     this.beam.update(step);
+    this.sand.update(step);
     this.burst.update(step);
     for (let i = this.effects.length - 1; i >= 0; i--) if (!this.effects[i].update(dt)) this.effects.splice(i, 1);
 
@@ -721,8 +759,9 @@ export class PinballScene implements MachineScene {
   /**
    * A fresh hello: the table is drawn from the new connection's snapshots and bodies only. The new server's clock may
    * have started again from 0, so the flash forgets the old clock: the show book lets go of its moments and clears the
-   * player and the flash (its sinks' clear), the table's clock takes the next drawn time as its first, the sparks go
-   * out, and the beam shows the tomb as it is at the next header, as the toys are shown.
+   * player and the flash (its sinks' clear), the table's clock takes the next drawn time as its first, the sparks and
+   * the sand go out, the beam shows the tomb as it is at the next header, as the toys are shown, and the haze shows the
+   * storm as it is at the next frame.
    */
   reset(): void {
     this.samples.length = 0;
@@ -732,6 +771,10 @@ export class PinballScene implements MachineScene {
     this.tableClock.reset();
     this.sparks.clear();
     this.beam.reset();
+    this.sand.clear();
+    // The new connection's storm may be on or not whatever the haze shows now: the next state is shown as it is.
+    this.stormSeen = null;
+    this.hazeFresh = true;
     for (const id of [...this.balls.keys()]) this.dropBall(id);
     this.drains.length = 0;
     this.payouts.length = 0;

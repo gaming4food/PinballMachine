@@ -28,10 +28,11 @@ const MOTE_LIFE = 1.6;
 const PARKED = -1000;
 
 /**
- * A round dot, white, with a bright core fading to nothing at its edge: the sparks' map. The core is flat to a fifth of
- * the way out, so a spark reads as a bright point where a falloff from the middle alone left it a faint smudge.
+ * A round dot, white, with a bright core fading to nothing at its edge: the sparks' map (and the sand's, sand.ts). The
+ * core is flat to a fifth of the way out, so a spark reads as a bright point where a falloff from the middle alone left
+ * it a faint smudge.
  */
-function dotMap(): THREE.DataTexture {
+export function dotMap(): THREE.DataTexture {
   const n = 32;
   const data = new Uint8Array(n * n * 4);
   for (let y = 0; y < n; y++) {
@@ -50,6 +51,24 @@ function dotMap(): THREE.DataTexture {
 }
 
 /**
+ * Sizes `points` (drawn with `material`) `size` across in the world, wherever the stage draws them. three sizes a point
+ * in pixels from the renderer's own size (not the target it draws into) and the screen's height alone (not the camera's
+ * lens), so a size of 0.14 is neither 0.14 across nor the same at every quality: the stage draws into a target 3 times
+ * its size (supersampling) through a 32° lens, which would leave a spark about a pixel. So the size is set before each
+ * draw, from the target and the lens. (For a perspective camera, as the stage's is.) The renderer's size is read into
+ * one vector made here, so nothing is made per frame.
+ */
+export function sizeInWorld(points: THREE.Points, material: THREE.PointsMaterial, size: number): void {
+  const view = new THREE.Vector2();
+  points.onBeforeRender = (renderer, _scene, camera) => {
+    renderer.getSize(view);
+    const ratio = renderer.getPixelRatio();
+    const drawn = renderer.getRenderTarget()?.height ?? view.y * ratio;
+    material.size = (size * camera.projectionMatrix.elements[5] * drawn) / (view.y * ratio);
+  };
+}
+
+/**
  * The pool of sparks, thrown in bursts or sent drifting up as motes, and moved on by the table's clock. They are drawn
  * additively, so a spark fades by dimming, and one that is out is parked and dark.
  */
@@ -64,9 +83,8 @@ export class Sparks {
   private readonly life = new Float64Array(MAX_SPARKS);
   private readonly velocity = new Float64Array(MAX_SPARKS * 3);
   private readonly drifts = new Uint8Array(MAX_SPARKS);
-  /** A colour to read a hex into, and the renderer's size for sizing the points: made once, used at every call. */
+  /** A colour to read a hex into: made once, used at every call. */
   private readonly rgb = new THREE.Color();
-  private readonly view = new THREE.Vector2();
 
   constructor() {
     const geometry = new THREE.BufferGeometry();
@@ -86,17 +104,7 @@ export class Sparks {
     // The sparks fly anywhere over the table, and three.js works the pool's bounding sphere out once, from the points
     // as they are at the start: all parked.
     this.points.frustumCulled = false;
-    // three sizes a point in pixels from the renderer's own size (not the target it draws into) and the screen's height
-    // alone (not the camera's lens), so a size of 0.14 is neither 0.14 across nor the same at every quality: the stage
-    // draws into a target 3 times its size (supersampling) through a 32° lens, which would leave a spark about a pixel.
-    // So the size is set before each draw, from the target and the lens, and a spark is 0.14 across in the world
-    // wherever it is drawn. (For a perspective camera, as the stage's is.)
-    this.points.onBeforeRender = (renderer, _scene, camera) => {
-      renderer.getSize(this.view);
-      const ratio = renderer.getPixelRatio();
-      const drawn = renderer.getRenderTarget()?.height ?? this.view.y * ratio;
-      material.size = (SIZE * camera.projectionMatrix.elements[5] * drawn) / (this.view.y * ratio);
-    };
+    sizeInWorld(this.points, material, SIZE);
     this.clear();
   }
 
