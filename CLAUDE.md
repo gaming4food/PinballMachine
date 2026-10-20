@@ -239,10 +239,10 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   summoned mummy's lamp blinks green while the mummy is up, dark while it is down. The haze is not a flash; the pulse
   is lit at `GLOW_LIT`, which the 3-a-second rule never counts as a rise, and the blink stays at the blinking lamps'
   two levels.
-- **The events' sounds** are synthesised, with no files: a filtered noise swell for the storm's first 2 s (`wind`), a
-  low falling sting for the curse (`curse`), the toys' rise for the summoned mummy (`summonRise`), and for
-  `summonDown` the toys' knocked-down sound (`target()`, the pop-up's; a pick the owner can swap in
-  `pinball-sound-picks`).
+- **The events' sounds** are synthesised, with no files: a filtered noise swell for the storm's first 2 s (`wind`) and
+  a low falling sting for the curse (`curse`). The summoned mummy has no sound of its own: its bit clearing as it rises
+  plays the toys' rise, and its third hit's `toyHit` cue plays a target's hit as every hit on it does, so its moment
+  and `summonDown` add none (they would sound each twice).
 - **The look of a mode** comes from the state each frame, so a stage opened late shows it. While a mode runs, its toy's
   lamp blinks in the god's colour and the rail lights and the orbit arrows glow steadily in it; while the finale runs,
   the ring chases gold and the rainbow in laps of 0.9 s. The state reaches the stage unguarded: `pinballStateOf` gives

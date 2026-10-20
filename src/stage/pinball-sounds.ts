@@ -46,10 +46,6 @@ export interface PinballCueSink {
   wind(): void;
   /** Chat's curse struck: its sting. */
   curse(): void;
-  /** Chat's summoned mummy rose (it plays the toys' rise). */
-  summonRise(): void;
-  /** The summoned mummy was put down by its third hit (it plays the toys' down, a target's hit). */
-  summonDown(): void;
 }
 
 /** A ball as the stage draws it this frame, on the table (x across, z up it). */
@@ -90,7 +86,7 @@ interface ToyHit {
   at: number;
   index?: number;
   /** For a cue with no index: which sound it is (the jackpot's by default). */
-  sound?: 'wind' | 'curse' | 'summonRise' | 'summonDown';
+  sound?: 'wind' | 'curse';
   x: number;
   z: number;
 }
@@ -233,7 +229,8 @@ export class PinballSoundCues {
   /** A hype moment: a press of multiball plays its sound at the moment's time (frame). */
   hype(m: PinballHypeMsg): void {
     // Chat's events sound on the hits' timed path (same stale rule and restart handling), with no place of their own.
-    const sound = m.id === 'sandstorm' ? 'wind' : m.id === 'curse' ? 'curse' : m.id === 'mummy' ? 'summonRise' : null;
+    // The summoned mummy has no sound of its own: its bit clearing as it rises is the toys' rise (targets).
+    const sound = m.id === 'sandstorm' ? 'wind' : m.id === 'curse' ? 'curse' : null;
     if (sound) {
       this.insert({ at: m.at, sound, x: 0, z: 0 });
       return;
@@ -249,15 +246,12 @@ export class PinballSoundCues {
    * ball of the stage's own, so it has the id -1). The tomb's catch makes no sound of its own. A part the table hasn't
    * got does nothing, and nor does one that is no pop-up or mummy: the lock's drop targets and the plaques sound by
    * their bits, so a cue for one would sound it twice. A jackpot's cue queues the jackpot's chime, on the same terms. The
-   * quest's other cues sound nothing here.
+   * quest's other cues sound nothing here, summonDown among them: the summoned mummy's third hit is a toyHit as well,
+   * which sounds it going down.
    */
   cue(m: PinballCueMsg): void {
     if (m.cue === 'jackpot') {
       this.insert({ at: m.at, x: m.x, z: m.z });
-      return;
-    }
-    if (m.cue === 'summonDown') {
-      this.insert({ at: m.at, sound: 'summonDown', x: m.x, z: m.z });
       return;
     }
     if (m.cue !== 'toyHit') return;

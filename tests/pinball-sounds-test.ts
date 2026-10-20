@@ -45,8 +45,6 @@ function cues(table: Table = TABLE_IN_USE) {
       jackpot: () => heard.push('jackpot'),
       wind: () => heard.push('wind'),
       curse: () => heard.push('curse'),
-      summonRise: () => heard.push('summonRise'),
-      summonDown: () => heard.push('summonDown'),
     },
     table,
   );
@@ -530,13 +528,14 @@ test('the jackpot is a rising run of three bell chords on the synth', () => {
   assert.ok(lowest[0] < lowest[1] && lowest[1] < lowest[2], 'each chord higher than the last');
 });
 
-test('a sandstorm plays the wind once at its time, a curse its sting, a summoned mummy the rise; one more than 2 s late is let go', () => {
+test('a sandstorm plays the wind once at its time and a curse its sting; one more than 2 s late is let go', () => {
   const hype = (id: string, at: number): PinballHypeMsg => ({ kind: 'pinballHype', id, at });
   const down = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'summonDown', value: 25000, x: 1, z: 8, at });
   const { c, heard } = cues();
   c.frame(9);
   c.hype(hype('sandstorm', 10));
   c.hype(hype('curse', 10.5));
+  // The summoned mummy and its summonDown sound nothing of their own: its bit and its hits sound it (the test below).
   c.hype(hype('mummy', 11));
   c.cue(down(12));
   c.frame(9.9);
@@ -545,22 +544,42 @@ test('a sandstorm plays the wind once at its time, a curse its sting, a summoned
   assert.deepEqual(heard, ['wind']);
   c.frame(12);
   c.frame(12.5);
-  assert.deepEqual(heard, ['wind', 'curse', 'summonRise', 'summonDown'], 'each once, in order of time');
+  assert.deepEqual(heard, ['wind', 'curse'], 'each once, in order of time');
   c.hype(hype('sandstorm', 20));
   c.frame(22);
-  assert.deepEqual(heard.length, 5, 'exactly 2 s late still plays');
+  assert.deepEqual(heard.length, 3, 'exactly 2 s late still plays');
   c.hype(hype('curse', 30));
-  c.hype(hype('mummy', 30));
-  c.cue(down(30));
   c.frame(32.1);
   c.frame(40);
-  assert.equal(heard.length, 5, 'more than 2 s late is let go, and not played later');
+  assert.equal(heard.length, 3, 'more than 2 s late is let go, and not played later');
   // The table's clock starting again: the old clock's moments waiting go, one already on the new clock stays.
   c.hype(hype('sandstorm', 900));
   c.frame(5);
   c.hype(hype('curse', 5.5));
   c.frame(6);
-  assert.deepEqual(heard.slice(5), ['curse'], "the old clock's wind goes, the new clock's sting plays");
+  assert.deepEqual(heard.slice(3), ['curse'], "the old clock's wind goes, the new clock's sting plays");
+});
+
+test("the summoned mummy rises with the toys' rise and goes down on its third hit's sound, each once: its moment and its summonDown add none", () => {
+  const { c, heard } = cues();
+  const i = indexOf('target-mummy');
+  const m = TABLE_IN_USE.targets[i];
+  const hype: PinballHypeMsg = { kind: 'pinballHype', id: 'mummy', at: 11 };
+  c.targets(RISING);
+  c.frame(10.9);
+  // Its moment, and then its bit clearing as the game raises it.
+  c.hype(hype);
+  c.frame(11);
+  c.targets(RISING & ~(1 << i));
+  assert.deepEqual(heard, [`rise:${i}`], 'it rose once');
+  // Three hits, the third putting it down and paying, with the summonDown cue at the same moment; then its bit sets.
+  c.cue(hit(m.id, false, m.x, m.z - 1, 12));
+  c.cue(hit(m.id, false, m.x, m.z - 1, 12.5));
+  c.cue(hit(m.id, true, m.x, m.z - 1, 13));
+  c.cue({ kind: 'pinballCue', cue: 'summonDown', value: 10000, x: m.x, z: m.z, at: 13 });
+  c.frame(13.5);
+  c.targets(RISING);
+  assert.deepEqual(heard, [`rise:${i}`, `target:${i}`, `target:${i}`, `target:${i}`], 'each hit once, and nothing more');
 });
 
 test('the wind is a noise swell sweeping down, the curse a low sting falling an octave; both duck the music', () => {
