@@ -285,6 +285,8 @@ export class PinballScene implements MachineScene {
         this.shows.multiball(this.tableClock.now);
       },
       saved: () => voice.saved(),
+      // The jackpot's cue is heard here; Task 7 wires the scene's own part of it.
+      jackpot: () => voice.jackpot(),
     });
     const w = Math.round(WIDTH * quality.scale);
     const h = Math.round(HEIGHT * quality.scale);

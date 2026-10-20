@@ -468,6 +468,51 @@ test("a payout's coin burst grows with the payout: 8 coins for 0, 17 for 9, 60 a
   assert.equal(b.group.children.filter((c) => c.visible).length, 0, 'and every coin lands and goes out');
 });
 
+test('a coin rain drops its coins over the table from above, from the pool, never more than 180 at once', () => {
+  const inAir = (b: InstanceType<typeof CoinBurst>) => b.group.children.filter((c) => c.visible);
+  const rained = (coins: number) => {
+    const b = new CoinBurst();
+    b.rain(coins);
+    b.update(0.9);
+    return b;
+  };
+  // Each coin asked for falls, none more than asked for, and none past the pool.
+  assert.equal(inAir(rained(0)).length, 0, 'none asked, none fall');
+  assert.equal(inAir(rained(100)).length, 100);
+  assert.equal(inAir(rained(1000)).length, 180, 'the pool is the most');
+  assert.equal(rained(1000).group.children.length, 180, 'and no coin is made');
+
+  // They start high above the table, spread across its width and down its length, and come down to the playfield.
+  const start = new CoinBurst();
+  start.rain(150);
+  start.update(0.01);
+  const high = inAir(start);
+  assert.ok(high.length > 0, 'some have begun at once');
+  for (const c of high) assert.ok(c.position.y > 3, `begins high above the table (${c.position.y})`);
+  const b = new CoinBurst();
+  b.rain(150);
+  b.update(0.5);
+  const xs = inAir(b).map((c) => c.position.x);
+  assert.ok(Math.min(...xs) < -3 && Math.max(...xs) > 3, 'across the width');
+  for (const c of inAir(b)) {
+    assert.ok(Math.abs(c.position.x) <= 5.1, `over the table's width (${c.position.x})`);
+    assert.ok(c.position.z > 0 && c.position.z < 16.7, `over its length (${c.position.z})`);
+  }
+  b.update(0.7);
+  for (const c of inAir(b)) assert.ok(c.position.y < 1.2 && c.position.y >= 0.2, `fallen to the playfield (${c.position.y})`);
+  b.update(1.5);
+  assert.equal(inAir(b).length, 0, 'and every coin is out');
+
+  // Rain on rain, or on a payout's burst, never uses more than the pool either.
+  const mixed = new CoinBurst();
+  mixed.burst(1000, 0, 1);
+  mixed.rain(180);
+  mixed.rain(180);
+  mixed.update(0.9);
+  assert.equal(mixed.group.children.length, 180);
+  assert.equal(inAir(mixed).length, 180, 'the pool is all in the air, and no more');
+});
+
 test('a mote drifts up at the rise it is given, never falls, and is out in 1.6 s', () => {
   const sparks = new Sparks();
   sparks.mote(1, 0.2, 5, 0xffe8b0, 0.9);

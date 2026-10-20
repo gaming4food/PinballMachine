@@ -42,6 +42,7 @@ function cues(table: Table = TABLE_IN_USE) {
       launch: () => heard.push('launch'),
       multiball: () => heard.push('multiball'),
       saved: () => heard.push('saved'),
+      jackpot: () => heard.push('jackpot'),
     },
     table,
   );
@@ -69,7 +70,7 @@ const state = (multiball: boolean): PinballState => ({
 });
 
 test('the picks name every moment, each with no files yet (so each plays its synth)', () => {
-  assert.deepEqual(Object.keys(PINBALL_SOUNDS).sort(), ['bumper', 'door', 'drain', 'flip', 'gate', 'launch', 'multiball', 'rise', 'saved', 'sling', 'target']);
+  assert.deepEqual(Object.keys(PINBALL_SOUNDS).sort(), ['bumper', 'door', 'drain', 'flip', 'gate', 'jackpot', 'launch', 'multiball', 'rise', 'saved', 'sling', 'target']);
   for (const [moment, pick] of Object.entries(PINBALL_SOUNDS)) {
     assert.deepEqual(pick!.files, [], `${moment} has no files`);
     assert.ok(pick!.volume > 0, `${moment} has a volume`);
@@ -89,6 +90,7 @@ test('with no synth (a muted preview) every sound is silent and nothing throws',
   voice.launch();
   voice.multiball();
   voice.saved();
+  voice.jackpot();
 });
 
 /** A note the synth was asked for: its kind, wave or filter, pitch (and where it glides or sweeps to) and time. */
@@ -483,6 +485,42 @@ test("hello's state with multiball already on is silent", () => {
   const { c, heard } = cues();
   c.state(state(true));
   assert.deepEqual(heard, []);
+});
+
+test('a jackpot cue plays the chime once, at its time; one more than 2 s late is let go', () => {
+  const jackpot = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'jackpot', value: 50000, x: 1, z: 8, at });
+  const { c, heard } = cues();
+  c.frame(9);
+  c.cue(jackpot(10));
+  c.frame(9.9);
+  assert.deepEqual(heard, [], "not before the cue's time");
+  c.frame(10);
+  c.frame(10.5);
+  assert.deepEqual(heard, ['jackpot'], 'at its time, once');
+  c.cue(jackpot(20));
+  c.frame(22);
+  assert.deepEqual(heard, ['jackpot', 'jackpot'], 'exactly 2 s late still plays');
+  c.cue(jackpot(30));
+  c.frame(32.1);
+  c.frame(33);
+  assert.deepEqual(heard, ['jackpot', 'jackpot'], 'more than 2 s late is let go, and not played later');
+  // The table's clock starting again: the old clock's jackpot waiting goes, one already on the new clock stays.
+  c.cue(jackpot(900));
+  c.frame(5);
+  c.cue(jackpot(5.5));
+  c.frame(6);
+  assert.deepEqual(heard, ['jackpot', 'jackpot', 'jackpot'], "the old clock's jackpot goes, the new clock's plays");
+});
+
+test('the jackpot is a rising run of three bell chords on the synth', () => {
+  const { synth, notes } = noteTaker();
+  new PinballVoice(synth, {}).jackpot();
+  const bells = notes.filter((n) => n.kind === 'bell');
+  assert.ok(bells.length >= 9, `three chords of bells (${bells.length})`);
+  const starts = [...new Set(bells.map((n) => n.start))].sort((a, b) => a - b);
+  assert.equal(starts.length, 3, 'three chords');
+  const lowest = starts.map((st) => Math.min(...bells.filter((n) => n.start === st).map((n) => n.hz)));
+  assert.ok(lowest[0] < lowest[1] && lowest[1] < lowest[2], 'each chord higher than the last');
 });
 
 let failed = 0;

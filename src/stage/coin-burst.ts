@@ -1,6 +1,7 @@
 // A ball's payout on the stage: a short burst of gold coin sprites from where the ball drained, flying up and out and
 // falling back as they fade. In the table's own coordinates, as table-mesh.ts.
 import * as THREE from 'three';
+import { TABLE } from '../shared/table';
 
 /** How long a coin flies, how hard the burst throws, and how hard they fall back (units a second, a second squared). */
 const LIFE = 1.3;
@@ -12,6 +13,18 @@ const GRAVITY = 11;
  */
 const MOST = 60;
 const POOL = 180;
+/**
+ * A rain's coins start this high over the playfield (plus up to RAIN_SPREAD more), a little inside the table's walls,
+ * and begin falling over RAIN_STAGGER seconds so they come down as a shower, not a sheet. They fall from rest enough
+ * to land and fade within a coin's life.
+ */
+const RAIN_HEIGHT = 5;
+const RAIN_SPREAD = 1.2;
+const RAIN_STAGGER = 0.3;
+const RAIN_MARGIN = 0.4;
+/** The part of the table's length the rain falls on: clear of the drain below and the top's arch above. */
+const RAIN_Z_FROM = 1.5;
+const RAIN_Z_TO = 15;
 
 /**
  * A gold coin, face on: a disc with a rim and a shine (drawn once for every coin). Without a page to draw it on (the
@@ -70,6 +83,28 @@ export class CoinBurst {
       c.v.set(Math.cos(a) * out, THROW * (0.8 + 0.6 * Math.random()), Math.abs(Math.sin(a)) * out + 1);
       c.sprite.position.set(x, 0.4, z);
       c.age = -Math.random() * 0.12;
+      c.sprite.visible = false;
+    }
+  }
+
+  /**
+   * A shower of `coins` coins (the jackpot's) from above the table, spread across its width and down its length, each
+   * falling to the playfield. They are the pool's coins, taken as a burst's are (the oldest are thrown again if the pool
+   * runs out), and the rain makes nothing new.
+   */
+  rain(coins: number): void {
+    const n = Math.max(0, Math.min(POOL, Math.round(coins)));
+    const half = TABLE.width / 2 - RAIN_MARGIN;
+    for (let i = 0; i < n; i++) {
+      const c = this.coins[this.next];
+      this.next = (this.next + 1) % this.coins.length;
+      c.v.set((Math.random() - 0.5) * 0.8, -(1 + 2 * Math.random()), (Math.random() - 0.5) * 0.8);
+      c.sprite.position.set(
+        (Math.random() * 2 - 1) * half,
+        RAIN_HEIGHT + Math.random() * RAIN_SPREAD,
+        RAIN_Z_FROM + Math.random() * (RAIN_Z_TO - RAIN_Z_FROM),
+      );
+      c.age = -Math.random() * RAIN_STAGGER;
       c.sprite.visible = false;
     }
   }

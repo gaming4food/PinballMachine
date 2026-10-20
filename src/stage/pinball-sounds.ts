@@ -10,7 +10,7 @@
 // - the toys' hits are the server's cues (pinballCue), played at their own times: a pop-up knocked down and each hit
 //   of the mummy are a target. The stage once inferred these from where it drew the balls, and missed the fast ones: a
 //   ball can touch a toy and be away again between two snapshots, and the mummy stays up when hit, so no bit changes.
-//   The tomb's catch has no sound of its own;
+//   The tomb's catch has no sound of its own, but a finale's jackpot chimes;
 // - a 'spawn' is a launch, a ball gone below the drain a drain, and a drained ball back at once a saved one;
 // - multiball: a press's moment (pinballHype) at its time, or the state turning it on when the lock starts it.
 // Tested without a sound card: npm run pinball-sounds-test.
@@ -40,6 +40,8 @@ export interface PinballCueSink {
   launch(): void;
   multiball(): void;
   saved(): void;
+  /** A ball caught in the tomb in the finale paid a jackpot. */
+  jackpot(): void;
 }
 
 /** A ball as the stage draws it this frame, on the table (x across, z up it). */
@@ -72,10 +74,13 @@ function segmentDistance(x: number, z: number, a: readonly [number, number], b: 
   return Math.hypot(x - (a[0] + k * dx), z - (a[1] + k * dz));
 }
 
-/** A toy's hit waiting for its time: the target hit (its place in the table's targets) and where the ball was. */
+/**
+ * A cue waiting for its time: a toy's hit (the target hit, its place in the table's targets, and where the ball was),
+ * or the jackpot's chime (no index).
+ */
 interface ToyHit {
   at: number;
-  index: number;
+  index?: number;
   x: number;
   z: number;
 }
@@ -227,13 +232,23 @@ export class PinballSoundCues {
    * any hit of the mummy, is a target, with the ball where the cue says it was (for the mummy's rock; the cue names no
    * ball of the stage's own, so it has the id -1). The tomb's catch makes no sound of its own. A part the table hasn't
    * got does nothing, and nor does one that is no pop-up or mummy: the lock's drop targets and the plaques sound by
-   * their bits, so a cue for one would sound it twice. The quest's cues sound nothing here.
+   * their bits, so a cue for one would sound it twice. A jackpot's cue queues the jackpot's chime, on the same terms. The
+   * quest's other cues sound nothing here.
    */
   cue(m: PinballCueMsg): void {
+    if (m.cue === 'jackpot') {
+      this.insert({ at: m.at, x: m.x, z: m.z });
+      return;
+    }
     if (m.cue !== 'toyHit') return;
     const index = this.table.targets.findIndex((t) => t.id === m.part && t.rise !== undefined);
     if (index < 0) return;
-    this.hits.push({ at: m.at, index, x: m.x, z: m.z });
+    this.insert({ at: m.at, index, x: m.x, z: m.z });
+  }
+
+  /** Queues a cue for its time, in the order of the times. */
+  private insert(hit: ToyHit): void {
+    this.hits.push(hit);
     // Stable, so the cues of one step (all at the same time) keep the order they came in.
     this.hits.sort((a, b) => a.at - b.at);
   }
@@ -270,7 +285,9 @@ export class PinballSoundCues {
     }
     while (this.hits.length && this.hits[0].at <= t) {
       const hit = this.hits.shift()!;
-      if (t - hit.at <= STALE) this.sink.target(hit.index, { id: -1, x: hit.x, z: hit.z });
+      if (t - hit.at > STALE) continue;
+      if (hit.index === undefined) this.sink.jackpot();
+      else this.sink.target(hit.index, { id: -1, x: hit.x, z: hit.z });
     }
   }
 }
@@ -430,5 +447,21 @@ export class PinballVoice {
     const { out } = this.outs(s, 'saved');
     const t = s.now();
     [79, 86].forEach((n, i) => s.bell(out, midiHz(n), t + i * 0.12, 0.05, 0.8));
+  }
+
+  /** A jackpot: a rising run of three bell chords, each higher than the last, the music dipping under them. */
+  jackpot(): void {
+    const s = this.synth;
+    if (!s) return;
+    s.duck(1.4);
+    if (this.file('jackpot')) return;
+    const { out, space } = this.outs(s, 'jackpot');
+    const t = s.now();
+    [[72, 76, 79], [76, 80, 83], [79, 84, 88]].forEach((chord, i) =>
+      chord.forEach((n) => {
+        s.bell(out, midiHz(n), t + i * 0.18, 0.06, 1.2);
+        s.bell(space, midiHz(n + 12), t + i * 0.18, 0.025, 1.4);
+      }),
+    );
   }
 }
