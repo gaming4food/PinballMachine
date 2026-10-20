@@ -198,15 +198,15 @@ saver, up to $20 double score, $20 and up multiball; one that can't happen gives
 thanks the supporter, and `supportEffect` names on the city's card what it set off, once.
 
 On the stage (`pinball-hud.ts`), each moment gets a big title at its time (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!,
-NUDGE!, SANDSTORM!, PHARAOH'S CURSE!, THE MUMMY RISES! (each of the three names its buyer), and a matched bank's: HORUS
-MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED), as do multiball from the lock, a saved ball and a ball's result. The
-summoned mummy put down has MUMMY DOWN! +10,000 at its cue. While an event is on, the status line shows a flag:
-SANDSTORM, CURSED or MUMMY. The quest's moments have titles too: a mode's start (SUN CHASE!, FALCON STRIKE!, THE
-MUMMY WAKES!, TOMB RAID!), won (the same with its prize, +10,000, or Tomb Raid's countdown, +20,000 down to +5,000) or
-lost (THE SUN SETS, THE FALCON FLIES, THE MUMMY SLEEPS, THE TOMB SEALS), a jackpot (JACKPOT 50,000!, then 25,000 more
-each) and the finale's start, PHARAOH'S GOLD!, which has no MULTIBALL! title with it (the finale's end has none). One
-rule for every title: it is let go when it is more than 2 s late when its turn comes (the later of its moment and the
-end of the title before it), or more than 6.4 s after its moment.
+NUDGE!, a matched bank's: HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED, and chat's events': SANDSTORM!,
+PHARAOH'S CURSE! and THE MUMMY RISES!, each of those three naming its buyer), as do multiball from the lock, a saved
+ball and a ball's result. The summoned mummy put down has MUMMY DOWN! +10,000 at its cue. While an event is on, the
+status line shows a flag: SANDSTORM, CURSED or MUMMY. The quest's moments have titles too: a mode's start (SUN CHASE!,
+FALCON STRIKE!, THE MUMMY WAKES!, TOMB RAID!), won (the same with its prize, +10,000, or Tomb Raid's countdown, +20,000
+down to +5,000) or lost (THE SUN SETS, THE FALCON FLIES, THE MUMMY SLEEPS, THE TOMB SEALS), a jackpot (JACKPOT 50,000!,
+then 25,000 more each) and the finale's start, PHARAOH'S GOLD!, which has no MULTIBALL! title with it (the finale's end
+has none). One rule for every title: it is let go when it is more than 2 s late when its turn comes (the later of its
+moment and the end of the title before it), or more than 6.4 s after its moment.
 
 ## The flash
 
