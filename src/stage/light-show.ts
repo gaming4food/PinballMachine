@@ -12,6 +12,12 @@
 // sweep or a burst passes a lamp once, a chase lights it once a lap and a strobe once a flash, and a lap or a flash
 // takes at least FLASH_GAP. RiseLimit holds what the shapes can't promise: shows played over each other, and the game's
 // own light.
+//
+// A show can only light a lamp: the player takes the brightest light on it, so no show darkens a lamp the game lights.
+// A fade is what darkens: a share of every lamp's light (darken's goes to nothing and back), which the player keeps
+// beside its shows and gives as one dim, the darkest of the fades running (dimAt). The stage multiplies each lamp's
+// light by it after the game's light and the shows are mixed, and before the lamp's RiseLimit, so a lamp a fade gives
+// back rises once.
 
 /**
  * A light rises at most once in this long, so never more than 3 times a second. A chase's lap and a strobe's flash take
@@ -134,6 +140,34 @@ export function strobe(lamps: readonly ShowLamp[], o: { color: number; times: nu
 }
 
 /**
+ * A fade lasts `seconds`. `level` is the share of every lamp's light it leaves `tau` seconds after it began, from 0
+ * (dark) to 1 (as it was): 1 before it begins and from `seconds` on.
+ */
+export interface Fade {
+  seconds: number;
+  level(tau: number): number;
+}
+
+/**
+ * Every lamp dimmed evenly to nothing over `down` seconds, held dark for `hold` and brought back evenly over `up`. With
+ * no time to go down (or come up) it goes dark (or lit) at once.
+ */
+export function darken(o: { down: number; hold: number; up: number }): Fade {
+  const back = o.down + o.hold;
+  const seconds = back + o.up;
+  return {
+    seconds,
+    level(tau) {
+      if (tau < 0 || tau >= seconds) return 1;
+      if (tau < o.down) return 1 - tau / o.down;
+      if (tau < back) return 0;
+      // From the same sum as the test above, so it is never below 0 (0.7 - 0.5 - 0.2 is, in floating point).
+      return (tau - back) / o.up;
+    },
+  };
+}
+
+/**
  * Holds one light (a glow, the screen flash) to flashing no more than 3 times a second. It passes `raw`, the light
  * asked for (0 to 1 of its peak), through, except that a light that has gone dark since it last rose is held at
  * min(raw, DARK_BELOW) until FLASH_GAP after that rise. So it rises at most once in FLASH_GAP however fast it is asked
@@ -170,11 +204,13 @@ export class RiseLimit {
  * The shows playing over the table's lamps, mixed into one light for each. A lamp takes the brightest light any running
  * show gives it, in that light's colour (on a tie, the show played first keeps it), and is null where none lights it,
  * which leaves it to the game. A show begun in the past plays from where it would be by now, one begun in the future
- * waits for its time, and one that is over is let go.
+ * waits for its time, and one that is over is let go. It holds the fades too, the same way, and gives their dim apart
+ * from the lights (dimAt), since a fade darkens the game's light as well as the shows'.
  */
 export class LightShowPlayer {
-  /** The shows held, in the order they were played, each with the time it began. */
+  /** The shows held, in the order they were played, each with the time it began; and the fades, the same way. */
   private readonly playing: { show: Show; at: number }[] = [];
+  private readonly fades: { fade: Fade; at: number }[] = [];
   /** What lights() returns and the light it gives each lamp: made once here, and filled in again by each call. */
   private readonly out: (LampLight | null)[];
   private readonly mix: LampLight[];
@@ -229,9 +265,32 @@ export class LightShowPlayer {
     return this.out;
   }
 
-  /** Lets every show go, those that haven't begun too. */
+  /** Fades every lamp by `fade` as if it began at time `at`, on the clock that dimAt() is asked with. */
+  fade(fade: Fade, at: number): void {
+    this.fades.push({ fade, at });
+  }
+
+  /**
+   * The share of every lamp's light left at time `t`: the least level of the fades running (1 with none, and for a
+   * fade that waits for its time), after letting go of the fades that are over.
+   */
+  dimAt(t: number): number {
+    let kept = 0;
+    let dim = 1;
+    for (let k = 0; k < this.fades.length; k++) {
+      const f = this.fades[k];
+      if (t - f.at >= f.fade.seconds) continue;
+      this.fades[kept++] = f;
+      if (t >= f.at) dim = Math.min(dim, f.fade.level(t - f.at));
+    }
+    this.fades.length = kept;
+    return dim;
+  }
+
+  /** Lets every show and every fade go, those that haven't begun too. */
   clear(): void {
     this.playing.length = 0;
+    this.fades.length = 0;
   }
 
   /** How many shows it holds: those playing, and those waiting for their time. */

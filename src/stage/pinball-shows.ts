@@ -5,6 +5,12 @@
 // run pinball-shows-test), and it plays through ShowSinks, which the stage points at its light-show player, its sparks,
 // its screen flash and the view's quake.
 //
+// The quest's moments have rows too, each in its god's colour where it has one: a mode's start sweeps the lamps up into
+// its toy, a goal bursts where it was hit, a mode won chases the ring and then strobes, a mode lost fades every lamp to
+// dark and back, and a jackpot and the finale strobe gold with a gold flash and a shake (a jackpot rains coins too).
+// The light that lasts while a mode or the finale runs isn't the book's: the parts take it from the state each frame
+// (pinball-parts.ts setQuestLook), so a stage opened late shows it.
+//
 // It keeps no clock of its own. A moment is queued for its time, and frame(t), the time the stage draws (which stops
 // when the table does), plays what has come due, in the order of the moments' times: the screen flash drops a flash
 // asked for a time earlier than the last one it let through. A moment drawn more than STALE_SECONDS after its time (a
@@ -15,11 +21,11 @@
 // frame drawn on its clock) is kept, as the titles and the sounds keep theirs.
 //
 // Nothing may flash more than 3 times a second, for the viewers a flashing picture can hurt. Each show keeps to that
-// alone (light-show.ts: FLASH_GAP), and the book keeps each moment to it as a whole. Multiball is the one moment of two
-// shows, so it needs care: see MULTIBALL_PAUSE.
-import { GOD_COLOR, type PinballCueMsg, type PinballHypeMsg, type PinballToyHit } from '../shared/pinball';
+// alone (light-show.ts: FLASH_GAP), and the book keeps each moment to it as a whole. Multiball and a mode won are the
+// moments of two shows, a chase and then a strobe, so they need care: see MULTIBALL_PAUSE.
+import { GOD_COLOR, type God, type PinballCueMsg, type PinballHypeMsg, type PinballToyHit } from '../shared/pinball';
 import { TABLE, type Table } from '../shared/table';
-import { burst, chase, strobe, sweep, type Show } from './light-show';
+import { burst, chase, darken, strobe, sweep, type Fade, type Show } from './light-show';
 // Only the type: the parts load three.js and the pictures, which the book has no use for.
 import type { PinballLamps } from './pinball-parts';
 
@@ -41,7 +47,11 @@ export interface ShowSinks {
   flash(color: number, strength: number, at: number): void;
   /** Shakes the view for `seconds`. */
   shake(seconds: number): void;
-  /** Lets go of the shows playing and the flashes held, when the old clock goes. */
+  /** Fades every lamp as if the fade began at time `at` (a LightShowPlayer's fade). */
+  fade(f: Fade, at: number): void;
+  /** Rains `coins` coins down over the table (CoinBurst.rain). */
+  coinRain(coins: number): void;
+  /** Lets go of the shows playing, the fades and the flashes held, when the old clock goes. */
   clear(): void;
 }
 
@@ -72,9 +82,14 @@ const TOMB_SPARKS = 0xff8a3a;
  * lap, so the lamps at the end of the ring rise just before the chase is over, and each of the strobe's three flashes
  * (0.4 s apart) is another rise: with the strobe straight after the chase, the last lamp of the ring rises 4 times in
  * 0.83 s. With the pause, the last rise of the chase and the third flash are at least 1.2 s apart, so no lamp rises 4
- * times in any second.
+ * times in any second. A mode won's chase and strobe are the same shapes, so its strobe waits the same pause.
  */
 const MULTIBALL_PAUSE = 0.4;
+/** The quest's gold (Ra's): the jackpot's and the finale's, as on the scoreboard. */
+const QUEST_GOLD = GOD_COLOR.ra;
+/** A jackpot rains a coin for every this many points it pays, and never more than the coins' pool (coin-burst.ts). */
+const POINTS_PER_RAINED_COIN = 1000;
+const MOST_RAINED_COINS = 180;
 
 /** The middle of some places on the table: the mean of their x and of their z. */
 function middleOf(places: readonly { x: number; z: number }[]): { x: number; z: number } {
@@ -89,8 +104,8 @@ interface Moment {
 }
 
 /**
- * The show book. Each moment is handed over as it happens (a hype moment, a toy-hit cue, multiball, a payout) and waits
- * for its time; frame(t) plays it then. A moment the book has no row for is dropped on the spot.
+ * The show book. Each moment is handed over as it happens (a hype moment, a cue, multiball, a payout) and waits for its
+ * time; frame(t) plays it then. A moment the book has no row for is dropped on the spot.
  */
 export class PinballShows {
   /** The moments waiting for their time, in the order of their times (and of their arrival, for the same time). */
@@ -115,12 +130,27 @@ export class PinballShows {
   }
 
   /**
-   * A toy-hit cue, queued for its time: a pop-up knocked down, the mummy's hits (its third, which puts it down, is a
-   * row of its own) and the tomb's catch. A part the table hasn't got, or has but has no row for, does nothing, and so
-   * does a cue of the quest's: the book has no rows for them.
+   * A cue, queued for its time. A toy hit: a pop-up knocked down, the mummy's hits (its third, which puts it down, is a
+   * row of its own) and the tomb's catch; a part the table hasn't got, or has but has no row for, does nothing. The
+   * quest's: a mode's start, a goal, a mode won (its strobe a moment of its own, after the chase and a pause) or lost,
+   * a jackpot and the finale. The finale's end has no row: the finale's chase ends with the state.
    */
   cue(m: PinballCueMsg): void {
-    this.queue(m.at, m.cue === 'toyHit' ? this.cuePlay(m) : null);
+    if (m.cue === 'toyHit') {
+      this.queue(m.at, this.cuePlay(m));
+    } else if (m.cue === 'modeWon') {
+      // The strobe is queued for its own time, so a stage drawing late or starting its clock again lets it go or keeps
+      // it as it does every other moment.
+      const lap = chase(this.lamps.ring, { color: GOD_COLOR[m.god], laps: 2, lapSeconds: 0.9 });
+      this.queue(m.at, () => {
+        this.sinks.play(lap, m.at);
+        this.sinks.flash(WHITE, 0.7, m.at);
+      });
+      const at = m.at + lap.seconds + MULTIBALL_PAUSE;
+      this.queue(at, () => this.sinks.play(strobe(this.lamps.all, { color: GOD_COLOR[m.god], times: 3, rate: 2.5 }), at));
+    } else {
+      this.queue(m.at, this.questPlay(m));
+    }
   }
 
   /** Multiball, a press's or the lock's, from time `at`. */
@@ -219,6 +249,62 @@ export class PinballShows {
       sinks.flash(color, 0.5, at);
       for (const p of plaques) sinks.sparks(p.x, 0.4, p.z, color, 10);
     };
+  }
+
+  /**
+   * What a cue of the quest's does when its time comes (but a mode won's, which cue() queues as two moments), or null
+   * for the finale's end, which has no row.
+   */
+  private questPlay(m: Exclude<PinballCueMsg, PinballToyHit | { cue: 'modeWon' }>): (() => void) | null {
+    const { sinks, lamps } = this;
+    const { at } = m;
+    switch (m.cue) {
+      case 'modeStart': {
+        // Every lamp swept from the bottom of the table up into the mode's toy: to its toy lamp, or the farthest up of
+        // them (Horus has three pop-ups), so the sweep reaches each. A table without the toy sweeps the whole table.
+        const color = GOD_COLOR[m.god];
+        const to = this.toyZ(m.god);
+        return () => {
+          sinks.play(sweep(lamps.all, { from: 0, to, color, seconds: 1 }), at);
+          sinks.flash(color, 0.4, at);
+        };
+      }
+      case 'goal': {
+        const color = GOD_COLOR[m.god];
+        return () => {
+          this.lightBurst(m.x, m.z, 4, 0.6, color, at);
+          sinks.sparks(m.x, 0.4, m.z, color, 12);
+        };
+      }
+      case 'modeLost':
+        // Every lamp, the game's and the shows' alike, fades to dark and comes back: the player's dim does it, since
+        // a show can only light a lamp.
+        return () => sinks.fade(darken({ down: 0.5, hold: 0.2, up: 0.5 }), at);
+      case 'jackpot':
+        // The sparks are at the ball, where the tomb caught it, and the coins rain a coin for every 1,000 it paid.
+        return () => {
+          sinks.play(strobe(lamps.all, { color: QUEST_GOLD, times: 3, rate: 2.5 }), at);
+          sinks.flash(QUEST_GOLD, 1, at);
+          sinks.shake(0.6);
+          sinks.sparks(m.x, 0.35, m.z, QUEST_GOLD, 30);
+          sinks.coinRain(Math.floor(Math.min(MOST_RAINED_COINS, m.value / POINTS_PER_RAINED_COIN)));
+        };
+      case 'finale':
+        return () => {
+          sinks.play(strobe(lamps.all, { color: QUEST_GOLD, times: 3, rate: 2.5 }), at);
+          sinks.flash(QUEST_GOLD, 1, at);
+          sinks.shake(1);
+        };
+      case 'finaleEnd':
+        return null;
+    }
+  }
+
+  /** How far up the table a god's toy lamps reach (the farthest up of them), or the table's length without any. */
+  private toyZ(god: God): number {
+    let z = -Infinity;
+    for (const lamp of this.lamps.toys[god]) z = Math.max(z, lamp.z);
+    return Number.isFinite(z) ? z : TABLE.length;
   }
 
   /** What a toy-hit cue does when its time comes, or null if the book has no row for its part. */

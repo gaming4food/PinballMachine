@@ -16,9 +16,10 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { DT, initPhysics } from '@kit/server';
 import { PinballSim, WALL_HALF } from '../src/server/sim';
-import { LIT, TOY } from '../src/shared/pinball';
+import { GOD_COLOR, GODS, LIT, TOY, type God, type PinballCueMsg } from '../src/shared/pinball';
 import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, isLockTarget, tombMouth, wallsWithTomb, type Ramp, type Table, type Target } from '../src/shared/table';
-import { burst, DARK_BELOW, FLASH_GAP, LIT_ABOVE, LightShowPlayer, type LampLight, type ShowLamp } from '../src/stage/light-show';
+import { burst, DARK_BELOW, darken, FLASH_GAP, LIT_ABOVE, LightShowPlayer, type LampLight, type Show, type ShowLamp } from '../src/stage/light-show';
+import { PinballShows } from '../src/stage/pinball-shows';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
 import './stub-assets';
 
@@ -1104,6 +1105,280 @@ test("the glows' limit counts real seconds, not the host's dt: with dt 1.5 times
   const asks = Math.max(...bursts.asked.map((l) => rises(l, step)));
   assert.ok(asks >= 5, `the bursts alone ask up to ${asks} rises a real second`);
   held('a show bursting every 0.2 real seconds', bursts);
+});
+
+/** Each god's toy lamps, by their glows' ids: the gate's for Ra, the pop-ups' for Horus, the mummy's, the doorstep's. */
+const TOY_LAMP_OF: Record<God, string[]> = { ra: ['gate'], horus: ['popup-1', 'popup-2', 'popup-3'], ankh: ['mummy'], eye: ['doorstep'] };
+/** The lamps the quest's lasting look lights while a mode runs: the frame's rail lights and the orbits' arrows. */
+const isDecor = (id: string) => id.startsWith('rail-') || id.startsWith('orbit-');
+/** The quest's gold, and a glow's opacity lit (GLOW_LIT) and at a blink's dim half (GLOW_DIM). */
+const QUEST_GOLD = 0xffc23a;
+const GLOW_LIT = 0.45;
+const GLOW_DIM = 0.15;
+
+test("while a mode runs the rail lights and orbit arrows glow in its god's colour and its toy's lamp blinks in it; with none, they're as before", () => {
+  // A frame every 1/120 s of the table's clock, with a dt half as long again (the city's): the blink goes by `now`.
+  const step = 1 / 120;
+  const [, popup2] = RISING_AT;
+  for (const god of GODS) {
+    const color = GOD_COLOR[god];
+    // The toys up but the second pop-up, the tomb open and the gate over, so the game lights their lamps; centre 2
+    // lit and the lock blinking. `game` is the same table with no mode: what the game says.
+    const parts = new TableParts(TABLE_IN_USE);
+    const game = new TableParts(TABLE_IN_USE);
+    for (const p of [parts, game]) {
+      p.setLit(LIT.lock | LIT.centre2);
+      p.setTargets(1 << popup2, 0, 0);
+      p.setToys(TOY.tombOpen | TOY.diverterOver);
+    }
+    const toys = TOY_LAMP_OF[god];
+    assert.deepEqual(parts.lamps.toys[god].map((l) => parts.glows[parts.lamps.all.indexOf(l)].id), toys, `${god}'s toy lamps`);
+    const shown = parts.glows.map(() => [] as number[]);
+    const blinks = new Map(toys.map((id) => [id, [] as number[]]));
+    for (let k = 0; k * step < 2; k++) {
+      const now = 40 + k * step;
+      parts.setQuestLook({ god, finale: false }, now);
+      parts.update(1.5 * step);
+      game.update(1.5 * step);
+      parts.glows.forEach((g, i) => {
+        shown[i].push(g.material.opacity / 0.9);
+        const what = `${god}: ${g.id} at ${now.toFixed(3)}: ${g.material.opacity} in ${g.material.color.getHexString()}`;
+        if (isDecor(g.id)) {
+          assert.ok(g.object.visible && near(g.material.opacity, GLOW_LIT) && g.material.color.getHex() === color, `${what}, steady in the god's colour`);
+        } else if (toys.includes(g.id)) {
+          assert.ok(g.object.visible && g.material.color.getHex() === color, `${what}, in the god's colour`);
+          assert.ok(near(g.material.opacity, GLOW_LIT) || near(g.material.opacity, GLOW_DIM), `${what}, at a blink's levels`);
+          blinks.get(g.id)!.push(g.material.opacity);
+        } else {
+          // Every other lamp is the game's, in its own colour: the toys' lamps the game lights, the lit lamp, the
+          // blinking lock.
+          const w = game.glows[i];
+          assert.ok(g.material.opacity === w.material.opacity && g.object.visible === w.object.visible && g.material.color.getHex() === w.material.color.getHex(), `${what}, the game's ${w.material.opacity}`);
+        }
+      });
+    }
+    // The toy's lamp blinks twice a second on the table's clock, lit then dim, whether its toy is up or (the second
+    // pop-up) down: lit from the start, and lit again 3 times more in the 2 s.
+    for (const [id, seen] of blinks) {
+      let relit = 0;
+      for (let k = 1; k < seen.length; k++) if (seen[k] > seen[k - 1]) relit++;
+      assert.equal(relit, 3, `${god}: ${id} blinks twice a second (lit again ${relit} times in 2 s)`);
+      assert.ok(near(seen[0], GLOW_LIT), `${god}: ${id} lit first`);
+    }
+    // None of the look's light rises a glow: it is lit at half a show's peak, never above, and dims to a sixth of it,
+    // never below.
+    parts.glows.forEach((g, i) => {
+      if (isDecor(g.id) || toys.includes(g.id)) assert.equal(rises(shown[i], step), 0, `${god}: ${g.id} never rises`);
+    });
+    // The mode over: every glow at once as the game has it.
+    parts.setQuestLook({ god: null, finale: false }, 42);
+    parts.update(1.5 * step);
+    game.update(1.5 * step);
+    parts.glows.forEach((g, i) => {
+      const w = game.glows[i];
+      assert.ok(g.material.opacity === w.material.opacity && g.object.visible === w.object.visible && g.material.color.getHex() === w.material.color.getHex(), `${god} over: ${g.id} at ${g.material.opacity}, the game's ${w.material.opacity}`);
+    });
+  }
+  // A table that is never told of a mode is the game's alone.
+  const plain = new TableParts(TABLE_IN_USE);
+  plain.update(1 / 60);
+  assert.ok(plain.glows.every((g) => !g.object.visible), 'nothing lit');
+});
+
+test("the finale's chase runs round the rails, a lamp lit once a lap, for as long as the finale does", () => {
+  const step = 1 / 120;
+  const LAP = 0.9;
+  const parts = new TableParts(TABLE_IN_USE);
+  const game = new TableParts(TABLE_IN_USE);
+  for (const p of [parts, game]) p.setLit(LIT.centre2);
+  const ring = parts.lamps.ring.map((l) => parts.lamps.all.indexOf(l));
+  assert.equal(ring.length, 32);
+  const seen = ring.map(() => [] as number[]);
+  const colors = ring.map(() => [] as number[]);
+  // Four laps, from the start of a lap of the table's clock.
+  const start = 100 * LAP;
+  for (let k = 0; k * step < 4 * LAP - 1e-9; k++) {
+    const now = start + k * step;
+    parts.setQuestLook({ god: null, finale: true }, now);
+    parts.update(step);
+    game.update(step);
+    ring.forEach((i, place) => {
+      const g = parts.glows[i];
+      assert.ok(g.material.opacity <= 0.9 + 1e-9, `${g.id} no brighter than a show's peak`);
+      seen[place].push(g.material.opacity / 0.9);
+      colors[place].push(g.material.color.getHex());
+    });
+    // Every lamp off the ring is the game's: the orbits' arrows dark, centre 2 lit.
+    parts.glows.forEach((g, i) => {
+      if (ring.includes(i)) return;
+      const w = game.glows[i];
+      assert.ok(g.material.opacity === w.material.opacity && g.material.color.getHex() === w.material.color.getHex(), `${g.id} in the finale: ${g.material.opacity}, the game's ${w.material.opacity}`);
+    });
+  }
+  // Each lamp rises once a lap, as the chase's head passes it, in the ring's order: gold one lap and the rainbow the
+  // next, each lamp's hue its own.
+  const rainbow: number[] = [];
+  seen.forEach((levels, place) => {
+    const at: number[] = [];
+    // At the first look the head is on the first lamp, and the last few are still fading behind it from the lap
+    // before: they rose then, not here.
+    let dark = place === 0 || levels[0] < DARK_BELOW;
+    levels.forEach((level, k) => {
+      if (level < DARK_BELOW) dark = true;
+      else if (dark && level > LIT_ABOVE) {
+        dark = false;
+        at.push(k);
+      }
+    });
+    assert.equal(at.length, 4, `ring lamp ${place} rises ${at.length} times in 4 laps`);
+    at.forEach((k, lap) => {
+      const want = lap * LAP + (place / 32) * LAP;
+      assert.ok(Math.abs(k * step - want) <= step + 1e-9, `ring lamp ${place}'s rise ${lap} at ${k * step}, not ${want}`);
+      const color = colors[place][k];
+      if (lap % 2 === 0) assert.equal(color, QUEST_GOLD, `ring lamp ${place}, lap ${lap}: gold`);
+      else if (lap === 1) rainbow.push(color);
+      else assert.equal(color, rainbow[place], `ring lamp ${place}: the same hue each rainbow lap`);
+    });
+    // Lit through its rise, it keeps that lap's colour while its light fades behind the head.
+    const [first] = at;
+    for (let k = first; k < levels.length && levels[k] > 0 && k < at[1]; k++) assert.equal(colors[place][k], QUEST_GOLD, `ring lamp ${place} stays gold as it fades`);
+  });
+  assert.equal(new Set(rainbow).size, 32, 'every lamp of the rainbow lap its own hue');
+  assert.ok(!rainbow.includes(QUEST_GOLD));
+  // The finale over: the ring dark at once.
+  parts.setQuestLook({ god: null, finale: false }, start + 4 * LAP);
+  parts.update(step);
+  for (const i of ring) assert.ok(!parts.glows[i].object.visible, `${parts.glows[i].id} dark when the finale is over`);
+  // A stage opened in the middle of the finale shows the chase at its first frame: it comes from the state.
+  const late = new TableParts(TABLE_IN_USE);
+  late.setQuestLook({ god: null, finale: true }, 1234.5);
+  late.update(1 / 60);
+  assert.ok(ring.filter((i) => late.glows[i].object.visible).length >= 4, 'the chase shows at once');
+});
+
+test("setDim darkens every glow, the game's light and the shows' alike, and coming back is one rise", () => {
+  const step = 1 / 120;
+  const parts = new TableParts(TABLE_IN_USE);
+  parts.setLit(LIT.centre2);
+  // A show lighting the ring steadily, at its peak, for 4 s; and a fade from 1 s: 0.5 s down, 0.2 s dark, 0.5 s up.
+  const ringSet = new Set<ShowLamp>(parts.lamps.ring);
+  const full: LampLight = { level: 1, color: 0xff2bd6 };
+  const steady: Show = { seconds: 4, light: (l) => (ringSet.has(l) ? full : null) };
+  const player = new LightShowPlayer(parts.lamps.all);
+  player.play(steady, 0);
+  player.fade(darken({ down: 0.5, hold: 0.2, up: 0.5 }), 1);
+  const centre2 = parts.glows.findIndex((g) => g.id === 'centre2');
+  const rail = parts.glows.findIndex((g) => g.id === 'rail-left-3');
+  const shown = parts.glows.map(() => [] as number[]);
+  for (let k = 0; k * step < 3.5; k++) {
+    const t = k * step;
+    parts.setShowLights(player.lights(t));
+    parts.setDim(player.dimAt(t));
+    parts.update(step);
+    parts.glows.forEach((g, i) => shown[i].push(g.material.opacity / 0.9));
+    const [c, r] = [parts.glows[centre2].material.opacity, parts.glows[rail].material.opacity];
+    if (t < 1 || t >= 2.2) assert.ok(near(c, 0.45) && near(r, 0.9), `at ${t.toFixed(3)}: centre2 ${c}, the rail ${r}, as lit`);
+    if (near(t, 1.25, 1e-6)) assert.ok(near(c, 0.225) && near(r, 0.45), `half way down: centre2 ${c}, the rail ${r}`);
+    if (t > 1.5 && t < 1.7) assert.ok(parts.glows.every((g) => g.material.opacity === 0 && !g.object.visible), `at ${t.toFixed(3)} every glow is dark`);
+  }
+  // Each ring lamp rose at the start and once more coming back; centre 2, at half of a show's peak, never rose.
+  const risesIn = (i: number) => {
+    let dark = true;
+    let n = 0;
+    for (const level of shown[i]) {
+      if (level < DARK_BELOW) dark = true;
+      else if (dark && level > LIT_ABOVE) {
+        dark = false;
+        n++;
+      }
+    }
+    return n;
+  };
+  for (const l of parts.lamps.ring) {
+    const i = parts.lamps.all.indexOf(l);
+    assert.equal(risesIn(i), 2, `${parts.glows[i].id}: its first rise, and one coming back`);
+  }
+  assert.equal(risesIn(centre2), 0, 'centre 2 never rises');
+
+  // The dim goes before the limit: a dim flickered on and off 10 times a second rises a lit lamp no more than 3 times
+  // in any second.
+  const flicker = new TableParts(TABLE_IN_USE);
+  const lit = flicker.lamps.ring.map((l) => flicker.lamps.all.indexOf(l));
+  const always = new LightShowPlayer(flicker.lamps.all);
+  always.play({ seconds: 10, light: (l) => (flicker.lamps.ring.includes(l) ? full : null) }, 0);
+  const flickered = lit.map(() => [] as number[]);
+  for (let k = 0; k * step < 5; k++) {
+    const t = k * step;
+    flicker.setShowLights(always.lights(t));
+    flicker.setDim((t * 10) % 1 < 0.5 ? 1 : 0);
+    flicker.update(step);
+    lit.forEach((i, n) => flickered[n].push(flicker.glows[i].material.opacity / 0.9));
+  }
+  lit.forEach((i, n) => {
+    assert.ok(rises(flickered[n], step) <= 3, `${flicker.glows[i].id} rose ${rises(flickered[n], step)} times in a second`);
+    assert.ok(rises(flickered[n], step) >= 2, `${flicker.glows[i].id} still flickers`);
+  });
+});
+
+test('no glow rises more than 3 times in any real second through a mode, a jackpot and the finale together', () => {
+  // As the city draws it: a frame every 1/60 real second with a dt 1.5 times that, the table's clock keeping real time
+  // and the glows' limits counting the browser's own clock.
+  const step = 1 / 60;
+  const parts = new TableParts(TABLE_IN_USE);
+  const player = new LightShowPlayer(parts.lamps.all);
+  const shows = new PinballShows(TABLE_IN_USE, parts.lamps, {
+    play: (show, at) => player.play(show, at),
+    fade: (fade, at) => player.fade(fade, at),
+    sparks: () => {},
+    flash: () => {},
+    shake: () => {},
+    coinRain: () => {},
+    clear: () => player.clear(),
+  });
+  parts.setLit(LIT.lock | LIT.centre2);
+  parts.setTargets(0, 0, 0);
+  parts.setToys(TOY.tombOpen | TOY.diverterOver);
+  const tomb = TABLE_IN_USE.tomb!;
+  const cue = (at: number, c: Record<string, unknown>) => ({ kind: 'pinballCue', at, ...c }) as PinballCueMsg;
+  // Ra's mode won with goals every 0.3 s, Horus's started over its strobe and lost to its fade with goals on through
+  // it, Ankh's won on the finale's first moment, and the finale with a jackpot every 0.4 s, the bumpers hit every
+  // 0.2 s all through.
+  const cues: PinballCueMsg[] = [cue(0, { cue: 'modeStart', god: 'ra' })];
+  for (let t = 0.5; t < 2; t += 0.3) cues.push(cue(t, { cue: 'goal', god: 'ra', x: 0, z: 9 }));
+  cues.push(cue(2, { cue: 'modeWon', god: 'ra', prize: 25000 }), cue(2.3, { cue: 'modeStart', god: 'horus' }));
+  for (let t = 2.5; t < 6; t += 0.3) cues.push(cue(t, { cue: 'goal', god: 'horus', x: 1, z: 6.5 }));
+  cues.push(cue(5, { cue: 'modeLost', god: 'horus' }), cue(6, { cue: 'modeStart', god: 'ankh' }), cue(7.5, { cue: 'modeWon', god: 'ankh', prize: 25000 }), cue(7.5, { cue: 'finale' }));
+  for (let t = 8; t < 13; t += 0.4) cues.push(cue(t, { cue: 'jackpot', value: 75000, x: tomb.held[0], z: tomb.held[1] }));
+  cues.push(cue(13, { cue: 'finaleEnd' }));
+  // Sent in the order of their times, as the server sends them (stable, so the two at 7.5 keep theirs).
+  cues.sort((a, b) => a.at - b.at);
+  const lookAt = (t: number): { god: God | null; finale: boolean } =>
+    t < 2 ? { god: 'ra', finale: false } : t >= 2.3 && t < 5 ? { god: 'horus', finale: false } : t >= 6 && t < 7.5 ? { god: 'ankh', finale: false } : { god: null, finale: t >= 7.5 && t < 13 };
+  const shown = parts.glows.map(() => [] as number[]);
+  const asked = parts.glows.map(() => [] as number[]);
+  let next = 0;
+  for (let k = 0; k * step < 14; k++) {
+    const real = k * step;
+    while (next < cues.length && cues[next].at <= real) shows.cue(cues[next++]);
+    if (k % 12 === 0) for (const b of TABLE_IN_USE.bumpers) parts.flashBumper(b.id);
+    shows.frame(real);
+    const lights = player.lights(real);
+    lights.forEach((l, i) => asked[i].push(l?.level ?? 0));
+    parts.setShowLights(lights);
+    parts.setQuestLook(lookAt(real), real);
+    parts.setDim(player.dimAt(real));
+    parts.update(1.5 * step, real);
+    parts.glows.forEach((g, i) => shown[i].push(g.material.opacity / 0.9));
+  }
+  // The shows alone ask some lamps to rise more than 3 times a second (a jackpot's strobe every 0.4 s), and the
+  // limit holds every glow to 3 in any real second.
+  const asks = Math.max(...asked.map((l) => rises(l, step)));
+  assert.ok(asks > 3, `the shows ask up to ${asks} rises a real second`);
+  parts.glows.forEach((g, i) => assert.ok(rises(shown[i], step) <= 3, `${g.id} (glow ${i}) rose ${rises(shown[i], step)} times in a real second`));
+  // And the light was seen: the glows rose, and the fade went dark.
+  assert.ok(shown.some((l) => rises(l, step) >= 2), 'the glows flash');
+  const fadeDark = Math.round(5.6 / step);
+  assert.ok(parts.glows.every((_, i) => shown[i][fadeDark] === 0), 'every glow dark in the fade of the mode lost');
 });
 
 test("without the picture the shows light nothing and nothing throws; the stand-in's inserts still follow the LIT bits", () => {

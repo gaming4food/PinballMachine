@@ -2,19 +2,22 @@
 // they should, in the order they should, and that each one ends; that the player mixes the shows running by the
 // brightest light on a lamp, lets go of a show once it is over and makes nothing per frame; and that nothing flashes
 // more than 3 times a second (FLASH_GAP): not a show alone, and not a light that is asked to flash faster, which
-// RiseLimit holds. No three.js is needed.
+// RiseLimit holds; and that a fade darkens and comes back, the player's dim being its darkest fade running. No three.js
+// is needed.
 // Usage: npm run light-show-test
 import assert from 'node:assert/strict';
 import {
   burst,
   chase,
   DARK_BELOW,
+  darken,
   FLASH_GAP,
   LIT_ABOVE,
   LightShowPlayer,
   RiseLimit,
   strobe,
   sweep,
+  type Fade,
   type LampLight,
   type Show,
   type ShowLamp,
@@ -485,6 +488,69 @@ test('clear() lets every show go', () => {
   player.play(strobe(all, { color: WHITE, times: 2, rate: 2.5 }), 60);
   assert.equal(player.running, 1);
   assert.ok(player.lights(60.1).every((x) => x !== null && x.level === 1 && x.color === WHITE));
+});
+
+test('darken dims to nothing and back, and is 1 before and after', () => {
+  const fade = darken({ down: 0.5, hold: 0.2, up: 0.5 });
+  assert.ok(Math.abs(fade.seconds - 1.2) < 1e-9, `it lasts ${fade.seconds} s`);
+  const at = (tau: number, want: number) => assert.ok(Math.abs(fade.level(tau) - want) < 1e-9, `at ${tau} s: ${fade.level(tau)}, not ${want}`);
+  at(-1, 1);
+  at(0, 1);
+  at(0.25, 0.5);
+  at(0.5, 0);
+  at(0.6, 0);
+  at(0.7, 0);
+  at(0.95, 0.5);
+  at(1.2, 1);
+  at(50, 1);
+  // Down evenly, held at nothing, and up evenly: never above 1 nor below 0, falling and then rising.
+  let was = 1;
+  for (let i = 0; i * DT < 1.3; i++) {
+    const level = fade.level(i * DT);
+    assert.ok(level >= 0 && level <= 1, `at ${i * DT} s: ${level}`);
+    if (i * DT < 0.5) assert.ok(level <= was, `falling at ${i * DT} s`);
+    if (i * DT > 0.7) assert.ok(level >= was, `rising at ${i * DT} s`);
+    was = level;
+  }
+  // With no time to go down or come up, it is dark at once and lit again at once.
+  const sudden = darken({ down: 0, hold: 0.2, up: 0 });
+  assert.equal(sudden.level(0), 0);
+  assert.equal(sudden.level(0.19), 0);
+  assert.equal(sudden.level(0.2), 1);
+});
+
+test("dimAt takes the darkest running fade; clear() ends fades too", () => {
+  const player = new LightShowPlayer(all);
+  assert.equal(player.dimAt(0), 1, 'with no fade, nothing is dimmed');
+  const a: Fade = darken({ down: 0.5, hold: 0.2, up: 0.5 });
+  const b: Fade = { seconds: 1, level: () => 0.3 };
+  player.fade(a, 0);
+  player.fade(b, 2);
+  const near = (got: number, want: number, what: string) => assert.ok(Math.abs(got - want) < 1e-9, `${what}: ${got}, not ${want}`);
+  near(player.dimAt(0.25), 0.5, 'the first fade alone, half way down');
+  near(player.dimAt(1.5), 1, 'between the two: the first is over, the second waits for its time');
+  near(player.dimAt(2.5), 0.3, 'the second');
+  near(player.dimAt(3), 1, 'both over');
+  // Two at once: the darker wins, whichever was asked first.
+  player.fade(b, 10);
+  player.fade(a, 10);
+  near(player.dimAt(10.25), 0.3, 'the darker of 0.3 and 0.5');
+  near(player.dimAt(10.6), 0, 'the darker of 0.3 and 0');
+  // A fade dims, but lights no lamp and plays no show.
+  assert.ok(player.lights(10.6).every((x) => x === null), 'a fade lights nothing');
+  assert.equal(player.running, 0);
+  // A show and a fade together, and clear() ends both, those that haven't begun too.
+  player.play(strobe(all, { color: WHITE, times: 2, rate: 2.5 }), 20);
+  player.fade(a, 20);
+  player.fade(a, 30);
+  near(player.dimAt(20.25), 0.5, 'dimmed while the show plays');
+  player.clear();
+  assert.equal(player.dimAt(20.25), 1, 'clear() ends the fade');
+  assert.equal(player.dimAt(30.25), 1, 'and the one that had not begun');
+  assert.ok(player.lights(20.1).every((x) => x === null), 'and the show');
+  // And fades on afterwards.
+  player.fade(a, 40);
+  near(player.dimAt(40.5), 0, 'a fade after clear()');
 });
 
 let failed = 0;

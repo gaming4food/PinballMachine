@@ -249,6 +249,9 @@ export class PinballScene implements MachineScene {
       sparks: (x, y, z, color, count) => this.sparks.burst(x, y, z, color, count),
       flash: (color, strength, at) => this.flash.flash(color, strength, at),
       shake: (seconds) => this.quake(seconds),
+      fade: (f, at) => this.player.fade(f, at),
+      // The coins have no rain of their own yet (coin-burst.ts), so a jackpot rains none for now.
+      coinRain: () => {},
       clear: () => {
         this.player.clear();
         this.flash.clear();

@@ -1,16 +1,18 @@
 // Tests the show book (PinballShows, stage/pinball-shows.ts): that each moment on the table plays the light show,
 // screen flash, sparks and shake the book gives it (a bank matched, multiball, the ball saver, double score, a nudge, a
 // payout, and the toys' hits: a pop-up knocked down, the mummy's hits and its third, the tomb's catch), in its god's
-// colour where it has one; that a part or an id with no row does nothing; that a moment plays at its time and not
+// colour where it has one; that each of the quest's cues plays its row (a mode started, a goal, a mode won or lost, a
+// jackpot, the finale); that a part or an id with no row does nothing; that a moment plays at its time and not
 // before, that one drawn more than 2 s late is let go, and that the table's clock starting again clears what plays and
 // lets go of the moments queued on the old clock, keeping those already on the new one; that DrawnClock steps by the
 // drawn time under a cap and never goes back; and that every show the book plays ends and, played alone over the
-// table's lamps, rises no lamp more than 3 times in any second. No page or graphics card is needed.
+// table's lamps, rises no lamp more than 3 times in any second, the quest's rows too. No page or graphics card is
+// needed.
 // Usage: npm run pinball-shows-test
 import assert from 'node:assert/strict';
-import { GOD_COLOR, type PinballCueMsg, type PinballHypeMsg } from '../src/shared/pinball';
+import { GOD_COLOR, GODS, type God, type PinballCueMsg, type PinballHypeMsg } from '../src/shared/pinball';
 import { TABLE_IN_USE, type Table } from '../src/shared/table';
-import { burst, chase, DARK_BELOW, LIT_ABOVE, LightShowPlayer, strobe, sweep, type LampLight, type Show } from '../src/stage/light-show';
+import { burst, chase, DARK_BELOW, darken, LIT_ABOVE, LightShowPlayer, strobe, sweep, type Fade, type LampLight, type Show } from '../src/stage/light-show';
 // The show book is numbers only, so it loads with no stubs.
 import { DrawnClock, PinballShows, type ShowSinks } from '../src/stage/pinball-shows';
 // The stage's code loads in Node with its CSS and pictures stubbed (stub-assets.ts).
@@ -23,8 +25,9 @@ const test = (name: string, fn: () => void) => tests.push([name, fn]);
 const near = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 const WHITE = 0xffffff;
-/** The table's lamps as the stage lights them: all of them, the frame's ring and double score's ladders. */
-const lamps = new TableParts(TABLE_IN_USE).lamps;
+/** The table's lamps as the stage lights them: all of them, the frame's ring, double score's ladders and the toys'. */
+const parts = new TableParts(TABLE_IN_USE);
+const lamps = parts.lamps;
 
 /** A show is compared every 1/60 s; a light is looked at every 1/240 s, finer than any frame the stage draws. */
 const LOOK = 1 / 60;
@@ -36,7 +39,9 @@ type SparksCall = { kind: 'sparks'; x: number; y: number; z: number; color: numb
 type FlashCall = { kind: 'flash'; color: number; strength: number; at: number };
 type ShakeCall = { kind: 'shake'; seconds: number };
 type ClearCall = { kind: 'clear' };
-type Call = PlayCall | SparksCall | FlashCall | ShakeCall | ClearCall;
+type FadeCall = { kind: 'fade'; fade: Fade; at: number };
+type RainCall = { kind: 'coinRain'; coins: number };
+type Call = PlayCall | SparksCall | FlashCall | ShakeCall | ClearCall | FadeCall | RainCall;
 
 /** A show book over the table (the table in use unless another is given) with sinks that record each call they get. */
 function book(table: Table = TABLE_IN_USE) {
@@ -47,6 +52,8 @@ function book(table: Table = TABLE_IN_USE) {
     flash: (color, strength, at) => calls.push({ kind: 'flash', color, strength, at }),
     shake: (seconds) => calls.push({ kind: 'shake', seconds }),
     clear: () => calls.push({ kind: 'clear' }),
+    fade: (fade, at) => calls.push({ kind: 'fade', fade, at }),
+    coinRain: (coins) => calls.push({ kind: 'coinRain', coins }),
   };
   const shows = new PinballShows(table, lamps, sinks);
   /** The calls of one kind, in order. */
@@ -56,6 +63,19 @@ function book(table: Table = TABLE_IN_USE) {
 
 const hype = (id: string, at: number): PinballHypeMsg => ({ kind: 'pinballHype', id, at });
 const cue = (part: string, down: boolean, x: number, z: number, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'toyHit', part, down, x, z, at });
+/** The quest's cues. */
+const modeStart = (god: God, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'modeStart', god, at });
+const goal = (god: God, x: number, z: number, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'goal', god, x, z, at });
+const modeWon = (god: God, prize: number, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'modeWon', god, prize, at });
+const modeLost = (god: God, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'modeLost', god, at });
+const jackpot = (value: number, x: number, z: number, at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'jackpot', value, x, z, at });
+const finale = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'finale', at });
+const finaleEnd = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'finaleEnd', at });
+/** Each god's toy lamps, by their glows' ids: the gate's for Ra, the pop-ups' for Horus, the mummy's, the doorstep's. */
+const TOY_LAMP_IDS: Record<God, string[]> = { ra: ['gate'], horus: ['popup-1', 'popup-2', 'popup-3'], ankh: ['mummy'], eye: ['doorstep'] };
+const glowLamp = (id: string) => parts.glows.find((g) => g.id === id)!.lamp;
+/** The quest's gold: the jackpot's and the finale's. */
+const GOLD = 0xffc23a;
 const target = (id: string) => TABLE_IN_USE.targets.find((t) => t.id === id)!;
 const middleOf = (points: { x: number; z: number }[]) => ({ x: points.reduce((s, p) => s + p.x, 0) / points.length, z: points.reduce((s, p) => s + p.z, 0) / points.length });
 
@@ -298,6 +318,122 @@ test("the toys' hits: a pop-up knocked down bursts blue with sparks at the ball;
   assert.equal(catches.kind('play')[0].at, 8);
   assertSameShow(catches.kind('play')[0].show, burst(lamps.all, { x: tomb.x, z: tomb.z, reach: 4, color: RED, seconds: 0.7 }), "the tomb's burst from the doorway");
   assert.deepEqual(catches.kind('sparks'), [{ kind: 'sparks', x: tomb.held[0], y: 0.35, z: tomb.held[1], color: 0xff8a3a, count: 16 }], '16 sparks at the ball');
+});
+
+test("each quest cue's row: a mode's start sweeps into its toy, a goal bursts where it was hit, a mode won chases and strobes after a pause, a lost one darkens, a jackpot strobes gold with a flash, a shake, sparks and a coin rain, the finale shakes and flashes", () => {
+  assert.equal(GOD_COLOR.ra, GOLD, "the quest's gold is Ra's");
+  for (const god of GODS) {
+    const color = GOD_COLOR[god];
+    // A mode's start: every lamp swept from z 0 to its toy's lamp (the farthest up of Horus's three), in its colour,
+    // over 1 s, and a flash of its colour at 0.4.
+    const toys = TOY_LAMP_IDS[god].map(glowLamp);
+    assert.ok(lamps.toys[god].length === toys.length && toys.every((l, k) => lamps.toys[god][k] === l), `${god}'s toy lamps are the parts' own`);
+    const to = Math.max(...toys.map((l) => l.z));
+    const start = book();
+    start.shows.cue(modeStart(god, 5));
+    assert.equal(start.calls.length, 0, `${god}'s start: queued till its time`);
+    start.shows.frame(5);
+    assert.equal(start.calls.length, 2, `${god}'s start: a sweep and a flash`);
+    const [sweeping] = start.kind('play');
+    assert.equal(sweeping.at, 5);
+    assertSameShow(sweeping.show, sweep(lamps.all, { from: 0, to, color, seconds: 1 }), `${god}'s sweep to z ${to.toFixed(2)}`);
+    for (const l of toys) {
+      let lit = false;
+      for (let i = 0; i * LOOK < 1; i++) lit ||= sweeping.show.light(l, i * LOOK) !== null;
+      assert.ok(lit, `${god}'s sweep reaches its toy's lamp at z ${l.z.toFixed(2)}`);
+    }
+    assert.deepEqual(start.kind('flash'), [{ kind: 'flash', color, strength: 0.4, at: 5 }]);
+
+    // A goal: a burst from where the ball was, reach 4 over 0.6 s, and 12 sparks there, in the god's colour.
+    const scored = book();
+    scored.shows.cue(goal(god, 1.5, 9.25, 7));
+    scored.shows.frame(7);
+    assert.equal(scored.calls.length, 2, `${god}'s goal: a burst and sparks`);
+    assert.equal(scored.kind('play')[0].at, 7);
+    assertSameShow(scored.kind('play')[0].show, burst(lamps.all, { x: 1.5, z: 9.25, reach: 4, color, seconds: 0.6 }), `${god}'s goal burst`);
+    assert.deepEqual(scored.kind('sparks'), [{ kind: 'sparks', x: 1.5, y: 0.4, z: 9.25, color, count: 12 }]);
+
+    // A mode won: the chase round the ring in its colour, 2 laps of 0.9 s, and a white flash at 0.7; then, 0.4 s after
+    // the chase ends, a moment of its own: the strobe of every lamp in its colour, 3 at 2.5 a second.
+    const won = book();
+    won.shows.cue(modeWon(god, 25000, 30));
+    won.shows.frame(30);
+    assert.equal(won.calls.length, 2, `${god} won: the chase and the flash first`);
+    const [round] = won.kind('play');
+    assert.equal(round.at, 30);
+    assertSameShow(round.show, chase(lamps.ring, { color, laps: 2, lapSeconds: 0.9 }), `${god}'s chase`);
+    assert.deepEqual(won.kind('flash'), [{ kind: 'flash', color: WHITE, strength: 0.7, at: 30 }]);
+    won.shows.frame(32.19);
+    assert.equal(won.calls.length, 2, `${god} won: the strobe waits for its time`);
+    won.shows.frame(32.2);
+    assert.equal(won.calls.length, 3, `${god} won: then the strobe`);
+    const flashing = won.kind('play')[1];
+    assert.ok(near(flashing.at, 32.2), `the strobe begins at ${flashing.at}`);
+    assertSameShow(flashing.show, strobe(lamps.all, { color, times: 3, rate: 2.5 }), `${god}'s strobe`);
+    // Its strobe is a moment like any other: a stage drawing late plays it if it is no more than 2 s late...
+    const late = book();
+    late.shows.cue(modeWon(god, 25000, 30));
+    late.shows.frame(31.5);
+    late.shows.frame(33);
+    assert.deepEqual(late.kind('play').map((p) => p.at), [30, 32.2], `${god} won, drawn 1.5 s on and again 3 s on: both, each from its time`);
+    const later = book();
+    later.shows.cue(modeWon(god, 25000, 30));
+    later.shows.frame(33.5);
+    assert.deepEqual(later.kind('play').map((p) => p.at), [32.2], `${god} won, first drawn 3.5 s on: the chase is let go, the strobe plays`);
+    const gone = book();
+    gone.shows.cue(modeWon(god, 25000, 30));
+    gone.shows.frame(34.3);
+    assert.deepEqual(gone.calls, [], `${god} won, first drawn 4.3 s on: both are let go`);
+    // ...and a restart lets it go with the old clock's moments.
+    const restarted = book();
+    restarted.shows.cue(modeWon(god, 25000, 30));
+    restarted.shows.frame(30);
+    restarted.shows.frame(1);
+    restarted.shows.frame(40);
+    assert.equal(restarted.kind('play').length, 1, `${god} won: the strobe went with the old clock`);
+
+    // A mode lost: every glow darkened, 0.5 s down, 0.2 s held and 0.5 s up, from its time, and nothing else.
+    const lost = book();
+    lost.shows.cue(modeLost(god, 12));
+    lost.shows.frame(12);
+    assert.equal(lost.calls.length, 1, `${god} lost: a fade alone`);
+    const [fading] = lost.kind('fade');
+    assert.equal(fading.at, 12);
+    const want = darken({ down: 0.5, hold: 0.2, up: 0.5 });
+    assert.ok(near(fading.fade.seconds, 1.2), `${god} lost: the fade lasts ${fading.fade.seconds} s`);
+    for (let i = -10; i * LOOK < 1.5; i++) assert.ok(near(fading.fade.level(i * LOOK), want.level(i * LOOK)), `${god} lost: the fade at ${i * LOOK} s`);
+  }
+
+  // A jackpot: every lamp strobed gold, 3 at 2.5 a second; a gold flash at 1.0; a shake of 0.6 s; 30 gold sparks where
+  // the tomb caught the ball; and a rain of a coin for every 1,000 it paid, at most 180.
+  const tomb = TABLE_IN_USE.tomb!;
+  for (const [value, coins] of [[50000, 50], [75000, 75], [180000, 180], [400000, 180], [12345, 12]] as const) {
+    const { shows, calls, kind } = book();
+    shows.cue(jackpot(value, tomb.held[0], tomb.held[1], 8));
+    shows.frame(8);
+    assert.equal(calls.length, 5, `a jackpot of ${value}: a strobe, a flash, a shake, sparks and a rain`);
+    assert.equal(kind('play')[0].at, 8);
+    assertSameShow(kind('play')[0].show, strobe(lamps.all, { color: GOLD, times: 3, rate: 2.5 }), 'the gold strobe');
+    assert.deepEqual(kind('flash'), [{ kind: 'flash', color: GOLD, strength: 1, at: 8 }]);
+    assert.deepEqual(kind('shake'), [{ kind: 'shake', seconds: 0.6 }]);
+    assert.deepEqual(kind('sparks'), [{ kind: 'sparks', x: tomb.held[0], y: 0.35, z: tomb.held[1], color: GOLD, count: 30 }]);
+    assert.deepEqual(kind('coinRain'), [{ kind: 'coinRain', coins }], `a jackpot of ${value} rains ${coins} coins`);
+  }
+
+  // The finale: every lamp strobed gold, a gold flash at 1.0 and a shake of 1 s. Its end plays nothing.
+  const begun = book();
+  begun.shows.cue(finale(50));
+  begun.shows.frame(50);
+  assert.equal(begun.calls.length, 3, 'the finale: a strobe, a flash and a shake');
+  assert.equal(begun.kind('play')[0].at, 50);
+  assertSameShow(begun.kind('play')[0].show, strobe(lamps.all, { color: GOLD, times: 3, rate: 2.5 }), "the finale's strobe");
+  assert.deepEqual(begun.kind('flash'), [{ kind: 'flash', color: GOLD, strength: 1, at: 50 }]);
+  assert.deepEqual(begun.kind('shake'), [{ kind: 'shake', seconds: 1 }]);
+  const over = book();
+  over.shows.cue(finaleEnd(60));
+  over.shows.frame(60);
+  over.shows.frame(61);
+  assert.deepEqual(over.calls, [], "the finale's end plays nothing");
 });
 
 test("a cue for a part the table hasn't got, or a hype id with no show, does nothing", () => {
@@ -622,21 +758,52 @@ function everyMoment(): [string, (s: PinballShows) => void][] {
   }
   const tomb = TABLE_IN_USE.tomb!;
   moments.push(["the tomb's catch", (s) => s.cue(cue(tomb.id, false, tomb.held[0], tomb.held[1], 0))]);
+  // The quest's: each god's mode started, a goal of it (low on the table and in its middle), won and lost; a jackpot,
+  // small and as big as its rain gets; the finale and its end.
+  for (const god of GODS) {
+    moments.push([`${god}'s mode started`, (s) => s.cue(modeStart(god, 0))]);
+    moments.push([`a goal of ${god}'s low down`, (s) => s.cue(goal(god, -1, 1, 0))]);
+    moments.push([`a goal of ${god}'s mid-table`, (s) => s.cue(goal(god, 0.5, 9, 0))]);
+    moments.push([`${god}'s mode won`, (s) => s.cue(modeWon(god, 25000, 0))]);
+    moments.push([`${god}'s mode lost`, (s) => s.cue(modeLost(god, 0))]);
+  }
+  for (const value of [50000, 1000000]) moments.push([`a jackpot of ${value}`, (s) => s.cue(jackpot(value, tomb.held[0], tomb.held[1], 0))]);
+  moments.push(['the finale', (s) => s.cue(finale(0))]);
+  moments.push(["the finale's end", (s) => s.cue(finaleEnd(0))]);
   return moments;
 }
 
-test('every show the book plays ends, and played alone rises no lamp more than 3 times in any second', () => {
+/** Draws a book every 0.05 s for 5 s, so a moment a row queues for later (a mode won's strobe) plays at its time. */
+function drawFor5s(shows: PinballShows): void {
+  for (let i = 0; i <= 100; i++) shows.frame(i * 0.05);
+}
+
+test("every row the book plays, the quest's too, ends, and played alone rises no lamp more than 3 times in any second", () => {
   const moments = everyMoment();
-  // 4 banks, multiball, the saver, double, a nudge, 5 payouts, 3 pop-ups, the mummy twice and the tomb.
-  assert.equal(moments.length, 4 + 1 + 3 + 5 + 3 + 2 + 1);
+  // 4 banks, multiball, the saver, double, a nudge, 5 payouts, 3 pop-ups, the mummy twice and the tomb; and the quest's:
+  // 5 for each of the 4 gods, 2 jackpots, the finale and its end.
+  assert.equal(moments.length, 4 + 1 + 3 + 5 + 3 + 2 + 1 + 5 * 4 + 2 + 2);
+  /** The moments with no light show: the nudge shakes the view, a mode lost fades the lamps, the finale's end is nothing. */
+  const unshown = ['nudge', ...GODS.map((god) => `${god}'s mode lost`), "the finale's end"];
   let shown = 0;
   for (const [name, queue] of moments) {
     const { shows, kind } = book();
     queue(shows);
-    shows.frame(0);
+    drawFor5s(shows);
+    // A fade ends, and takes a lamp lit under it all the way to dark and back once: so it rises once, coming back.
+    for (const f of kind('fade')) {
+      assert.ok(Number.isFinite(f.fade.seconds) && f.fade.seconds > 0 && f.fade.seconds < 4, `${name}: a fade that lasts, and ends`);
+      const player = new LightShowPlayer(lamps.all);
+      player.fade(f.fade, f.at);
+      const dims: number[] = [];
+      for (let i = 0; i * DT < f.at + f.fade.seconds + 0.25; i++) dims.push(player.dimAt(i * DT));
+      assert.equal(Math.min(...dims), 0, `${name}: the fade goes all the way to dark`);
+      assert.equal(dims[dims.length - 1], 1, `${name}: and gives the light back`);
+      assert.equal(riseTimes(dims, DT).length, 2, `${name}: a lamp lit under it rises at its first look and once coming back`);
+    }
     const plays = kind('play');
     if (!plays.length) {
-      assert.equal(name, 'nudge', `${name} plays a show`);
+      assert.ok(unshown.includes(name), `${name} plays a show`);
       continue;
     }
     shown++;
@@ -652,21 +819,23 @@ test('every show the book plays ends, and played alone rises no lamp more than 3
     });
     assert.ok(total > 0, `${name}: it lights lamps`);
   }
-  assert.equal(shown, moments.length - 1, 'every moment but the nudge plays a show');
+  assert.equal(shown, moments.length - unshown.length, "every moment but the nudge, the modes lost and the finale's end plays a show");
 
-  // The pause is what keeps multiball to 3: with the strobe right after the chase, the lamps the chase lights last rise
-  // a fourth time in a second.
+  // The pause is what keeps multiball to 3, and a mode won too: with the strobe right after the chase, the lamps the
+  // chase lights last rise a fourth time in a second.
   const lap = chase(lamps.ring, { color: 0xff2bd6, laps: 2, lapSeconds: 0.9 });
   const rushed = lampLevels([
     { show: lap, at: 0 },
     { show: strobe(lamps.all, { color: WHITE, times: 3, rate: 2.5 }), at: lap.seconds },
   ]);
   assert.equal(Math.max(...rushed.seen.map((levels) => rises(levels, DT))), 4, 'a strobe straight after the chase rises 4 times in a second');
-  const { shows, kind } = book();
-  shows.multiball(0);
-  shows.frame(0);
-  const paused = lampLevels(kind('play'));
-  assert.equal(Math.max(...paused.seen.map((levels) => rises(levels, DT))), 3, "with the book's pause the most is 3");
+  for (const [name, queue] of [['multiball', (s: PinballShows) => s.multiball(0)], ['a mode won', (s: PinballShows) => s.cue(modeWon('horus', 25000, 0))]] as const) {
+    const { shows, kind } = book();
+    queue(shows);
+    drawFor5s(shows);
+    const paused = lampLevels(kind('play'));
+    assert.equal(Math.max(...paused.seen.map((levels) => rises(levels, DT))), 3, `${name}: with the book's pause the most is 3`);
+  }
 });
 
 let failed = 0;

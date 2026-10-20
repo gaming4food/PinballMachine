@@ -9,8 +9,10 @@
 // soft additive glows over the picture's lamps and bumpers, lit by the header's bits (shared/pinball.ts LIT) and the
 // bumper and sling cues, and over the frame's rail lights, the orbits' arrows and a lamp at each toy (by its bits).
 // Every glow is a lamp to the light shows as well (light-show.ts, played by the stage: setShowLights), whose light
-// shows over the game's where it's the brighter; and whatever lights a glow, it rises no more than 3 times a second,
-// for the viewers a flashing picture can hurt.
+// shows over the game's where it's the brighter. The quest's lasting look (setQuestLook, from the state) lights the
+// rail lights, the arrows and a mode's toy lamp in its god's colour, and chases the ring through the finale; and the
+// fades' dim (setDim) darkens all of it. Whatever lights a glow, it rises no more than 3 times a second, for the
+// viewers a flashing picture can hurt.
 //
 // Without the picture (it failed to load) the stand-in look is drawn instead (`usePicture(false)`): the bumper caps
 // and sling rubbers that flash, and the inserts, over the stand-in table (table-mesh.ts). The shows light none of it.
@@ -24,7 +26,7 @@ import falcon62 from '../assets/plaques/falconplaque-62.png';
 import mummyArt from '../assets/plaques/mummy.png';
 import scarab62 from '../assets/plaques/scarab-62.png';
 import sundisc14 from '../assets/plaques/sundisc-14.png';
-import { DIVERTER_SPEED, LIT, TOY } from '../shared/pinball';
+import { DIVERTER_SPEED, GOD_COLOR, GODS, LIT, TOY, type God } from '../shared/pinball';
 import { FLIPPER_SHAPE, flipperHull, type Diverter, type Flipper, type Ramp, type Table, type Target } from '../shared/table';
 import { RiseLimit, type LampLight, type ShowLamp } from './light-show';
 import { CX, CYAN, DOOR_TUCK, doorway, PINK, segmentBox, WALL_THICK } from './table-mesh';
@@ -137,6 +139,23 @@ const POPUP_LAMP = { out: 0.35, size: 0.8, color: BLUE };
 const MUMMY_LAMP = { out: 0.45, size: 1.2, color: GREEN };
 const DOORSTEP_LAMP = { out: 0.25, size: 1.1, color: 0xff3344 };
 const GATE_LAMP = { size: 0.9, color: 0xffc23a };
+/**
+ * Each god's toy lamps, by their glows' ids: the toy its mode is played on (the server's quest pairs the same gods and
+ * toys), so the lamp its mode blinks. Ra's is the gate's, Horus's the three pop-ups', Ankh's the mummy's and the Eye's
+ * the doorstep's.
+ */
+const TOY_LAMP_OF: Record<God, (id: string) => boolean> = {
+  ra: (id) => id === 'gate',
+  horus: (id) => id.startsWith('popup-'),
+  ankh: (id) => id === 'mummy',
+  eye: (id) => id === 'doorstep',
+};
+/**
+ * The finale's chase round the ring: a lap of FINALE_LAP seconds, each lamp lit as the head passes it and fading over
+ * the CHASE_TAIL lamps behind it (as a show's chase, light-show.ts), so each lamp rises once a lap.
+ */
+const FINALE_LAP = 0.9;
+const CHASE_TAIL = 5;
 
 /** Each target's emblem (build_table.py's EMBLEMS); every flip plaque's back is the sun disc. */
 const EMBLEMS: Record<string, string> = {
@@ -373,7 +392,7 @@ export interface Glow {
   id: string;
   /**
    * Its LIT bit, or 0: a bumper's or a sling's glows with its flash, a toy's lamp with its toy, and the frame's rail
-   * lights and the orbits' arrows with the shows alone.
+   * lights and the orbits' arrows with the shows and the quest's look alone.
    */
   bit: number;
   /** A toy's lamp: whether its toy lights it, by the header's bits (the targets down and the toys'). */
@@ -386,13 +405,15 @@ export interface Glow {
 
 /**
  * The table's lamps as the light shows see them (light-show.ts): every glow, in the glows' order; the frame's rail
- * lights as a ring, for a chase round the table; and double score's ladders. A show knows its own lamps by which they
- * are, so the ring and the ladders hold all's own lamps, not copies of them.
+ * lights as a ring, for a chase round the table; double score's ladders; and each god's toy lamps (TOY_LAMP_OF), which
+ * a mode's start sweeps into. A show knows its own lamps by which they are, so the ring, the ladders and the toys hold
+ * all's own lamps, not copies of them.
  */
 export interface PinballLamps {
   all: readonly ShowLamp[];
   ring: readonly ShowLamp[];
   ladders: readonly ShowLamp[];
+  toys: Readonly<Record<God, readonly ShowLamp[]>>;
 }
 
 export class TableParts {
@@ -428,6 +449,21 @@ export class TableParts {
    * again, and a glow a viewer saw rise was seen, whatever hello comes next.
    */
   private readonly glowLights: { limit: RiseLimit; show: LampLight }[] = [];
+  /**
+   * What each glow is to the quest's lasting look, in the glows' order: its place round the ring (-1 off it), whether
+   * it's one of the lamps a mode lights in its god's colour (the rail lights and the orbits' arrows), and the god whose
+   * toy lamp it is (null for none).
+   */
+  private readonly questRoles: { place: number; decor: boolean; toyOf: God | null }[] = [];
+  /** Each ring lamp's hue in the finale's rainbow laps, by its place round the ring. */
+  private readonly rainbow: number[] = [];
+  /** The quest's lasting look last set (setQuestLook), and the time it was set at; and the dim last set (setDim). */
+  private questGod: God | null = null;
+  private questFinale = false;
+  private questNow = 0;
+  private dim = 1;
+  /** The colour finaleChase gives the lamp it was last asked about (a field, so nothing is made per frame). */
+  private chaseColor = 0;
   /** The targets down: before the first header, the rising ones (they start down, as on the table). */
   private down = 0;
   /** The plaques turned last set; null before the first (a plaque already turned then is shown turned, not turning). */
@@ -665,11 +701,25 @@ export class TableParts {
     // by which they are). The ring runs up the left rail from the bottom, then down the right one from the top. The
     // right rail is copied and reversed, not toReversed(): that is ES2023, newer than some of the embedded browsers the
     // stage runs in, and there it would throw here and leave no table at all.
+    const toys = {} as Record<God, ShowLamp[]>;
+    for (const god of GODS) toys[god] = this.glows.filter((g) => TOY_LAMP_OF[god](g.id)).map((g) => g.lamp);
     this.lamps = {
       all: this.glows.map((g) => g.lamp),
       ring: [...rails[0], ...[...rails[1]].reverse()],
       ladders: this.glows.filter((g) => g.id === 'double').map((g) => g.lamp),
+      toys,
     };
+    // The quest's look, worked out once: which glows it lights, and the rainbow's hues, each ring lamp's by its place
+    // (in sRGB as given, as every other colour here is).
+    const hue = new THREE.Color();
+    this.lamps.ring.forEach((_, place) => this.rainbow.push(hue.setHSL(place / this.lamps.ring.length, 1, 0.5, THREE.SRGBColorSpace).getHex(THREE.SRGBColorSpace)));
+    for (const g of this.glows) {
+      this.questRoles.push({
+        place: this.lamps.ring.indexOf(g.lamp),
+        decor: g.id.startsWith('rail-') || g.id.startsWith('orbit-'),
+        toyOf: GODS.find((god) => TOY_LAMP_OF[god](g.id)) ?? null,
+      });
+    }
     this.usePicture(true);
   }
 
@@ -826,6 +876,48 @@ export class TableParts {
     }
   }
 
+  /**
+   * The quest's lasting look, each frame from the state (so a stage opened late shows it): the god whose mode runs, if
+   * one does, and whether the finale runs; `now` is the table's clock as drawn (DrawnClock's), which the toy lamp's
+   * blink and the finale's chase go by. While a mode runs, the rail lights and the orbits' arrows glow steadily in its
+   * god's colour, and its toy's lamp blinks in it twice a second; while the finale runs, the ring chases, gold and the
+   * rainbow on alternate laps. The game's own lamps keep their colours, because they still mean something.
+   */
+  setQuestLook(look: { god: God | null; finale: boolean }, now: number): void {
+    this.questGod = look.god;
+    this.questFinale = look.finale;
+    this.questNow = now;
+  }
+
+  /**
+   * The share of every glow's light to show, each frame from the player's fades (LightShowPlayer.dimAt): 0 dark, 1 as
+   * lit. It is taken after the game's light, the quest's look and the shows are mixed, and before each glow's rise
+   * limit, so a glow it gives back rises once. A level that isn't a number dims nothing.
+   */
+  setDim(level: number): void {
+    this.dim = Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 1;
+  }
+
+  /**
+   * The finale's chase on the ring lamp at `place`, at the look's `now`: its level (0 to 1 of a show's peak), with its
+   * colour left in chaseColor. The head runs a lap every FINALE_LAP seconds, so each lamp is lit once a lap, in the
+   * colour of the lap the head passed it in (so a lamp keeps its colour as it fades, across the end of a lap): gold on
+   * even laps, its own hue of the rainbow on odd ones.
+   */
+  private finaleChase(place: number): number {
+    const n = this.rainbow.length;
+    const laps = this.questNow / FINALE_LAP;
+    let lap = Math.floor(laps);
+    // How many lamps the head has gone past this one: in this lap, or (not reached yet) in the lap before.
+    let behind = (laps - lap) * n - place;
+    if (behind < 0) {
+      behind += n;
+      lap--;
+    }
+    this.chaseColor = lap % 2 === 0 ? GOD_COLOR.ra : this.rainbow[place];
+    return Math.max(0, 1 - behind / CHASE_TAIL);
+  }
+
   flashBumper(id: string): void {
     const f = this.flashes.get(id);
     if (f) f.flash = 1;
@@ -843,11 +935,12 @@ export class TableParts {
 
   /**
    * Each frame: the flashes show and die away, the drop targets and the rising ones move toward up or down, the mummy
-   * rocks, the door and the gate move toward their bits, the lamps glow or blink, with the shows' light over them, and
-   * every glow is held to 3 rises a second. Everything moves by `dt`, the frame's step. `real` is the browser's own
-   * clock in seconds (performance.now() / 1000), and the glows' rise limits count it: a host's dt can sum to more than
-   * real time (the city's to about 1.5 times it), and a limit counting that would let a glow rise 4 or 5 times in a
-   * second as the viewers see it. Without `real` (the tests in Node) the limits count the sum of dt.
+   * rocks, the door and the gate move toward their bits, the lamps glow or blink, with the quest's look and the shows'
+   * light over them and the fades' dim over all, and every glow is held to 3 rises a second. Everything moves by `dt`,
+   * the frame's step. `real` is the browser's own clock in seconds (performance.now() / 1000), and the glows' rise
+   * limits count it: a host's dt can sum to more than real time (the city's to about 1.5 times it), and a limit
+   * counting that would let a glow rise 4 or 5 times in a second as the viewers see it. Without `real` (the tests in
+   * Node) the limits count the sum of dt.
    */
   update(dt: number, real?: number): void {
     this.clock += dt;
@@ -884,16 +977,39 @@ export class TableParts {
         const f = this.flashes.get(glow.id);
         level = f ? f.peak * f.flash : 0;
       }
+      let color = glow.lamp.color;
+      // The quest's lasting look. While a mode runs, the rail lights and the arrows glow lit in its god's colour, where
+      // that's the brighter (the game lights none of them). The mode's toy lamp blinks in place of the game's light on
+      // it, whether its toy is up or down: the game would hold a standing toy's lamp lit, which would hide the blink.
+      // The blink's two levels are the game's own blinking lamps' (GLOW_LIT and GLOW_DIM), which never count as a rise.
+      // While the finale runs, the ring chases at a show's brightness, rising once a lap.
+      const role = this.questRoles[i];
+      const god = this.questGod;
+      if (this.questFinale && role.place >= 0) {
+        const chased = this.finaleChase(role.place) * GLOW_SHOW;
+        if (chased > level) {
+          level = chased;
+          color = this.chaseColor;
+        }
+      } else if (god !== null && role.decor && GLOW_LIT > level) {
+        level = GLOW_LIT;
+        color = GOD_COLOR[god];
+      }
+      if (god !== null && role.toyOf === god) {
+        const phase = this.questNow * 2;
+        level = phase - Math.floor(phase) < 0.5 ? GLOW_LIT : GLOW_DIM;
+        color = GOD_COLOR[god];
+      }
       // The shows' light where it's the brighter, in its colour.
       const { limit, show } = this.glowLights[i];
-      let color = glow.lamp.color;
       if (show.level * GLOW_SHOW > level) {
         level = show.level * GLOW_SHOW;
         color = show.color;
       }
-      // Then, whatever lit it, no more than 3 rises a second (light-show.ts), in real seconds: the limit guards what
-      // the viewers see, so it counts the seconds they see it in, not the table's clock the shows go by, nor dt.
-      level = limit.level(level / GLOW_SHOW, riseClock) * GLOW_SHOW;
+      // The fades' dim over all of it, then, whatever lit it, no more than 3 rises a second (light-show.ts), in real
+      // seconds: the limit guards what the viewers see, so it counts the seconds they see it in, not the table's clock
+      // the shows go by, nor dt. Dimmed first, a glow a fade gives back rises once.
+      level = limit.level((level * this.dim) / GLOW_SHOW, riseClock) * GLOW_SHOW;
       if (level < 0.01) level = 0;
       glow.material.opacity = level;
       glow.material.color.setHex(color);
