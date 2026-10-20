@@ -1034,7 +1034,9 @@ export class TableParts {
           color = this.chaseColor;
         }
       }
-      const blinkGod = god !== null && role.toyOf === god ? god : this.questSummoned && role.toyOf === 'ankh' ? 'ankh' : null;
+      let blinkGod: God | null = null;
+      if (god !== null && role.toyOf === god) blinkGod = god;
+      else if (this.questSummoned && role.toyOf === 'ankh') blinkGod = 'ankh';
       if (blinkGod !== null) {
         const phase = this.questNow * 2;
         const up = glow.toy?.(this.down, this.toys) ?? false;

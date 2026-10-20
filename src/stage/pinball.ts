@@ -55,7 +55,7 @@ import { type PinballHeader, readPinballHeader } from './pinball-header';
 import { ballSaved } from './pinball-hud';
 import { type QuestLook, TableParts } from './pinball-parts';
 import { DrawnClock, PinballShows } from './pinball-shows';
-import { easeHaze, HAZE, hazeAt, Sand } from './sand';
+import { HAZE, HazeTracker, Sand } from './sand';
 import { type DrawnBall, PinballSoundCues, PinballVoice } from './pinball-sounds';
 import { ScreenFlash } from './screen-hits';
 import { Sparks, TombBeam } from './sparks';
@@ -219,14 +219,9 @@ export class PinballScene implements MachineScene {
   private readonly flashUniforms = { uFlash: { value: new THREE.Color(0, 0, 0) }, uFlashAmount: { value: 0 } };
   /** The sandstorm's haze on the picture's shader: its colour, and how much of the picture is mixed toward it. */
   private readonly hazeUniforms = { uHaze: { value: new THREE.Color(HAZE.color) }, uHazeAmount: { value: 0 } };
-  /**
-   * The haze as drawn (easeHaze), when the stage first saw the storm now on (DrawnClock's `now`; null with none), and
-   * whether the next frame is the first to look at a state (or the first after a hello): a storm on then is shown eased
-   * in already, as if it began long ago.
-   */
-  private haze = 0;
-  private stormSeen: number | null = null;
-  private hazeFresh = true;
+  /** The haze as drawn, from the state's storm; and the browser's clock at the last frame (s), null at first. */
+  private readonly haze = new HazeTracker();
+  private lastReal: number | null = null;
   private readonly ballGeo = new THREE.SphereGeometry(TABLE.ballRadius, 32, 24);
   private readonly ballMat = new THREE.MeshStandardMaterial({ color: 0xd4d8e2, metalness: 1, roughness: 0.12, envMapIntensity: 1.4 });
   private readonly balls = new Map<number, BallView>();
@@ -626,26 +621,25 @@ export class PinballScene implements MachineScene {
     // guard what the viewers see, and the host's dt and the drawn table time can both run faster than real time (the
     // city's dt sums to about 1.5 times it).
     const real = performance.now() / 1000;
+    const realStep = this.lastReal === null ? 0 : real - this.lastReal;
+    this.lastReal = real;
     this.shows.frame(now);
     this.parts.setShowLights(this.player.lights(now));
     // The quest's lasting look comes from the state, so a stage opened late shows it. The dim is asked every frame,
     // since the player lets go of its finished fades only there.
     this.questLook.god = this.state?.quest.mode?.god ?? null;
     this.questLook.finale = this.state ? this.state.quest.finale !== null : false;
-    // Chat's events, each on until its time on the table's clock.
-    const events = this.state?.events;
+    // Chat's events, each on until its time on the table's clock. They're looked at only once there is a header (after
+    // a hello too), since until then `now` isn't the table's time and an event already over would show.
+    const events = h ? this.state?.events : undefined;
     this.questLook.curse = onAt(events?.curse, now);
     this.questLook.summoned = onAt(events?.mummy, now);
     this.parts.setQuestLook(this.questLook, now);
-    // The sandstorm: its wind's sand, and its haze, eased in from when the stage first saw it and out to its end.
+    // The sandstorm: its wind's sand, and its haze, eased from when the stage first saw it and out to its end. Without
+    // a state and a header the haze stays as it was drawn.
     const storm = events?.sandstorm ?? null;
     this.sand.blow(storm && now < storm.until ? storm.dir : 0, now);
-    if (!storm) this.stormSeen = null;
-    else if (this.stormSeen === null) this.stormSeen = this.hazeFresh ? -Infinity : now;
-    const hazeGoal = hazeAt(this.stormSeen, storm?.until ?? null, now);
-    this.haze = this.hazeFresh ? hazeGoal : easeHaze(this.haze, hazeGoal, step);
-    if (this.state) this.hazeFresh = false;
-    this.hazeUniforms.uHazeAmount.value = this.haze;
+    if (events) this.hazeUniforms.uHazeAmount.value = this.haze.frame(storm, now, step, realStep);
     this.parts.setDim(this.player.dimAt(now));
     // Both results are the player's and the flash's own, filled in again at their next call: read at once.
     const flashed = this.flash.at(now, real);
@@ -760,8 +754,8 @@ export class PinballScene implements MachineScene {
    * A fresh hello: the table is drawn from the new connection's snapshots and bodies only. The new server's clock may
    * have started again from 0, so the flash forgets the old clock: the show book lets go of its moments and clears the
    * player and the flash (its sinks' clear), the table's clock takes the next drawn time as its first, the sparks and
-   * the sand go out, the beam shows the tomb as it is at the next header, as the toys are shown, and the haze shows the
-   * storm as it is at the next frame.
+   * the sand go out, and the beam shows the tomb as it is at the next header, as the toys are shown. The haze eases
+   * toward the new connection's storm.
    */
   reset(): void {
     this.samples.length = 0;
@@ -771,10 +765,8 @@ export class PinballScene implements MachineScene {
     this.tableClock.reset();
     this.sparks.clear();
     this.beam.reset();
+    // The haze isn't reset: it eases from what the picture shows toward what the new connection says.
     this.sand.clear();
-    // The new connection's storm may be on or not whatever the haze shows now: the next state is shown as it is.
-    this.stormSeen = null;
-    this.hazeFresh = true;
     for (const id of [...this.balls.keys()]) this.dropBall(id);
     this.drains.length = 0;
     this.payouts.length = 0;

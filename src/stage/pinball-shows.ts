@@ -256,8 +256,8 @@ export class PinballShows {
       // when the moment plays (so a state that comes just after its moment still turns it), and toward +x with none.
       return () => {
         const dir = this.latest?.events.sandstorm?.dir ?? 1;
-        const half = TABLE.width / 2;
-        sinks.play(sweep(lamps.all, { from: -dir * half, to: dir * half, color: STORM_AMBER, seconds: 1, axis: 'x' }), at);
+        const from = (-dir * TABLE.width) / 2;
+        sinks.play(sweep(lamps.all, { from, to: -from, color: STORM_AMBER, seconds: 1, axis: 'x' }), at);
         sinks.shake(0.4);
       };
     }

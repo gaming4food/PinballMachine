@@ -6,8 +6,9 @@
 // stands still while the table does.
 //
 // The haze is not a flash: it eases in over HAZE.ease from the moment the stage first saw the storm and out to the
-// storm's end, and the stage draws it through easeHaze, which never lets it change faster than that ease, even where a
-// second storm moves the end on in the middle of the ease out.
+// storm's end, and the stage draws it through HazeTracker, whose easeHaze never lets it change faster than that ease in
+// real seconds, even where a second storm moves the end on in the middle of the ease out, or a hello or a restarted
+// clock changes what the state says. Only the page's very first look is shown at once.
 import * as THREE from 'three';
 import { TABLE } from '../shared/table';
 import { dotMap, sizeInWorld } from './sparks';
@@ -59,6 +60,46 @@ export function easeHaze(was: number, goal: number, step: number): number {
   if (!(step > 0)) return was;
   const most = (HAZE.most / HAZE.ease) * step;
   return Math.abs(goal - was) <= most ? goal : was + Math.sign(goal - was) * most;
+}
+
+/**
+ * The haze as the stage draws it, frame by frame, from the state's sandstorm: when the stage first saw the storm, and
+ * the haze last drawn. The page's very first look shows the storm as it is at once (a page opened mid-storm sees it
+ * eased in already); every look after that, a hello's too, eases the haze toward what the state says, never faster
+ * than the ease in real seconds or in the table's.
+ */
+export class HazeTracker {
+  /** When the storm now on was first seen (table time), or null with none; and the haze last drawn. */
+  private seen: number | null = null;
+  private shown = 0;
+  /** Whether no look has been made yet: the page's first state is shown as it is. */
+  private first = true;
+
+  /**
+   * A frame's look at the state's sandstorm (`storm`, null with none) at table time `now`, the table clock's `step`
+   * since the last frame and the real seconds since it (`realStep`): the haze to draw. The caller looks only once it
+   * has a state and a snapshot header (so `now` is the table's time); before that it keeps the haze where it was.
+   *
+   * A storm first seen after the first look starts its ease in from the haze already shown, so one seen again after a
+   * hello, or after the table's clock went back (a storm seen "later" than now is the old clock's, and is forgotten),
+   * carries on from where the picture is rather than dipping or jumping.
+   */
+  frame(storm: { until: number } | null, now: number, step: number, realStep: number): number {
+    if (storm === null || (this.seen !== null && now < this.seen)) this.seen = null;
+    if (storm !== null && this.seen === null) {
+      this.seen = this.first ? -Infinity : now - (HAZE.ease * this.shown) / HAZE.most;
+    }
+    const goal = hazeAt(this.seen, storm?.until ?? null, now);
+    // The smaller of the two steps, so the ease takes at least 0.8 real seconds however fast the drawn table time runs.
+    this.shown = this.first ? goal : easeHaze(this.shown, goal, Math.min(step, realStep));
+    this.first = false;
+    return this.shown;
+  }
+
+  /** The haze last drawn. */
+  get level(): number {
+    return this.shown;
+  }
 }
 
 /**

@@ -27,7 +27,7 @@ import './stub-assets';
 const { CoinBurst } = await import('../src/stage/coin-burst');
 const { MAX_SPARKS, Sparks, TombBeam } = await import('../src/stage/sparks');
 const { doorway, pictureDepth } = await import('../src/stage/table-mesh');
-const { easeHaze, HAZE, hazeAt, MAX_GRAINS, Sand } = await import('../src/stage/sand');
+const { easeHaze, HAZE, hazeAt, HazeTracker, MAX_GRAINS, Sand } = await import('../src/stage/sand');
 type Sparks = InstanceType<typeof Sparks>;
 
 // The same run every time: Math.random seeded with the claw's tests' generator (16807).
@@ -1455,6 +1455,100 @@ test('hazeAt eases in over 0.8 s, holds at most 0.18, eases out, and never chang
   assert.equal(shown, 0, 'gone after the second end');
   assert.equal(easeHaze(0.1, 0.18, 0), 0.1, 'it stands still while the clock does');
   assert.equal(easeHaze(0.1, 0.18, Number.NaN), 0.1, 'and at a step that is no number');
+});
+
+test("HazeTracker: a page opened mid-storm shows it at once, once; after that a hello, a clock going back or a storm's end only ease it, in real seconds too", () => {
+  const fastest = HAZE.most / HAZE.ease;
+  type Tracker = InstanceType<typeof HazeTracker>;
+  /**
+   * Frames from table time `from` to `to`, `step` apart on the table's clock and `real` apart on the browser's, with
+   * `storm` the state's: every frame changes the haze by no more than the ease allows over the smaller step. Returns
+   * the haze drawn at the last frame.
+   */
+  const run = (t: Tracker, storm: { until: number } | null, from: number, to: number, step = 1 / 60, real = step): number => {
+    for (let now = from; now <= to + 1e-9; now += step) {
+      const was = t.level;
+      const h = t.frame(storm, now, step, real);
+      assert.ok(h >= 0 && h <= HAZE.most + 1e-12, `${now}: ${h}`);
+      assert.ok(Math.abs(h - was) <= fastest * Math.min(step, real) + 1e-12, `at ${now.toFixed(3)} the haze went ${was} to ${h} in one frame`);
+    }
+    return t.level;
+  };
+
+  // A page opened in the middle of a storm shows it eased in already, at its first look, and only then.
+  const opened = new HazeTracker();
+  assert.ok(near(opened.frame({ until: 20 }, 15, 0, 0), HAZE.most), 'opened mid-storm: eased in at once');
+  assert.ok(near(run(opened, { until: 20 }, 15 + 1 / 60, 18), HAZE.most), 'and held');
+  // The storm gone from the state early (a hello whose connection has none): eased out, not dropped.
+  assert.ok(run(opened, null, 18, 18.4) > 0.05, 'still easing out 0.4 s on');
+  assert.equal(run(opened, null, 18.4, 19.5), 0, 'and out');
+
+  // A page opened before the storm: it eases in from when it was first seen.
+  const plain = new HazeTracker();
+  assert.equal(plain.frame(null, 5, 0, 0), 0);
+  run(plain, null, 5, 10 - 1 / 60);
+  const half = run(plain, { until: 20 }, 10, 10.4);
+  assert.ok(Math.abs(half - HAZE.most / 2) < 0.01, `half way in 0.4 s on: ${half}`);
+
+  // A hello in the middle of the ease in. The server carried on: the new connection's storm carries on easing in.
+  const sameClock = new HazeTracker();
+  sameClock.frame(null, 9.9, 0, 0);
+  run(sameClock, { until: 20 }, 10, 10.4);
+  assert.ok(near(run(sameClock, { until: 20 }, 10.4 + 1 / 60, 11), HAZE.most), 'the ease in goes on after the hello');
+  // The server restarted, its clock back at 2, with a storm of its own: forgotten as the old clock's, and seen again
+  // from where the picture is, so it goes on up with no dip.
+  const restarted = new HazeTracker();
+  restarted.frame(null, 9.9, 0, 0);
+  const before = run(restarted, { until: 20 }, 10, 10.4);
+  let low = before;
+  for (let now = 2; now < 3; now += 1 / 60) {
+    const was = restarted.level;
+    const h = restarted.frame({ until: 9 }, now, now === 2 ? 0 : 1 / 60, 1 / 60);
+    assert.ok(Math.abs(h - was) <= fastest / 60 + 1e-12, `restarted at ${now}: ${was} to ${h}`);
+    low = Math.min(low, h);
+  }
+  assert.ok(near(low, before), `no dip after the restart (${low}, from ${before})`);
+  assert.ok(near(restarted.level, HAZE.most), 'and all the way in');
+
+  // A hello in the hold: a new connection with no storm eases it out, and one with its storm on keeps it.
+  const held = new HazeTracker();
+  held.frame(null, 9.9, 0, 0);
+  run(held, { until: 20 }, 10, 15);
+  assert.ok(near(held.level, HAZE.most));
+  assert.ok(near(held.frame({ until: 7 }, 1, 0, 1 / 60), HAZE.most), 'restarted with the storm on: held, not eased in again');
+  assert.ok(near(run(held, { until: 7 }, 1 + 1 / 60, 5), HAZE.most));
+  assert.ok(held.frame(null, 5.02, 1 / 60, 1 / 60) > HAZE.most - 0.01, 'its storm gone: easing out, not dropped');
+
+  // A hello in the ease out: easing on down to nothing with no storm, or back up for the new connection's longer one.
+  for (const next of [null, { until: 30 }]) {
+    const out = new HazeTracker();
+    out.frame(null, 9.9, 0, 0);
+    run(out, { until: 20 }, 10, 19.6);
+    assert.ok(Math.abs(out.level - HAZE.most / 2) < 0.01, `half way out: ${out.level}`);
+    const end = run(out, next, 19.6 + 1 / 60, 21);
+    assert.ok(next ? near(end, HAZE.most) : end === 0, `then ${next ? 'back up' : 'out'}: ${end}`);
+  }
+
+  // A storm bought straight after a server restart, while the old clock's storm was still seen: it gets its haze.
+  const bought = new HazeTracker();
+  bought.frame(null, 49.9, 0, 0);
+  run(bought, { until: 60 }, 50, 50.01);
+  const fresh = run(bought, { until: 12 }, 2, 3);
+  assert.ok(near(fresh, HAZE.most), `the new storm hazes the picture: ${fresh}`);
+
+  // The table's clock running faster than real time: the ease still takes 0.8 real seconds. 60 frames a real second
+  // with 0.1 s of table time each: after 0.4 real seconds (4 s of table time) it is only half way in.
+  const fast = new HazeTracker();
+  fast.frame(null, 9.9, 0, 0);
+  const quick = run(fast, { until: 100 }, 10, 34, 0.1, 1 / 60);
+  assert.ok(near(quick, HAZE.most), 'all the way in, in the end');
+  const fast2 = new HazeTracker();
+  fast2.frame(null, 9.9, 0, 0);
+  const at = run(fast2, { until: 100 }, 10, 10 + 23 * 0.1, 0.1, 1 / 60);
+  assert.ok(at <= (HAZE.most / HAZE.ease) * (24 / 60) + 1e-9, `0.4 real seconds in: ${at}`);
+  // A frame with no time (the first, or a clock standing still) changes nothing.
+  assert.equal(fast2.frame(null, 12.4, 0, 0), at);
+  assert.equal(fast2.frame(null, 12.4, 0.1, 0), at);
 });
 
 let failed = 0;
