@@ -1324,10 +1324,16 @@ test("setDim darkens every glow, the game's light and the shows' alike, and comi
   });
 });
 
-test('no glow rises more than 3 times in any real second through a mode, a jackpot and the finale together', () => {
+test('no glow rises more than 3 times in any real second through a mode, a jackpot and the finale together, at 60, 144 and 180 frames a second', () => {
   // As the city draws it: a frame every 1/60 real second with a dt 1.5 times that, the table's clock keeping real time
-  // and the glows' limits counting the browser's own clock.
-  const step = 1 / 60;
+  // and the glows' limits counting the browser's own clock. And at 144 and 180 frames a second, since the stage's
+  // frames come as fast as the display's (its requestAnimationFrame has been measured at 180 a second on the streaming
+  // PC), and more frames are more chances to rise.
+  for (const fps of [60, 144, 180]) playedAt(fps);
+});
+/** The combined test above, its frames `fps` a real second. */
+function playedAt(fps: number): void {
+  const step = 1 / fps;
   const parts = new TableParts(TABLE_IN_USE);
   const player = new LightShowPlayer(parts.lamps.all);
   const shows = new PinballShows(TABLE_IN_USE, parts.lamps, {
@@ -1349,9 +1355,9 @@ test('no glow rises more than 3 times in any real second through a mode, a jackp
   // 0.2 s all through.
   const cues: PinballCueMsg[] = [cue(0, { cue: 'modeStart', god: 'ra' })];
   for (let t = 0.5; t < 2; t += 0.3) cues.push(cue(t, { cue: 'goal', god: 'ra', x: 0, z: 9 }));
-  cues.push(cue(2, { cue: 'modeWon', god: 'ra', prize: 25000 }), cue(2.3, { cue: 'modeStart', god: 'horus' }));
+  cues.push(cue(2, { cue: 'modeWon', god: 'ra', prize: 10000 }), cue(2.3, { cue: 'modeStart', god: 'horus' }));
   for (let t = 2.5; t < 6; t += 0.3) cues.push(cue(t, { cue: 'goal', god: 'horus', x: 1, z: 6.5 }));
-  cues.push(cue(5, { cue: 'modeLost', god: 'horus' }), cue(6, { cue: 'modeStart', god: 'ankh' }), cue(7.5, { cue: 'modeWon', god: 'ankh', prize: 25000 }), cue(7.5, { cue: 'finale' }));
+  cues.push(cue(5, { cue: 'modeLost', god: 'horus' }), cue(6, { cue: 'modeStart', god: 'ankh' }), cue(7.5, { cue: 'modeWon', god: 'ankh', prize: 10000 }), cue(7.5, { cue: 'finale' }));
   for (let t = 8; t < 13; t += 0.4) cues.push(cue(t, { cue: 'jackpot', value: 75000, x: tomb.held[0], z: tomb.held[1] }));
   cues.push(cue(13, { cue: 'finaleEnd' }));
   // Sent in the order of their times, as the server sends them (stable, so the two at 7.5 keep theirs).
@@ -1361,10 +1367,15 @@ test('no glow rises more than 3 times in any real second through a mode, a jackp
   const shown = parts.glows.map(() => [] as number[]);
   const asked = parts.glows.map(() => [] as number[]);
   let next = 0;
+  // The bumpers hit every 0.2 real seconds, however many frames that is.
+  let hits = -1;
   for (let k = 0; k * step < 14; k++) {
     const real = k * step;
     while (next < cues.length && cues[next].at <= real) shows.cue(cues[next++]);
-    if (k % 12 === 0) for (const b of TABLE_IN_USE.bumpers) parts.flashBumper(b.id);
+    if (Math.floor(real / 0.2 + 1e-9) > hits) {
+      hits = Math.floor(real / 0.2 + 1e-9);
+      for (const b of TABLE_IN_USE.bumpers) parts.flashBumper(b.id);
+    }
     shows.frame(real);
     const lights = player.lights(real);
     lights.forEach((l, i) => asked[i].push(l?.level ?? 0));
@@ -1377,13 +1388,13 @@ test('no glow rises more than 3 times in any real second through a mode, a jackp
   // The shows alone ask some lamps to rise more than 3 times a second (a jackpot's strobe every 0.4 s), and the
   // limit holds every glow to 3 in any real second.
   const asks = Math.max(...asked.map((l) => rises(l, step)));
-  assert.ok(asks > 3, `the shows ask up to ${asks} rises a real second`);
-  parts.glows.forEach((g, i) => assert.ok(rises(shown[i], step) <= 3, `${g.id} (glow ${i}) rose ${rises(shown[i], step)} times in a real second`));
+  assert.ok(asks > 3, `${fps} fps: the shows ask up to ${asks} rises a real second`);
+  parts.glows.forEach((g, i) => assert.ok(rises(shown[i], step) <= 3, `${fps} fps: ${g.id} (glow ${i}) rose ${rises(shown[i], step)} times in a real second`));
   // And the light was seen: the glows rose, and the fade went dark.
-  assert.ok(shown.some((l) => rises(l, step) >= 2), 'the glows flash');
+  assert.ok(shown.some((l) => rises(l, step) >= 2), `${fps} fps: the glows flash`);
   const fadeDark = Math.round(5.6 / step);
-  assert.ok(parts.glows.every((_, i) => shown[i][fadeDark] === 0), 'every glow dark in the fade of the mode lost');
-});
+  assert.ok(parts.glows.every((_, i) => shown[i][fadeDark] === 0), `${fps} fps: every glow dark in the fade of the mode lost`);
+}
 
 test("without the picture the shows light nothing and nothing throws; the stand-in's inserts still follow the LIT bits", () => {
   const dt = 1 / 120;
