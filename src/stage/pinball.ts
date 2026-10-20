@@ -299,6 +299,10 @@ export class PinballScene implements MachineScene {
       },
       saved: () => voice.saved(),
       jackpot: () => voice.jackpot(),
+      wind: () => voice.wind(),
+      curse: () => voice.curse(),
+      summonRise: () => voice.rise(),
+      summonDown: () => voice.target(),
     });
     const w = Math.round(WIDTH * quality.scale);
     const h = Math.round(HEIGHT * quality.scale);

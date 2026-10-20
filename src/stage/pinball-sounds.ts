@@ -42,6 +42,14 @@ export interface PinballCueSink {
   saved(): void;
   /** A ball caught in the tomb in the finale paid a jackpot. */
   jackpot(): void;
+  /** Chat's sandstorm began: the wind. */
+  wind(): void;
+  /** Chat's curse struck: its sting. */
+  curse(): void;
+  /** Chat's summoned mummy rose (it plays the toys' rise). */
+  summonRise(): void;
+  /** The summoned mummy was put down by its third hit (it plays the toys' down, a target's hit). */
+  summonDown(): void;
 }
 
 /** A ball as the stage draws it this frame, on the table (x across, z up it). */
@@ -81,6 +89,8 @@ function segmentDistance(x: number, z: number, a: readonly [number, number], b: 
 interface ToyHit {
   at: number;
   index?: number;
+  /** For a cue with no index: which sound it is (the jackpot's by default). */
+  sound?: 'wind' | 'curse' | 'summonRise' | 'summonDown';
   x: number;
   z: number;
 }
@@ -222,6 +232,12 @@ export class PinballSoundCues {
 
   /** A hype moment: a press of multiball plays its sound at the moment's time (frame). */
   hype(m: PinballHypeMsg): void {
+    // Chat's events sound on the hits' timed path (same stale rule and restart handling), with no place of their own.
+    const sound = m.id === 'sandstorm' ? 'wind' : m.id === 'curse' ? 'curse' : m.id === 'mummy' ? 'summonRise' : null;
+    if (sound) {
+      this.insert({ at: m.at, sound, x: 0, z: 0 });
+      return;
+    }
     if (m.id !== 'multiball') return;
     this.pending.push(m.at);
     this.pending.sort((a, b) => a - b);
@@ -238,6 +254,10 @@ export class PinballSoundCues {
   cue(m: PinballCueMsg): void {
     if (m.cue === 'jackpot') {
       this.insert({ at: m.at, x: m.x, z: m.z });
+      return;
+    }
+    if (m.cue === 'summonDown') {
+      this.insert({ at: m.at, sound: 'summonDown', x: m.x, z: m.z });
       return;
     }
     if (m.cue !== 'toyHit') return;
@@ -286,7 +306,7 @@ export class PinballSoundCues {
     while (this.hits.length && this.hits[0].at <= t) {
       const hit = this.hits.shift()!;
       if (t - hit.at > STALE) continue;
-      if (hit.index === undefined) this.sink.jackpot();
+      if (hit.index === undefined) this.sink[hit.sound ?? 'jackpot']();
       else this.sink.target(hit.index, { id: -1, x: hit.x, z: hit.z });
     }
   }
@@ -463,5 +483,27 @@ export class PinballVoice {
         s.bell(space, midiHz(n + 12), t + i * 0.18, 0.025, 1.4);
       }),
     );
+  }
+
+  /** The sandstorm: a swell of wind, noise through a band that sweeps down, up over 0.4 s and gone by 2 s. */
+  wind(): void {
+    const s = this.synth;
+    if (!s) return;
+    s.duck(2);
+    if (this.file('wind')) return;
+    const { out } = this.outs(s, 'wind');
+    s.hiss(out, s.now(), 2, 0.3, 'bandpass', 1800, 300, 1.2, 0.4);
+  }
+
+  /** The curse: a low sting falling an octave over 0.8 s, the music dipping under it. */
+  curse(): void {
+    const s = this.synth;
+    if (!s) return;
+    s.duck(1);
+    if (this.file('curse')) return;
+    const { out } = this.outs(s, 'curse');
+    const t = s.now();
+    s.tone(out, 'sawtooth', 160, t, 0.8, 0.12, 80, 0.01);
+    s.tone(out, 'square', 110, t, 0.8, 0.07, 55, 0.01);
   }
 }

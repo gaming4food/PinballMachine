@@ -8,7 +8,7 @@
 // Usage: npm run pinball-sounds-test
 import assert from 'node:assert/strict';
 import type { StageSynth } from '@kit/stage';
-import { type PinballCueMsg, type PinballState, TOY } from '../src/shared/pinball';
+import { type PinballCueMsg, type PinballHypeMsg, type PinballState, TOY } from '../src/shared/pinball';
 import { TABLE, TABLE_IN_USE, type Table } from '../src/shared/table';
 import type { PinballPicks } from '../src/stage/pinball-sound-picks';
 import './stub-assets';
@@ -43,6 +43,10 @@ function cues(table: Table = TABLE_IN_USE) {
       multiball: () => heard.push('multiball'),
       saved: () => heard.push('saved'),
       jackpot: () => heard.push('jackpot'),
+      wind: () => heard.push('wind'),
+      curse: () => heard.push('curse'),
+      summonRise: () => heard.push('summonRise'),
+      summonDown: () => heard.push('summonDown'),
     },
     table,
   );
@@ -71,7 +75,7 @@ const state = (multiball: boolean): PinballState => ({
 });
 
 test('the picks name every moment, each with no files yet (so each plays its synth)', () => {
-  assert.deepEqual(Object.keys(PINBALL_SOUNDS).sort(), ['bumper', 'door', 'drain', 'flip', 'gate', 'jackpot', 'launch', 'multiball', 'rise', 'saved', 'sling', 'target']);
+  assert.deepEqual(Object.keys(PINBALL_SOUNDS).sort(), ['bumper', 'curse', 'door', 'drain', 'flip', 'gate', 'jackpot', 'launch', 'multiball', 'rise', 'saved', 'sling', 'target', 'wind']);
   for (const [moment, pick] of Object.entries(PINBALL_SOUNDS)) {
     assert.deepEqual(pick!.files, [], `${moment} has no files`);
     assert.ok(pick!.volume > 0, `${moment} has a volume`);
@@ -92,6 +96,8 @@ test('with no synth (a muted preview) every sound is silent and nothing throws',
   voice.multiball();
   voice.saved();
   voice.jackpot();
+  voice.wind();
+  voice.curse();
 });
 
 /** A note the synth was asked for: its kind, wave or filter, pitch (and where it glides or sweeps to) and time. */
@@ -522,6 +528,63 @@ test('the jackpot is a rising run of three bell chords on the synth', () => {
   assert.equal(starts.length, 3, 'three chords');
   const lowest = starts.map((st) => Math.min(...bells.filter((n) => n.start === st).map((n) => n.hz)));
   assert.ok(lowest[0] < lowest[1] && lowest[1] < lowest[2], 'each chord higher than the last');
+});
+
+test('a sandstorm plays the wind once at its time, a curse its sting, a summoned mummy the rise; one more than 2 s late is let go', () => {
+  const hype = (id: string, at: number): PinballHypeMsg => ({ kind: 'pinballHype', id, at });
+  const down = (at: number): PinballCueMsg => ({ kind: 'pinballCue', cue: 'summonDown', value: 25000, x: 1, z: 8, at });
+  const { c, heard } = cues();
+  c.frame(9);
+  c.hype(hype('sandstorm', 10));
+  c.hype(hype('curse', 10.5));
+  c.hype(hype('mummy', 11));
+  c.cue(down(12));
+  c.frame(9.9);
+  assert.deepEqual(heard, [], "not before their times");
+  c.frame(10);
+  assert.deepEqual(heard, ['wind']);
+  c.frame(12);
+  c.frame(12.5);
+  assert.deepEqual(heard, ['wind', 'curse', 'summonRise', 'summonDown'], 'each once, in order of time');
+  c.hype(hype('sandstorm', 20));
+  c.frame(22);
+  assert.deepEqual(heard.length, 5, 'exactly 2 s late still plays');
+  c.hype(hype('curse', 30));
+  c.hype(hype('mummy', 30));
+  c.cue(down(30));
+  c.frame(32.1);
+  c.frame(40);
+  assert.equal(heard.length, 5, 'more than 2 s late is let go, and not played later');
+  // The table's clock starting again: the old clock's moments waiting go, one already on the new clock stays.
+  c.hype(hype('sandstorm', 900));
+  c.frame(5);
+  c.hype(hype('curse', 5.5));
+  c.frame(6);
+  assert.deepEqual(heard.slice(5), ['curse'], "the old clock's wind goes, the new clock's sting plays");
+});
+
+test('the wind is a noise swell sweeping down, the curse a low sting falling an octave; both duck the music', () => {
+  const wind = noteTaker();
+  let ducks = 0;
+  wind.synth.duck = () => ducks++;
+  new PinballVoice(wind.synth, {}).wind();
+  const hiss = wind.notes.filter((n) => n.kind === 'hiss');
+  assert.equal(hiss.length, 1);
+  assert.equal(hiss[0].type, 'bandpass');
+  assert.ok(hiss[0].glideTo !== undefined && hiss[0].glideTo < hiss[0].hz, 'the band sweeps down');
+  assert.ok(hiss[0].dur! >= 1.8 && hiss[0].dur! <= 2.2, `about 2 s (${hiss[0].dur})`);
+  assert.equal(ducks, 1);
+  const curse = noteTaker();
+  curse.synth.duck = () => ducks++;
+  new PinballVoice(curse.synth, {}).curse();
+  const lows = curse.notes.filter((n) => n.kind === 'tone');
+  assert.ok(lows.length >= 1);
+  for (const n of lows) {
+    assert.ok(n.hz < 300, `low (${n.hz})`);
+    assert.ok(Math.abs(n.glideTo! / n.hz - 0.5) < 1e-9, 'an octave down');
+    assert.ok(n.dur! >= 0.7 && n.dur! <= 0.9, `about 0.8 s (${n.dur})`);
+  }
+  assert.equal(ducks, 2);
 });
 
 let failed = 0;
