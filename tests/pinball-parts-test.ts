@@ -837,7 +837,7 @@ test("every glow is a lamp: the 32 rail lights, the 6 orbit arrows, the doorway'
   // the next round from the last. Its lamps are all's own, not copies: a show knows its lamps by which they are.
   assert.ok(ring.every((l) => all.includes(l)), "the ring's lamps are all's own");
   const up = Array.from({ length: 16 }, (_, k) => k);
-  assert.deepEqual(ring.map(idOf), [...up.map((k) => `rail-left-${k}`), ...up.toReversed().map((k) => `rail-right-${k}`)]);
+  assert.deepEqual(ring.map(idOf), [...up.map((k) => `rail-left-${k}`), ...[...up].reverse().map((k) => `rail-right-${k}`)]);
   ring.forEach((l, i) => {
     if (i === 0) return;
     const [dx, dz] = [l.x - ring[i - 1].x, l.z - ring[i - 1].z];

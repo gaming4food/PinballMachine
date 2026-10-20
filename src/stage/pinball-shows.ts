@@ -1,9 +1,9 @@
 // The show book of the quest's flash: what each moment on the table plays. A bank matched, multiball, the ball saver,
-// double score, a nudge, a payout and the toys' hits (a pop-up knocked down, the mummy's hits, the tomb's catch) each
-// get a light show over the table's lamps, a screen flash, sparks and a shake, in the values below (starting points:
-// the owner's look may tune them). Like the light shows (light-show.ts) it is numbers only, so it tests in Node (npm
-// run pinball-shows-test), and it plays through ShowSinks, which the stage points at its light-show player, its sparks,
-// its screen flash and the view's quake.
+// double score, a nudge, a payout, the toys' hits (a pop-up knocked down, the mummy's hits, the tomb's catch) and the
+// quest's moments each get some of these: a light show over the table's lamps, a screen flash, sparks and a shake, in
+// the values below (starting points: the owner's look may tune them). Like the light shows (light-show.ts) it is
+// numbers only, so it tests in Node (npm run pinball-shows-test), and it plays through ShowSinks, which the stage
+// points at its light-show player, its sparks, its screen flash and the view's quake.
 //
 // The quest's moments have rows too, each in its god's colour where it has one: a mode's start sweeps the lamps up into
 // its toy, a goal bursts where it was hit, a mode won chases the ring and then strobes, a mode lost fades every lamp to

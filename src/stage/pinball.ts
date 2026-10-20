@@ -46,7 +46,7 @@ import {
   WIDTH,
 } from '@kit/stage';
 import picture from '../assets/pinball.png';
-import { pinballCueOf, pinballHypeOf, type PinballState, pinballStateOf, TOY } from '../shared/pinball';
+import { type God, pinballCueOf, pinballHypeOf, type PinballState, pinballStateOf, TOY } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, type Table } from '../shared/table';
 import { CoinBurst } from './coin-burst';
 import { LightShowPlayer } from './light-show';
@@ -206,6 +206,8 @@ export class PinballScene implements MachineScene {
    * still where the drawn time slips back a little, starts again where the table's clock does, and steps at most 0.1 s.
    */
   private readonly tableClock = new DrawnClock();
+  /** The quest's lasting look: refilled each frame from the state and handed to the parts, which keep it. */
+  private readonly questLook: { god: God | null; finale: boolean } = { god: null, finale: false };
   /** The screen flash on the picture's shader (below): the colour added over the picture, and how much of it. */
   private readonly flashUniforms = { uFlash: { value: new THREE.Color(0, 0, 0) }, uFlashAmount: { value: 0 } };
   private readonly ballGeo = new THREE.SphereGeometry(TABLE.ballRadius, 32, 24);
@@ -250,8 +252,7 @@ export class PinballScene implements MachineScene {
       flash: (color, strength, at) => this.flash.flash(color, strength, at),
       shake: (seconds) => this.quake(seconds),
       fade: (f, at) => this.player.fade(f, at),
-      // The coins have no rain of their own yet (coin-burst.ts), so a jackpot rains none for now.
-      coinRain: () => {},
+      coinRain: (coins) => this.burst.rain(coins),
       clear: () => {
         this.player.clear();
         this.flash.clear();
@@ -285,7 +286,6 @@ export class PinballScene implements MachineScene {
         this.shows.multiball(this.tableClock.now);
       },
       saved: () => voice.saved(),
-      // The jackpot's cue is heard here; Task 7 wires the scene's own part of it.
       jackpot: () => voice.jackpot(),
     });
     const w = Math.round(WIDTH * quality.scale);
@@ -604,6 +604,12 @@ export class PinballScene implements MachineScene {
     const real = performance.now() / 1000;
     this.shows.frame(now);
     this.parts.setShowLights(this.player.lights(now));
+    // The quest's lasting look comes from the state, so a stage opened late shows it. The dim is asked every frame,
+    // since the player lets go of its finished fades only there.
+    this.questLook.god = this.state?.quest.mode?.god ?? null;
+    this.questLook.finale = this.state ? this.state.quest.finale !== null : false;
+    this.parts.setQuestLook(this.questLook, now);
+    this.parts.setDim(this.player.dimAt(now));
     // Both results are the player's and the flash's own, filled in again at their next call: read at once.
     const flashed = this.flash.at(now, real);
     this.flashUniforms.uFlash.value.setHex(flashed.color);

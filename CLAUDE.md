@@ -170,7 +170,12 @@ thanks the supporter, and `supportEffect` names on the city's card what it set o
 
 On the stage (`pinball-hud.ts`), each moment gets a big title at its time (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!,
 NUDGE!, and a matched bank's: HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED), as do multiball from the lock, a
-saved ball and a ball's result.
+saved ball and a ball's result. The quest's moments have titles too: a mode's start (SUN CHASE!, FALCON STRIKE!, THE
+MUMMY WAKES!, TOMB RAID!), won (the same with its prize, +25,000, or Tomb Raid's countdown) or lost (THE SUN SETS, THE
+FALCON FLIES, THE MUMMY SLEEPS, THE TOMB SEALS), a jackpot (JACKPOT 75,000!) and the finale's start, PHARAOH'S GOLD!,
+which has no MULTIBALL! title with it (the finale's end has none). One rule for every title: it is let go when it is
+more than 2 s late when its turn comes (the later of its moment and the end of the title before it), or more than 6.4 s
+after its moment.
 
 ## The flash
 
@@ -184,6 +189,14 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
 - The toys' hits, from the server's cues: a pop-up knocked down bursts blue, each of the mummy's hits green and the
   tomb's catch red, each with sparks at the ball; the mummy's third hit, which puts it down, bursts wider, flashes white
   and shakes the view 0.6 s. While the tomb is open, a beam of light stands in its doorway with motes rising in it.
+- The quest's moments: a mode's start sweeps the lamps up into its toy's, a goal bursts in the god's colour where it was
+  hit, a mode won chases the ring and strobes, and a jackpot and the finale's start strobe gold with a gold flash and a
+  shake; a jackpot rains coins (`CoinBurst.rain`) and sounds a chime. A mode lost fades every glow to dark (0.5 s), holds
+  it dark 0.2 s and brings it back (0.5 s), once for each lamp.
+- **The look of a mode** comes from the state each frame, so a stage opened late shows it. While a mode runs, its toy's
+  lamp blinks in the god's colour and the rail lights and the orbit arrows glow steadily in it; while the finale runs,
+  the ring chases gold and the rainbow in laps of 0.9 s. The state reaches the stage unguarded: `pinballStateOf` gives
+  an older server's state the empty quest. All of it keeps to the 3-a-second rule below.
 - **Nothing flashes more than 3 times a second**, for the viewers a flashing picture can hurt. A light rises when it
   goes above half its peak after being below 0.15 of it, and none rises again within `FLASH_GAP` (0.34 s) of its last
   rise, so never 4 times in a second. Each show keeps to that alone (a chase's lap and a strobe's flash take at least

@@ -48,10 +48,13 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   (`blender/README.md` says what it needs). If the picture doesn't load, the stage draws a plain three.js stand-in table
   instead (`src/stage/table-mesh.ts`).
 - The flash: each moment on the table (a bank matched, the hype buttons, multiball from the lock, a payout, the toys'
-  hits) plays some of these: a light show over the table's glows, a flash of the picture, sparks and a shake. The open
-  tomb sends up a beam of light, and `src/stage/pinball-shows.ts` says which each moment plays. Nothing flashes more
-  than 3 times a second, the screen flash adds at most 0.3 of its colour, the sparks and the coins come from fixed
-  pools, and it all runs on the table's clock, standing still while the table does (`CLAUDE.md`, The flash).
+  hits, the quest's moments) plays some of these: a light show over the table's glows, a flash of the picture, sparks
+  and a shake. The open tomb sends up a beam of light, and `src/stage/pinball-shows.ts` says which each moment plays.
+  While a quest mode runs, its toy's lamp blinks and the rail lights and arrows glow in its god's colour, and the
+  finale's ring chases gold and the rainbow; a jackpot rains coins and chimes. Nothing flashes more than 3 times a
+  second (the glows' limits count real seconds on the browser's clock), the screen flash adds at most 0.3 of its colour,
+  the sparks and the coins come from fixed pools, and the effects run on the table's clock, standing still while the
+  table does (`CLAUDE.md`, The flash).
 - The tests: `pinball-sim-test` is the physics part by part. `pinball-layout-test` is every way round the table at its
   rate (the orbits, the left ramp, the dish, the saucers, the banks, the quest's toys up and down; no ball escapes or
   sticks) and takes about a minute. `light-show-test`, `pinball-effects-test` and `pinball-shows-test` are the flash:
