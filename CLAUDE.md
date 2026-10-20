@@ -233,10 +233,12 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   0xd9a35a at most 0.18, easing in and out over 0.8 real seconds (`HazeTracker`, `sand.ts`; it never changes faster
   than that, a hello or a restarted clock included, and a page's very first look shows the haze as it is, at once), and
   blows sand across in the wind's direction from a pool of its own, 240 grains (`MAX_GRAINS`), so it never takes the
-  sparks'. The curse pulses the rail lights and orbit arrows red once a second between `GLOW_DIM` and `GLOW_LIT`,
-  over a mode's colour while it lasts. The summoned mummy's lamp blinks green while the mummy is up, dark while it is
-  down. The haze is not a flash, and the pulse and the blink stay at the two levels the 3-a-second rule never counts as
-  rises.
+  sparks'. The curse pulses the rail lights and orbit arrows red once a second, `GLOW_LIT` for half a second and dark
+  for the other half, over a mode's colour while it lasts. Dark, not `GLOW_DIM`: a dim half sits just above
+  `DARK_BELOW`, so the lamps would never go dark and their rise limits would hold nothing a show lit over them. The
+  summoned mummy's lamp blinks green while the mummy is up, dark while it is down. The haze is not a flash; the pulse
+  is lit at `GLOW_LIT`, which the 3-a-second rule never counts as a rise, and the blink stays at the blinking lamps'
+  two levels.
 - **The events' sounds** are synthesised, with no files: a filtered noise swell for the storm's first 2 s (`wind`), a
   low falling sting for the curse (`curse`), the toys' rise for the summoned mummy (`summonRise`), and for
   `summonDown` the toys' knocked-down sound (`target()`, the pop-up's; a pick the owner can swap in

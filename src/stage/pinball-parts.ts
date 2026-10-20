@@ -159,7 +159,7 @@ const FINALE_LAP = 0.9;
 const CHASE_TAIL = 5;
 /**
  * Pharaoh's curse (chat's event): the rail lights and the orbits' arrows pulse in its red, CURSE_PULSE seconds a pulse,
- * lit for the first half and dim for the second.
+ * lit for the first half and dark for the second.
  */
 const CURSE_RED = 0xff2a2a;
 const CURSE_PULSE = 1;
@@ -1009,16 +1009,17 @@ export class TableParts {
       // toy's lamp lit, which would hide the blink. While its toy is down it stays dark, as the game has it, since a
       // lamp blinking at a knocked-down pop-up would say it was there to hit. The blink's two levels are the game's own
       // blinking lamps' (GLOW_LIT and GLOW_DIM), which never count as a rise.
-      // Pharaoh's curse pulses the same lamps red at those same two levels, so it never counts as a rise either, in
-      // place of a mode's colour; the finale's chase runs over it, at a show's brightness, rising once a lap as it does
-      // with no curse. The summoned mummy's lamp blinks green as a mode's toy lamp does, by the mummy's own toy test,
+      // Pharaoh's curse pulses the same lamps red between GLOW_LIT and dark, in place of a mode's colour. Dark, not
+      // GLOW_DIM: a dim half sits just above the rise limit's DARK_BELOW, so through a curse the lamp would never go
+      // dark and its limit would hold nothing a show lit over it. Going dark each second keeps the limit armed. The
+      // finale's chase runs over it, at a show's brightness, rising once a lap as it does with no curse. The summoned mummy's lamp blinks green as a mode's toy lamp does, by the mummy's own toy test,
       // dark while it's down.
       const role = this.questRoles[i];
       const god = this.questGod;
       const ringChases = this.questFinale && role.place >= 0;
       if (this.questCurse && role.decor) {
         const pulse = this.questNow / CURSE_PULSE;
-        const cursed = pulse - Math.floor(pulse) < 0.5 ? GLOW_LIT : GLOW_DIM;
+        const cursed = pulse - Math.floor(pulse) < 0.5 ? GLOW_LIT : 0;
         if (cursed > level) {
           level = cursed;
           color = CURSE_RED;

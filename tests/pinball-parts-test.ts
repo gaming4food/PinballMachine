@@ -1327,7 +1327,7 @@ test("setDim darkens every glow, the game's light and the shows' alike, and comi
   });
 });
 
-test("the curse pulses the rail lights and arrows red once a second over a mode's colour, and no glow counts a rise from it", () => {
+test("the curse pulses the rail lights and arrows red once a second over a mode's colour, dark between, and no glow counts a rise from it", () => {
   // A frame every 1/120 s of the table's clock, with a dt half as long again (the city's): the pulse goes by `now`.
   const step = 1 / 120;
   for (const god of [null, ...GODS]) {
@@ -1351,10 +1351,12 @@ test("the curse pulses the rail lights and arrows red once a second over a mode'
         shown[i].push(g.material.opacity / 0.9);
         const what = `${god}: ${g.id} at ${now.toFixed(3)}: ${g.material.opacity} in ${g.material.color.getHexString()}`;
         if (isDecor(g.id)) {
-          // Lit the first half of each second of the table's clock and dim the second half, in the curse's red.
+          // Lit in the curse's red the first half of each second of the table's clock, and dark the second half: dark,
+          // not dim, so its rise limit is armed again every second (a dim half above DARK_BELOW would never let it go
+          // dark, and the limit would hold nothing that a show lit over it).
           const lit = now - Math.floor(now) < 0.5;
-          assert.ok(g.object.visible && g.material.color.getHex() === CURSE_RED, `${what}, in the curse's red`);
-          assert.ok(near(g.material.opacity, lit ? GLOW_LIT : GLOW_DIM), `${what}, ${lit ? 'lit' : 'dim'}`);
+          if (lit) assert.ok(g.object.visible && g.material.color.getHex() === CURSE_RED && near(g.material.opacity, GLOW_LIT), `${what}, lit in the curse's red`);
+          else assert.ok(!g.object.visible && g.material.opacity === 0, `${what}, dark`);
           pulses.get(g.id)!.push(g.material.opacity);
         } else {
           // Every other lamp is as it would be with no curse: the game's, and a mode's toy lamp blinking in its colour.
@@ -1369,7 +1371,7 @@ test("the curse pulses the rail lights and arrows red once a second over a mode'
       for (let k = 1; k < seen.length; k++) if (seen[k] > seen[k - 1]) relit++;
       assert.equal(relit, 2, `${god}: ${id} pulses once a second (lit again ${relit} times in 3 s)`);
     }
-    // Its two levels are the blinking lamps' own: half a show's peak, never above, and a sixth of it, never below.
+    // Lit, it is half a show's peak, never above, so the pulse itself is never a rise; dark, it is below DARK_BELOW.
     parts.glows.forEach((g, i) => assert.equal(rises(shown[i], step), 0, `${god}: ${g.id} never rises`));
     // The curse over: the mode's colour back at once, or the game's dark.
     parts.setQuestLook({ god, finale: false, curse: false, summoned: false }, 43);
@@ -1393,10 +1395,9 @@ test("the curse pulses the rail lights and arrows red once a second over a mode'
     fin.glows.forEach((g, i) => {
       if (!isDecor(g.id)) return;
       if (!ring.has(i)) {
-        assert.equal(g.material.color.getHex(), CURSE_RED, `${g.id} red in the finale`);
+        if (g.material.opacity > 0) assert.equal(g.material.color.getHex(), CURSE_RED, `${g.id} red in the finale`);
         return;
       }
-      assert.ok(g.material.opacity >= GLOW_DIM - 1e-9, `${g.id} never darker than the curse's dim in the finale`);
       if (g.material.opacity > GLOW_LIT + 1e-9) chased++;
     });
   }
