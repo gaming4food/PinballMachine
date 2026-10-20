@@ -23,7 +23,7 @@ import RAPIER from '@dimforge/rapier3d-simd-compat';
 import { initPhysics } from '@kit/server';
 import { SNAP_STRIDE } from '@kit/shared';
 import { DT, LOCK_IGNORE, LOCK_KICK, PinballSim, WALL_HALF, type Hit } from '../src/server/sim';
-import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../src/shared/pinball';
+import { gust, RULES, SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL, TOY } from '../src/shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget, type Table, type Target } from '../src/shared/table';
 
 await initPhysics();
@@ -1499,6 +1499,150 @@ const checks: [string, () => void][] = [
       }
     });
     assert.deepEqual(touched, [], `${touched.length} touched a switch:\n${touched.slice(0, 6).join('\n')}`);
+  }],
+  ['the wind pushes a free ball sideways, and a held one not at all', () => {
+    // The same free ball in two sims, one with a wind and one without: over a tenth of a second the windy one's x speed
+    // gains from 5/7 of what the wind gives it (ax * t) to all of it, its other speeds the same: a ball rolling on the
+    // grippy playfield puts the rest into its spin, as a solid ball rolling without slipping does. A ball the lock holds
+    // stays where it's held.
+    let spot: [number, number] | undefined;
+    for (let z = 11; z > 3 && !spot; z -= 0.25) for (let x = -3; x <= 3 && !spot; x += 0.25) if (clearSpot([x, z], TABLE_IN_USE)) spot = [x, z];
+    assert.ok(spot, 'no open playfield for the free ball');
+    const still = make().sim, windy = make().sim;
+    const a = place(still, ...spot), b = place(windy, ...spot);
+    const l = TABLE_IN_USE.lock;
+    const held = place(windy, l.x, l.z);
+    windy.holdInLock(held);
+    windy.setWind(12);
+    const steps = 6;
+    for (let i = 0; i < steps; i++) {
+      still.step();
+      windy.step();
+    }
+    const va = still.items.get(a)!.body.linvel(), vb = windy.items.get(b)!.body.linvel();
+    const gain = vb.x - va.x, full = 12 * steps * DT;
+    assert.ok(gain > (5 / 7) * full - 0.05 && gain < full + 0.01, `the wind gave ${gain.toFixed(3)} where 12 * t is ${full.toFixed(3)}`);
+    assert.ok(Math.abs(vb.z - va.z) < 0.05, "the wind changed the ball's speed down the table");
+    const p = windy.items.get(held)!.body.translation();
+    assert.ok(Math.hypot(p.x - l.x, p.z - l.z) < 0.05, 'the held ball moved in the wind');
+    // It holds until changed: set back to none, the two balls' x speeds change alike again.
+    windy.setWind(0);
+    const gap = windy.items.get(b)!.body.linvel().x - still.items.get(a)!.body.linvel().x;
+    still.step();
+    windy.step();
+    const after = windy.items.get(b)!.body.linvel().x - still.items.get(a)!.body.linvel().x;
+    assert.ok(Math.abs(after - gap) < 0.05, 'the wind blew on after it was set to none');
+  }],
+  ["gust is 0 outside the storm, eases in and out over RULES.wind.easeSeconds, and stays between gustLow and 1 of the strength inside", () => {
+    const { strength, gustLow, gustSeconds, easeSeconds: e } = RULES.wind;
+    const start = 100, until = 110;
+    for (const dir of [1, -1] as const) {
+      for (const t of [0, 99, start, until, 111, 1e6]) assert.equal(gust(t, start, until, dir), 0, `the wind at ${t}`);
+      // Inside: the same sign as dir, between gustLow and 1 of the strength once eased in, the ramp's share of that
+      // while easing.
+      for (let t = start + 0.01; t < until; t += 0.01) {
+        const g = gust(t, start, until, dir);
+        const ramp = Math.min(1, (t - start) / e, (until - t) / e);
+        const lo = ramp * gustLow * strength - 1e-9, hi = ramp * strength + 1e-9;
+        assert.ok(Math.sign(g) === dir && Math.abs(g) >= lo && Math.abs(g) <= hi, `at ${t.toFixed(2)} the wind ${g} is outside ${lo.toFixed(2)} to ${hi.toFixed(2)}`);
+      }
+      // The ramps are linear: half way up and half way down, half the gust there; at the top, all of it.
+      const shape = (t: number) => gustLow + (1 - gustLow) * (0.5 + 0.5 * Math.sin((2 * Math.PI * (t - start)) / gustSeconds));
+      for (const [t, k] of [[start + e / 2, 0.5], [until - e / 2, 0.5], [start + e, 1], [until - e, 1]]) {
+        assert.ok(Math.abs(gust(t, start, until, dir) - dir * strength * k * shape(t)) < 1e-9, `the wind at ${t}`);
+      }
+      // It gusts: both ends of its range are reached inside the storm.
+      let most = 0, least = Infinity;
+      for (let t = start + e; t <= until - e; t += 0.005) {
+        const g = Math.abs(gust(t, start, until, dir));
+        most = Math.max(most, g);
+        least = Math.min(least, g);
+      }
+      assert.ok(most > 0.99 * strength && least < 1.01 * gustLow * strength, `the gusts ran ${least.toFixed(2)} to ${most.toFixed(2)}`);
+    }
+  }],
+  ['at full strength, a ball laid against either outer wall rolls on down the table within 4 s', () => {
+    // A still ball touching the outer wall at mid-table, on the playfield's side: on the left the outer wall itself, on
+    // the right the shooter lane's inner wall (the playfield's edge there). The wind at full strength blows it into that
+    // wall, and it must still get on down the table: 2 lower, or drained.
+    const z0 = 8.3;
+    for (const [side, x, dir] of [['left', -5 + WALL_HALF + R + 0.005, -1], ['right', 4.2 - WALL_HALF - R - 0.005, 1]] as const) {
+      const { sim } = make();
+      const id = place(sim, x, z0);
+      sim.setWind(dir * RULES.wind.strength);
+      let low = z0;
+      for (let i = 0; i < 4 / DT && sim.items.has(id) && low > z0 - 2; i++) {
+        sim.step();
+        const ball = sim.items.get(id);
+        if (ball) low = Math.min(low, ball.body.translation().z);
+      }
+      const p = sim.items.get(id)?.body.translation();
+      assert.ok(!sim.items.has(id) || low <= z0 - 2, `the ${side} wall's ball got only to z ${low.toFixed(2)} (it's at ${p ? `${p.x.toFixed(2)}, ${p.z.toFixed(2)}` : '-'})`);
+    }
+  }],
+  ['after a full-strength storm in either direction, every ball dropped on the playfield is moving again within 4 s', () => {
+    // While the wind blows it may hold a ball against a corner (that is the storm doing its job, and the game's stuck
+    // watcher nudges a ball still for RULES.stuckSeconds), but once it drops no ball may be left trapped. 40 drops spread
+    // over the playfield (its own seeded generator, so the other checks' runs stay as they were), each in a real storm
+    // each way: gust() for 10 s, gusting and easing, then no wind, the flippers left at rest. 4 s after the storm a ball
+    // held (a saucer's, say) or drained is fine; one that has moved under 0.5 units/s for the last 2 s is trapped. The
+    // drops cover the inlanes, the outlanes, the walls and the corners: anywhere a ball fits, inside the outer wall and
+    // out of the shooter lane (where a still ball is one waiting at the plunger), and not inside the pyramid's closed
+    // wall. The storm's 10 s is the sandstorm's (Task 2 adds it as RULES.sandstormHype, which this should then read).
+    const storm = 10;
+    let s = 7;
+    const next = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+    const pyramid = TABLE_IN_USE.walls.find((w) => w.points.length > 2 && w.points[0].every((v, i) => v === w.points[w.points.length - 1][i]))!;
+    const inPoly = (p: [number, number], poly: [number, number][]) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, zi] = poly[i], [xj, zj] = poly[j];
+        if (zi > p[1] !== zj > p[1] && p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    const fits = (p: [number, number]) => {
+      if (!insideOuter(p, TABLE_IN_USE) || p[0] > 4.2 - R || inPoly(p, pyramid.points as [number, number][])) return false;
+      const room = R + WALL_HALF + 0.02;
+      for (const w of TABLE_IN_USE.walls) for (let i = 0; i + 1 < w.points.length; i++) if (segDist(p, w.points[i], w.points[i + 1]) < room) return false;
+      for (const b of TABLE_IN_USE.bumpers) if (Math.hypot(p[0] - b.x, p[1] - b.z) < b.radius + room) return false;
+      for (const g of TABLE_IN_USE.slings) if (segDist(p, g.a, g.b) < room) return false;
+      for (const g of TABLE_IN_USE.targets) if (Math.hypot(p[0] - g.x, p[1] - g.z) < g.width / 2 + room) return false;
+      for (const f of TABLE_IN_USE.flippers) if (Math.hypot(p[0] - f.pivot[0], p[1] - f.pivot[1]) < f.length + room) return false;
+      return true;
+    };
+    const drops: [number, number][] = [];
+    while (drops.length < 40) {
+      const p: [number, number] = [-5 + 10 * next(), 0.5 + 16 * next()];
+      if (fits(p)) drops.push(p);
+    }
+    const trapped: string[] = [];
+    let heldInStorm = 0;
+    for (const [x, z] of drops) {
+      for (const dir of [1, -1] as const) {
+        const { sim } = make();
+        const id = place(sim, x, z);
+        const start = sim.time, until = start + storm;
+        let still = 0, stillInStorm = 0;
+        while (sim.items.has(id) && sim.time < until + 4) {
+          sim.setWind(gust(sim.time, start, until, dir));
+          sim.step();
+          const ball = sim.items.get(id);
+          if (!ball) break;
+          const v = ball.body.linvel();
+          still = sim.heldBy(id) === null && Math.hypot(v.x, v.y, v.z) < 0.5 ? still + DT : 0;
+          if (sim.time <= until) stillInStorm = Math.max(stillInStorm, still);
+        }
+        // For the record (not a failure): the balls the storm itself held still 2 s or more.
+        if (stillInStorm >= 2) heldInStorm++;
+        if (sim.items.has(id) && sim.heldBy(id) === null && still >= 2) {
+          const p = sim.items.get(id)!.body.translation();
+          trapped.push(`from (${x.toFixed(2)}, ${z.toFixed(2)}) ${dir > 0 ? '+x' : '-x'}: still at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`);
+        }
+      }
+    }
+    console.log(`      (${heldInStorm} of ${drops.length * 2} stood still 2 s or more during the storm)`);
+    assert.deepEqual(trapped, [], `${trapped.length} of ${drops.length * 2} still trapped 4 s after the storm: ${trapped.join('; ')}`);
   }],
   ['every flipper and spinner has its angle', () => {
     const { sim } = make();

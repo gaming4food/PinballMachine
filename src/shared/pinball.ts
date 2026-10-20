@@ -186,7 +186,44 @@ export const RULES = {
   stuckSeconds: 4,
   /** The pause between the line's next ball being up ("Ana is up!") and its launch, in seconds. */
   launchDelay: 2,
+  /**
+   * The sandstorm's wind (gust): a push across the table (x) only, so it can never lift a ball. Its `strength` is an
+   * acceleration in units/s²; it gusts between `gustLow` and all of it over a cycle of `gustSeconds`, and eases in and
+   * out over `easeSeconds`.
+   *
+   * The strength is about the table's own downhill pull (192 * sin 6.5°, 21.7), so the wind is clearly felt. While it
+   * blows it may hold a ball still in a corner, which is the storm doing its job (the game's stuck watcher nudges such
+   * a ball); what it must never do is leave one trapped once it drops, and at 20 none is (pinball-sim-test: 40 drops,
+   * each way, a 10 s storm, every ball moving again within 4 s of its end). Measured 2026-10-19:
+   * - With the wind steady, balls are held still from these strengths up: on a resting flipper's base by its pivot
+   *   from 5, and pushed up a resting flipper toward its pivot from about 13 (the flipper's 30° leaves 10.9 of the pull
+   *   along it); in the V between the top-left diagonal wall and the first rollover post (-2, 14.6) from 10; in the
+   *   corner where the left inlane's guide meets the outer wall (-5, 6.6) from about 17 (a ball blown in from mid-table
+   *   carries through to 35); and at both inlanes' bends (about (-4.05, 3.6) and (3.25, 3.6)) from about 19. At 20, 14
+   *   of the 80 drops were held 4 s.
+   * - With the wind gusting as a storm does (gust), the troughs let most go: of 80 drops, 15 held 1, 20 held 1 (the
+   *   left corner), 25 held 10 and 30 held 22 (the inlanes' bends and the left corner).
+   * - A ball cradled on a held flipper is blown over its tip from about 11 (it holds at 11, goes at 11.5), and off its
+   *   outer end by 20: the storm's chaos, not a trap.
+   * `npm run pinball-stress -- wind=on` found 0 in 3250 runs at 10, 20, 30, 45, 60 and 90.
+   */
+  wind: { strength: 20, gustLow: 0.4, gustSeconds: 2.3, easeSeconds: 0.5 },
 } as const;
+
+/**
+ * The sandstorm's wind at table time `t`, for a storm from `start` until `until` blowing toward `dir` along x: a signed
+ * acceleration in units/s² (PinballSim.setWind). It is 0 outside the storm, rises evenly from 0 at `start` to full at
+ * `start + easeSeconds` and falls evenly to 0 at `until`, and between gusts from gustLow to all of RULES.wind.strength
+ * on a sine of gustSeconds. It has no randomness, so the same storm blows the same on every server and in every test:
+ * the storm's caller picks the direction.
+ */
+export function gust(t: number, start: number, until: number, dir: 1 | -1): number {
+  if (t <= start || t >= until) return 0;
+  const { strength, gustLow, gustSeconds, easeSeconds } = RULES.wind;
+  const ease = Math.min(1, (t - start) / easeSeconds, (until - t) / easeSeconds);
+  const shape = gustLow + (1 - gustLow) * (0.5 + 0.5 * Math.sin((2 * Math.PI * (t - start)) / gustSeconds));
+  return dir * strength * ease * shape;
+}
 
 /** The quest's four gods. Each has a bank of plaques on the table, a mode, and a toy that mode is played on. */
 export type God = 'ra' | 'horus' | 'ankh' | 'eye';

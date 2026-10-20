@@ -232,6 +232,8 @@ export class PinballSim {
   private lockSensor!: RAPIER.Collider;
   /** Every ball held still: the lock's, the saucers' (those also in saucerHold) and the tomb's (tombHold's). */
   private readonly held = new Set<number>();
+  /** The wind across the table (setWind), units/s² along x: 0 but in a sandstorm. */
+  private windAx = 0;
   /** The extra spinners' turns (table.spinners, in order). */
   private readonly spin2: { angle: number; speed: number; ball: number }[] = [];
   /** The balls a saucer holds: which saucer, and when it kicks the ball out. */
@@ -795,6 +797,14 @@ export class PinballSim {
     }
   }
 
+  /**
+   * Sets the wind (the sandstorm's): an acceleration of `ax` units/s² across the table, along x, on every ball not held,
+   * from the next substep until it is set again (0 for none). The game sets it each step from the storm's gust.
+   */
+  setWind(ax: number): void {
+    this.windAx = ax;
+  }
+
   // --- Flippers, targets, spinner ---
 
   flip(side: 'left' | 'right', up: boolean): void {
@@ -952,6 +962,15 @@ export class PinballSim {
     }
     this.gateSolidTo.clear();
     for (const ball of this.items.values()) if (ball.body.translation().x < this.gateX) this.gateSolidTo.add(ball.body.handle);
+    // The wind, as a nudge is, by changing each free ball's velocity (Rapier's forces would stay on the body between
+    // steps): this substep's share of it, before the world steps, so the clamp to MAX_SPEED below still has the last word.
+    if (this.windAx !== 0) {
+      for (const ball of this.items.values()) {
+        if (this.held.has(ball.id)) continue;
+        const v = ball.body.linvel();
+        ball.body.setLinvel({ x: v.x + this.windAx * H, y: v.y, z: v.z }, true);
+      }
+    }
     this.world.step(this.events, this.hooks);
     const now = this.time;
     const toDrop: number[] = [];

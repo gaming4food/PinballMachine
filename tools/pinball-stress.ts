@@ -8,10 +8,13 @@
 // waits for the ball to be clear of it), every step.
 // `lock=held` makes the same run with a ball held in the lock throughout, as multiball holds one (held before each run,
 // and still held after it, or the run stops): so every ball that reaches the lock is kicked back out (sim.ts's
-// LOCK_KICK). The two can be given together.
-// Usage: npm run pinball-stress [-- toys=up] [lock=held] (or npx tsx tools/pinball-stress.ts)
+// LOCK_KICK). `wind=on` makes the same run in the sandstorm's wind at its full strength (RULES.wind.strength), toward
+// +x for the first 10 s of each run, then -x for the next 10, and so on: steady rather than gusting, so every ball meets
+// the hardest push it ever can, both ways. Any of them can be given together.
+// Usage: npm run pinball-stress [-- toys=up] [lock=held] [wind=on] (or npx tsx tools/pinball-stress.ts)
 import { initPhysics } from '@kit/server';
 import { DT, PinballSim } from '../src/server/sim';
+import { RULES } from '../src/shared/pinball';
 import { TABLE_IN_USE as L } from '../src/shared/table';
 
 await initPhysics();
@@ -21,6 +24,7 @@ Math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
 const toysUp = process.argv.slice(2).includes('toys=up');
 const lockHeld = process.argv.slice(2).includes('lock=held');
+const windOn = process.argv.slice(2).includes('wind=on');
 const sim = new PinballSim(L, () => {});
 const rising = L.targets.filter((t) => t.rise).map((t) => t.id);
 /** With toys=up: whichever rising target is down raised (where no ball stands), the tomb open and the gate over. */
@@ -29,6 +33,14 @@ function keepToysUp(): void {
   for (const id of rising) sim.raiseTarget(id);
   sim.openTomb();
   sim.setDiverter(true);
+}
+/** When this run began, on the table's clock: with wind=on, its wind turns about every 10 s from then. */
+let runStart = 0;
+/** With wind=on, the wind at full strength, toward +x for the first 10 s of the run, -x the next 10, and so on. */
+function blow(): void {
+  if (!windOn) return;
+  const dir = Math.floor((sim.time - runStart) / 10) % 2 === 0 ? 1 : -1;
+  sim.setWind(dir * RULES.wind.strength);
 }
 /** With lock=held, the ball the lock holds this run. */
 let held = -1;
@@ -44,6 +56,7 @@ function fresh(): void {
     sim.holdInLock(held);
   }
   keepToysUp();
+  runStart = sim.time;
 }
 /** With lock=held, the lock still holds its ball as a run ends: otherwise the run wasn't the one it says. */
 function stillHeld(): void {
@@ -51,6 +64,7 @@ function stillHeld(): void {
 }
 if (toysUp) console.log('every toy up: the pop-ups and the mummy raised, the tomb open, the gate over');
 if (lockHeld) console.log('a ball held in the lock throughout');
+if (windOn) console.log(`the wind at ${RULES.wind.strength} units/s², turning every 10 s of each run`);
 /** The outer wall's outline, closed along the bottom below the drain. */
 const OUT = [...L.walls[0].points, [5, -2], [-5, -2]] as [number, number][];
 function inside(x: number, z: number): boolean {
@@ -74,6 +88,7 @@ function play(id: number, seconds: number): void {
       hold[side] = 0.12 + Math.random() * 0.25;
     }
     for (const s of ['left', 'right'] as const) if (hold[s] > 0 && (hold[s] -= DT) <= 0) sim.flip(s, false);
+    blow();
     sim.step();
     keepToysUp();
     const b = sim.items.get(id);
