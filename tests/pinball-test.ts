@@ -1563,6 +1563,39 @@ step("the fourth god crossed off by a ball that then drains still starts the fin
   assert.notEqual(quest().finale, null, 'the finale on with them');
 });
 
+step("with Ankh the fourth god, the mummy's third hit wins The Mummy Wakes and puts it down; the finale leaves it down, and it rises QUEST.finaleRaise seconds of play later with its hits counted afresh", () => {
+  const nia = viewer('nia', 'Nia');
+  const ball = freshBall(nia);
+  park(RULES.ballSaverStart, ball);
+  crossOff(ball, 'ra', 'horus', 'eye');
+  hitParked({ kind: 'bank', id: 'bank-ankh', ball }, ball);
+  park(0.5, ball);
+  const isDown = () => (game.sim.targetsDown() & targetBit(mummy.id)) !== 0;
+  assert.ok(!isDown(), 'the mummy is up for The Mummy Wakes');
+  // Every ball on the table kept at its spot: the finale's multiball brings more, which mustn't hit the mummy.
+  const all = () => [...game.sim.items.keys()];
+  const hit = () => {
+    (game.sim as any).report({ kind: 'target', id: mummy.id, ball });
+    run(DT, () => parkStep(all()));
+  };
+  const mark = msgs.length;
+  for (let i = 0; i < QUEST.goals.ankh; i++) hit();
+  assert.equal(QUEST.goals.ankh, MUMMY_HITS, "this step is for The Mummy Wakes won by the hit that puts the mummy down");
+  assert.deepEqual(questSaid(mark).slice(-2), ['modeWon', 'finale'], 'the fourth god crossed off begins the finale');
+  const mummyCues = toyHitsSince(mark).filter((c) => c.part === mummy.id);
+  assert.equal(mummyCues.at(-1)?.down, true, 'and the hit that won it says down');
+  run(QUEST.finaleRaise - 0.25, () => parkStep(all()));
+  assert.ok(isDown(), 'the mummy went down, and stays down short of QUEST.finaleRaise');
+  run(0.5, () => parkStep(all()));
+  assert.ok(!isDown(), 'and comes back up after it');
+  // Its hits counted from when it rose again: MUMMY_HITS more put it down.
+  for (let i = 1; i < MUMMY_HITS; i++) hit();
+  assert.ok(!isDown(), 'its hits counted afresh');
+  hit();
+  run(DT, () => parkStep(all()));
+  assert.ok(isDown(), `hit ${MUMMY_HITS} since it rose puts it down`);
+});
+
 step("the finale starting while multiball is on brings no more balls; a house ball's jackpot pays nobody", () => {
   const mae = viewer('mae', 'Mae');
   const ball = freshBall(mae);

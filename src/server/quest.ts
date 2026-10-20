@@ -46,7 +46,11 @@ export type QuestCue =
 /** What the game is to do, in order. Points are for the ball whose event this was; a `tick` never has any. */
 export type QuestOut =
   | { kind: 'points'; points: number }
-  | { kind: 'toy'; toy: Toy; up: boolean }
+  /**
+   * A toy up or down. `except` names parts of it to leave as they were last asked: the part the fourth god's winning
+   * hit put down stays down when the finale begins in that hit, and comes back later with a `raise`.
+   */
+  | { kind: 'toy'; toy: Toy; up: boolean; except?: string[] }
   /** One rising target back up (the finale's pop-up or mummy); the game waits for a ball in its way. */
   | { kind: 'raise'; part: string }
   /** The finale's multiball. The game starts none if multiball is on already. */
@@ -278,19 +282,25 @@ export class Quest {
     if (e.kind === 'popupDown') mode.seen.add(e.part);
     mode.progress++;
     const outs = [pay(QUEST.goalPoints), tell({ cue: 'goal', god: mode.god })];
-    return mode.progress < QUEST.goals[mode.god] ? outs : [...outs, ...this.win(mode)];
+    return mode.progress < QUEST.goals[mode.god] ? outs : [...outs, ...this.win(mode, e)];
   }
 
   /**
-   * The mode is won: the prize (Tomb Raid's by what is left of its time), the toy put away, the god crossed off. The
-   * fourth god begins the finale at once, with the rest of this event's outs; a hit after it in the step is a finale's.
+   * The mode is won by event `e`: the prize (Tomb Raid's by what is left of its time), the toy put away, the god crossed
+   * off. The fourth god begins the finale at once, with the rest of this event's outs; a hit after it in the step is a
+   * finale's. A part the winning hit put down (Falcon Strike's last pop-up, or the mummy on The Mummy Wakes' last hit)
+   * isn't raised with the rest: it comes back QUEST.finaleRaise seconds of play later, as one the finale's balls knock
+   * down does. Raised at once, the mummy would never drop and its hits would start again, and a second ball's report of
+   * that pop-up in the same step would pay again.
    */
-  private win(mode: Mode): QuestOut[] {
+  private win(mode: Mode, e: QuestEvent): QuestOut[] {
     const prize = mode.god === 'eye' ? tombPrize(mode.left) : QUEST.prize;
     this.mode = null;
     this.done.add(mode.god);
     const outs = [pay(prize), tell({ cue: 'modeWon', god: mode.god, prize }), move(GOD_TOY[mode.god], false)];
-    return this.done.size < GODS.length ? outs : [...outs, ...this.startFinale()];
+    if (this.done.size < GODS.length) return outs;
+    const down = e.kind === 'popupDown' ? e.part : e.kind === 'mummyHit' && e.down ? MUMMY_PART : null;
+    return [...outs, ...this.startFinale(down === null ? [] : [down])];
   }
 
   /** The time ran out: no prize, the god stays undone, and its progress goes with the mode. */
@@ -299,12 +309,20 @@ export class Quest {
     return [tell({ cue: 'modeLost', god: mode.god }), move(GOD_TOY[mode.god], false)];
   }
 
-  /** The finale begins: multiball and its toys asked for, and every god shown crossed off while it runs. */
-  private startFinale(): QuestOut[] {
+  /**
+   * The finale begins: multiball and its toys asked for, and every god shown crossed off while it runs. The parts `down`
+   * (what the winning hit put down: win) are left down, each waiting QUEST.finaleRaise seconds of play to come back.
+   */
+  private startFinale(down: string[] = []): QuestOut[] {
     this.done = new Set(GODS);
     this.waiting = false;
-    this.finale = { jackpot: QUEST.jackpot.first, raises: new Map() };
-    return [{ kind: 'multiball' }, ...FINALE_TOYS.map((toy) => move(toy, true)), tell({ cue: 'finale' })];
+    this.finale = { jackpot: QUEST.jackpot.first, raises: new Map(down.map((part) => [part, QUEST.finaleRaise])) };
+    const up = (toy: Toy): QuestOut => {
+      // The mummy is its toy's one part; any other part down is a pop-up.
+      const except = down.filter((part) => (part === MUMMY_PART) === (toy === 'mummy'));
+      return toy === 'tomb' || except.length === 0 ? move(toy, true) : { kind: 'toy', toy, up: true, except };
+    };
+    return [{ kind: 'multiball' }, ...FINALE_TOYS.map(up), tell({ cue: 'finale' })];
   }
 
   /**
@@ -325,9 +343,11 @@ export class Quest {
         finale.raises.set(e.part, QUEST.finaleRaise);
         return [pay(QUEST.goalPoints)];
       case 'mummyHit':
-        // Every hit pays, as in The Mummy Wakes, but its wait is set once, by the hit that puts it down: a second
-        // report of its going down is a hit like the rest, and doesn't start the wait again.
-        if (e.down && !finale.raises.has(MUMMY_PART)) finale.raises.set(MUMMY_PART, QUEST.finaleRaise);
+        // Every hit pays, as in The Mummy Wakes, and the one that puts it down sets its wait. While it waits it is
+        // down, so a hit reported then is a second ball's in the step it went down: like a pop-up reported again, it
+        // pays nothing and doesn't start the wait again.
+        if (finale.raises.has(MUMMY_PART)) return [];
+        if (e.down) finale.raises.set(MUMMY_PART, QUEST.finaleRaise);
         return [pay(QUEST.goalPoints)];
       default:
         return [];

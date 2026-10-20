@@ -196,10 +196,12 @@ export class PinballGame implements Machine {
   private readonly toyUp: Record<Toy, boolean> = { popups: false, mummy: false, tomb: false, diverter: false };
   /**
    * The parts of the toys not yet where they were asked to be, by part (a rising target's id, or 'tomb' or 'diverter'),
-   * each with its toy: a ball is in the way, and moveToys tries again next step. Only what was asked for is here: a
-   * pop-up a ball knocks down is not.
+   * each with its toy and whether it was asked up: a ball is in the way, and moveToys tries again next step. Only what
+   * was asked for is here: a pop-up a ball knocks down is not. Each part keeps what it was asked, since a toy asked up
+   * can leave a part as it was (setToy's `except`): the mummy asked down by its third hit stays asked down when the
+   * finale that hit began asks its toy up.
    */
-  private readonly toyWaits = new Map<string, Toy>();
+  private readonly toyWaits = new Map<string, { toy: Toy; up: boolean }>();
   /** The hits the mummy has taken since it last rose: its MUMMY_HITS-th puts it down. */
   private mummyHits = 0;
   /** The Pharaoh's quest: its rules (quest.ts), which the game feeds and does as they say (The quest, below). */
@@ -670,29 +672,33 @@ export class PinballGame implements Machine {
    * over while one is on its ramp or in the dish above, which it would shut in). What a ball is in the way of waits,
    * and is tried again every step (moveToys). It is a request to move, not a standing order: a pop-up a ball knocks
    * down stays down until it is asked up again (a mode that wants all three down needs it so). The mummy asked up
-   * afresh has taken no hits; asked up again while up, it keeps its count.
+   * afresh has taken no hits; asked up again while up, it keeps its count. The parts named in `except` are left as they
+   * were last asked (the quest's finale leaves the part the winning hit put down, and raises it later: raisePart).
    */
-  setToy(toy: Toy, up: boolean): void {
-    this.ask(toy, up, this.partsOf(toy));
+  setToy(toy: Toy, up: boolean, except: readonly string[] = []): void {
+    this.ask(toy, up, this.partsOf(toy).filter((part) => !except.includes(part)));
   }
 
   /**
    * Asks for one rising target back up, by its id: a pop-up, or the mummy (the finale raises each again after it goes
    * down, the mummy by the game's own three-hit rule). It waits for a ball in its way as a toy's parts do (moveToys),
-   * its toy is wanted up, and the mummy asked up afresh has taken no hits, as setToy has it. An id that is no rising
+   * its toy is wanted up, and the mummy asked up afresh has taken no hits, as setToy has it: always, since a part is
+   * raised only after it went down, even when its toy was left wanted up (setToy's `except`). An id that is no rising
    * target's does nothing.
    */
   raisePart(part: string): void {
     const rise = this.table.targets.find((t) => t.id === part)?.rise;
     const toy = RISING_TOYS.find((t) => RISERS[t] === rise);
-    if (toy) this.ask(toy, true, [part]);
+    if (!toy) return;
+    if (toy === 'mummy') this.mummyHits = 0;
+    this.ask(toy, true, [part]);
   }
 
   /** What setToy and raisePart ask for: the toy wanted up (or down), and these of its parts moved to it (moveToys). */
   private ask(toy: Toy, up: boolean, parts: string[]): void {
     if (toy === 'mummy' && up && !this.toyUp.mummy) this.mummyHits = 0;
     this.toyUp[toy] = up;
-    for (const part of parts) this.toyWaits.set(part, toy);
+    for (const part of parts) this.toyWaits.set(part, { toy, up });
   }
 
   /** Whether the toy was last asked up (setToy): the mummy's third hit asks it down, and so does a reset. */
@@ -712,12 +718,11 @@ export class PinballGame implements Machine {
 
   /** Brings about what the toys were asked to be, a part at a time; a part a ball is in the way of waits a step. */
   private moveToys(): void {
-    for (const [part, toy] of this.toyWaits) if (this.moveToy(toy, part)) this.toyWaits.delete(part);
+    for (const [part, { toy, up }] of this.toyWaits) if (this.moveToy(toy, part, up)) this.toyWaits.delete(part);
   }
 
-  /** Moves one part of a toy as its toy was asked: true when it is there, false while a ball is in the way. */
-  private moveToy(toy: Toy, part: string): boolean {
-    const up = this.toyUp[toy];
+  /** Moves one part of a toy as it was asked: true when it is there, false while a ball is in the way. */
+  private moveToy(toy: Toy, part: string, up: boolean): boolean {
     switch (toy) {
       case 'popups':
       case 'mummy':
@@ -1175,7 +1180,7 @@ export class PinballGame implements Machine {
           if (b) this.score(b, out.points);
           break;
         case 'toy':
-          this.setToy(out.toy, out.up);
+          this.setToy(out.toy, out.up, out.except);
           break;
         case 'raise':
           this.raisePart(out.part);

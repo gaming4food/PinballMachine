@@ -70,7 +70,10 @@ function goalsOf(god: God): QuestEvent[] {
   });
 }
 
-/** What a list of outs came to, by kind: points and cues in the order given, toys as 'popups up' (sorted). */
+/**
+ * What a list of outs came to, by kind: points and cues in the order given, toys as 'popups up' (sorted), or 'popups up
+ * but target-popup-3' when a part is to be left as it is.
+ */
 interface Said {
   points: number[];
   toys: string[];
@@ -82,7 +85,7 @@ function said(outs: QuestOut[]): Said {
   const s: Said = { points: [], toys: [], raise: [], multiball: 0, cues: [] };
   for (const o of outs) {
     if (o.kind === 'points') s.points.push(o.points);
-    else if (o.kind === 'toy') s.toys.push(`${o.toy} ${o.up ? 'up' : 'down'}`);
+    else if (o.kind === 'toy') s.toys.push(`${o.toy} ${o.up ? 'up' : 'down'}${o.except?.length ? ` but ${o.except.join(', ')}` : ''}`);
     else if (o.kind === 'raise') s.raise.push(o.part);
     else if (o.kind === 'multiball') s.multiball++;
     else s.cues.push(o.cue);
@@ -383,10 +386,45 @@ test('the fourth god crossed off begins the finale: multiball asked for, the tom
     assert.equal(outs.multiball, 1, `${last} last: multiball is asked for`);
     assert.deepEqual(outs.points, [QUEST.goalPoints, prize], `${last} last: the finale itself pays nothing`);
     assert.deepEqual(outs.cues.map((c) => c.cue), ['goal', 'modeWon', 'finale'], `${last} last: its win, then the finale`);
-    // The mode's own toy goes down, and the finale's three are asked up (the gate stays at rest).
-    assert.deepEqual(outs.toys, [`${TOY_OF[last]} down`, ...FINALE_UP].sort(), `${last} last: the toys`);
+    // The mode's own toy goes down, and the finale's three are asked up (the gate stays at rest), but for the part the
+    // winning hit put down, which comes back later on its own (the next test).
+    const left = last === 'horus' ? POPUPS[QUEST.goals.horus - 1] : last === 'ankh' ? MUMMY_IDS[0] : null;
+    const up = FINALE_UP.map((t) => (left !== null && t === `${TOY_OF[last]} up` ? `${t} but ${left}` : t));
+    assert.deepEqual(outs.toys, [`${TOY_OF[last]} down`, ...up].sort(), `${last} last: the toys`);
     assert.deepEqual(q.view(), { done: [...GODS], mode: null, finale: { jackpot: QUEST.jackpot.first } }, `${last} last: the finale runs`);
     assert.deepEqual(q.toysWanted(), wanting('popups', 'mummy', 'tomb'), `${last} last: the toys wanted`);
+  }
+});
+
+test("the part the fourth god's winning hit put down isn't raised as the finale begins: it comes back QUEST.finaleRaise seconds of play later, on its own, and a second report of it pays nothing", () => {
+  // Falcon Strike's last pop-up, and The Mummy Wakes' last hit, which puts the mummy down (the game's three-hit rule).
+  for (const last of ['horus', 'ankh'] as const) {
+    const q = crossed(...GODS.filter((g) => g !== last));
+    q.event({ kind: 'bank', god: last });
+    const goals = goalsOf(last);
+    for (const e of goals.slice(0, -1)) q.event(e);
+    const winning = goals[goals.length - 1];
+    const part = winning.kind === 'popupDown' ? winning.part : MUMMY_IDS[0];
+    const won = said(q.event(winning));
+    assert.equal(won.cues.at(-1)?.cue, 'finale', `${last} last: the finale begins`);
+    assert.ok(won.toys.includes(`${TOY_OF[last]} up but ${part}`), `${last} last: ${part} is left down (${won.toys.join('; ')})`);
+    assert.deepEqual(won.raise, [], `${last} last: and isn't raised at once`);
+    // A second ball's report of it in the same step is of a part that's down already: nothing pays, nothing more waits.
+    const again: QuestEvent[] = last === 'horus' ? [winning] : [{ kind: 'mummyHit', down: false }, { kind: 'mummyHit', down: true }];
+    for (const e of again) assert.deepEqual(q.event(e), [], `${last} last: ${JSON.stringify(e)} reported again pays nothing`);
+    // It comes back up QUEST.finaleRaise seconds of play after, on its own, as any part the finale's balls knock down.
+    const short = QUEST.finaleRaise - 0.25;
+    assert.deepEqual(q.tick(QUEST.finaleRaise * 10, false), [], `${last} last: the time with no ball in play does not count`);
+    assert.deepEqual(q.tick(short, true), [], `${last} last: still down short of its time`);
+    assert.deepEqual(said(q.tick(0.25, true)), exp({ raise: [part] }), `${last} last: ${part} comes back`);
+    assert.deepEqual(q.tick(QUEST.finaleRaise * 10, true), [], `${last} last: once`);
+  }
+  // A last goal that puts nothing down (Sun Chase's shot, Tomb Raid's catch) leaves nothing to come back.
+  for (const last of ['ra', 'eye'] as const) {
+    const q = crossed(...GODS.filter((g) => g !== last));
+    q.event({ kind: 'bank', god: last });
+    for (const e of goalsOf(last)) q.event(e);
+    assert.deepEqual(q.tick(QUEST.finaleRaise * 10, true), [], `${last} last: nothing to raise`);
   }
 });
 
@@ -430,8 +468,10 @@ test("the finale's jackpots climb by QUEST.jackpot.step; a pop-up or the mummy c
   assert.deepEqual(q.tick(QUEST.finaleRaise * 10, true), [], 'a hit that leaves it up sets no return');
   assert.deepEqual(said(q.event({ kind: 'mummyHit', down: true })), exp({ points: [QUEST.goalPoints] }), 'the hit that puts it down');
   assert.deepEqual(q.tick(half, true), [], 'half its time');
-  // A second report of its going down is a hit like the others, and doesn't start its wait again.
-  assert.deepEqual(said(q.event({ kind: 'mummyHit', down: true })), exp({ points: [QUEST.goalPoints] }));
+  // While it waits to come back it is down, so a hit reported then is a second ball's in the step it went down: it
+  // pays nothing, as a pop-up reported again doesn't, and doesn't start its wait again.
+  assert.deepEqual(q.event({ kind: 'mummyHit', down: true }), []);
+  assert.deepEqual(q.event({ kind: 'mummyHit', down: false }), []);
   assert.deepEqual(said(q.tick(half, true)), exp({ raise: MUMMY_IDS }), "the mummy comes back: the table's mummy part");
   // A pop-up and the mummy down together come back each at its own time, in the order they went down.
   q.event({ kind: 'mummyHit', down: true });
