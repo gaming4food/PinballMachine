@@ -1503,8 +1503,8 @@ const checks: [string, () => void][] = [
   ['the wind pushes a free ball sideways, and a held one not at all', () => {
     // The same free ball in two sims, one with a wind and one without: over a tenth of a second the windy one's x speed
     // gains from 5/7 of what the wind gives it (ax * t) to all of it, its other speeds the same: a ball rolling on the
-    // grippy playfield puts the rest into its spin, as a solid ball rolling without slipping does. A ball the lock holds
-    // stays where it's held.
+    // grippy playfield puts the rest into its spin, as a solid ball rolling without slipping does. A ball the lock
+    // holds stays where it's held.
     let spot: [number, number] | undefined;
     for (let z = 11; z > 3 && !spot; z -= 0.25) for (let x = -3; x <= 3 && !spot; x += 0.25) if (clearSpot([x, z], TABLE_IN_USE)) spot = [x, z];
     assert.ok(spot, 'no open playfield for the free ball');
@@ -1563,8 +1563,8 @@ const checks: [string, () => void][] = [
   }],
   ['at full strength, a ball laid against either outer wall rolls on down the table within 4 s', () => {
     // A still ball touching the outer wall at mid-table, on the playfield's side: on the left the outer wall itself, on
-    // the right the shooter lane's inner wall (the playfield's edge there). The wind at full strength blows it into that
-    // wall, and it must still get on down the table: 2 lower, or drained.
+    // the right the shooter lane's inner wall (the playfield's edge there). The wind at full strength blows it into
+    // that wall, and it must still get on down the table: 2 lower, or drained.
     const z0 = 8.3;
     for (const [side, x, dir] of [['left', -5 + WALL_HALF + R + 0.005, -1], ['right', 4.2 - WALL_HALF - R - 0.005, 1]] as const) {
       const { sim } = make();
@@ -1582,13 +1582,13 @@ const checks: [string, () => void][] = [
   }],
   ['after a full-strength storm in either direction, every ball dropped on the playfield is moving again within 4 s', () => {
     // While the wind blows it may hold a ball against a corner (that is the storm doing its job, and the game's stuck
-    // watcher nudges a ball still for RULES.stuckSeconds), but once it drops no ball may be left trapped. 40 drops spread
-    // over the playfield (its own seeded generator, so the other checks' runs stay as they were), each in a real storm
-    // each way: gust() for 10 s, gusting and easing, then no wind, the flippers left at rest. 4 s after the storm a ball
-    // held (a saucer's, say) or drained is fine; one that has moved under 0.5 units/s for the last 2 s is trapped. The
-    // drops cover the inlanes, the outlanes, the walls and the corners: anywhere a ball fits, inside the outer wall and
-    // out of the shooter lane (where a still ball is one waiting at the plunger), and not inside the pyramid's closed
-    // wall. A storm is as long as the sandstorm's (RULES.sandstormHype).
+    // watcher nudges a ball still for RULES.stuckSeconds), but once it drops no ball may be left trapped. 40 drops
+    // spread over the playfield (its own seeded generator, so the other checks' runs stay as they were), each in a real
+    // storm each way: gust() for 10 s, gusting and easing, then no wind, the flippers left at rest. 4 s after the storm
+    // a ball held (a saucer's, say) or drained is fine; one that has moved under 0.5 units/s for the last 2 s is
+    // trapped. The drops cover the inlanes, the outlanes, the walls and the corners: anywhere a ball fits, inside the
+    // outer wall and out of the shooter lane (where a still ball is one waiting at the plunger), and not inside the
+    // pyramid's closed wall. A storm is as long as the sandstorm's (RULES.sandstormHype).
     const storm = RULES.sandstormHype;
     let s = 7;
     const next = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;

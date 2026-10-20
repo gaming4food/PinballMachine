@@ -1,16 +1,16 @@
 // The table's live parts, drawn over the Blender picture (src/assets/pinball.png, which leaves them out) from each
 // snapshot's header and the stage's cues, in the picture's own look (blender/build_table.py's live parts, the same
 // sizes): the three flippers at their angles; a plaque per flip target, its emblem in front and the sun disc behind,
-// that turns 180° about its pin when its bit sets (and back when it clears); the two drop targets, which sink when down;
-// the quest's toys: the three pop-ups (drawn as the drop targets are) and the mummy (a gold sarcophagus with its face
-// on its front), which rise out of their slots and sink back into them by their bits, the mummy rocking away from a
-// ball that hits it, the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's gate,
-// which swings over and back (the header's toy bits, shared/pinball.ts TOY); both spinners' plates at their turns; and
-// soft additive glows over the picture's lamps and bumpers, lit by the header's bits (shared/pinball.ts LIT) and the
-// bumper and sling cues, and over the frame's rail lights, the orbits' arrows and a lamp at each toy (by its bits).
-// Every glow is a lamp to the light shows as well (light-show.ts, played by the stage: setShowLights), whose light
-// shows over the game's where it's the brighter. The quest's lasting look (setQuestLook, from the state) lights the
-// rail lights, the arrows and a mode's toy lamp in its god's colour, and chases the ring through the finale; with
+// that turns 180° about its pin when its bit sets (and back when it clears); the two drop targets, which sink when
+// down; the quest's toys: the three pop-ups (drawn as the drop targets are) and the mummy (a gold sarcophagus with its
+// face on its front), which rise out of their slots and sink back into them by their bits, the mummy rocking away from
+// a ball that hits it, the tomb's door, which slides up into the pyramid while the tomb is open, and the diverter's
+// gate, which swings over and back (the header's toy bits, shared/pinball.ts TOY); both spinners' plates at their
+// turns; and soft additive glows over the picture's lamps and bumpers, lit by the header's bits (shared/pinball.ts LIT)
+// and the bumper and sling cues, and over the frame's rail lights, the orbits' arrows and a lamp at each toy (by its
+// bits). Every glow is a lamp to the light shows as well (light-show.ts, played by the stage: setShowLights), whose
+// light shows over the game's where it's the brighter. The quest's lasting look (setQuestLook, from the state) lights
+// the rail lights, the arrows and a mode's toy lamp in its god's colour, and chases the ring through the finale; with
 // chat's events, it pulses the rail lights and the arrows red while Pharaoh's curse is on and blinks the summoned
 // mummy's lamp green; and the fades' dim (setDim) darkens all of it. Whatever lights a glow, it rises no more than 3
 // times a second, for the viewers a flashing picture can hurt.
@@ -1012,8 +1012,8 @@ export class TableParts {
       // Pharaoh's curse pulses the same lamps red between GLOW_LIT and dark, in place of a mode's colour. Dark, not
       // GLOW_DIM: a dim half sits just above the rise limit's DARK_BELOW, so through a curse the lamp would never go
       // dark and its limit would hold nothing a show lit over it. Going dark each second keeps the limit armed. The
-      // finale's chase runs over it, at a show's brightness, rising once a lap as it does with no curse. The summoned mummy's lamp blinks green as a mode's toy lamp does, by the mummy's own toy test,
-      // dark while it's down.
+      // finale's chase runs over it, at a show's brightness, rising once a lap as it does with no curse. The summoned
+      // mummy's lamp blinks green as a mode's toy lamp does, by the mummy's own toy test, dark while it's down.
       const role = this.questRoles[i];
       const god = this.questGod;
       const ringChases = this.questFinale && role.place >= 0;

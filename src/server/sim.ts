@@ -798,8 +798,8 @@ export class PinballSim {
   }
 
   /**
-   * Sets the wind (the sandstorm's): an acceleration of `ax` units/s² across the table, along x, on every ball not held,
-   * from the next substep until it is set again (0 for none). The game sets it each step from the storm's gust.
+   * Sets the wind (the sandstorm's): an acceleration of `ax` units/s² across the table, along x, on every ball not
+   * held, from the next substep until it is set again (0 for none). The game sets it each step from the storm's gust.
    */
   setWind(ax: number): void {
     this.windAx = ax;
@@ -963,7 +963,8 @@ export class PinballSim {
     this.gateSolidTo.clear();
     for (const ball of this.items.values()) if (ball.body.translation().x < this.gateX) this.gateSolidTo.add(ball.body.handle);
     // The wind, as a nudge is, by changing each free ball's velocity (Rapier's forces would stay on the body between
-    // steps): this substep's share of it, before the world steps, so the clamp to MAX_SPEED below still has the last word.
+    // steps): this substep's share of it, before the world steps, so the clamp to MAX_SPEED below still has the last
+    // word.
     if (this.windAx !== 0) {
       for (const ball of this.items.values()) {
         if (this.held.has(ball.id)) continue;

@@ -10,8 +10,8 @@
 // Each hit on a toy also goes to the stages, as a cue (cue). The Pharaoh's quest (quest.ts has its rules) hears what
 // happens on the table and its clock, and the game does what it says (The quest, below): its modes and their toys,
 // their goals and prizes, the finale and its multiball, and its moments to the stages. It is saved with the high
-// scores. Chat's three events are hype buttons too (Chat's events, below): a sandstorm's wind across the table, Pharaoh's
-// curse swapping chat's left and right, and the summoned mummy, whose third hit pays its ball 10,000.
+// scores. Chat's three events are hype buttons too (Chat's events, below): a sandstorm's wind across the table,
+// Pharaoh's curse swapping chat's left and right, and the summoned mummy, whose third hit pays its ball 10,000.
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
@@ -648,8 +648,8 @@ export class PinballGame implements Machine {
    * Starts one of chat's events, with a ball on the table (press has seen to it), or says why it can't, in lowercase
    * with no full stop. Every clock is the table's, from now, and runs on whether a ball is in play or not: the events
    * are short, and belong to the moment they were bought in.
-   * - A sandstorm blows its wind (gust) for RULES.sandstormHype, toward a side picked at random. One on already blows on
-   *   as long again from its end, its own way, and keeps its start, so its ease out moves to the new end.
+   * - A sandstorm blows its wind (gust) for RULES.sandstormHype, toward a side picked at random. One on already blows
+   *   on as long again from its end, its own way, and keeps its start, so its ease out moves to the new end.
    * - Pharaoh's curse swaps chat's left and right (handle) for RULES.curseHype, and a second adds as long again.
    * - The summoned mummy is raised as the quest raises it (setToy: it waits for a ball in its way), for RULES.mummyHype
    *   from now, even while it waits: its third hit pays summonPrize (hit), and at its time it goes down unpaid
@@ -724,7 +724,8 @@ export class PinballGame implements Machine {
 
   /**
    * A press's line in the feed: the streamer's own, or one that leads with the buyer and what they bought (BOUGHT), in
-   * their colour: "Ben bought a nudge! The table jolts." A supporter's line thanks them instead. `news` replaces what follows.
+   * their colour: "Ben bought a nudge! The table jolts." A supporter's line thanks them instead. `news` replaces what
+   * follows.
    */
   private pressLine(purchase: HypePurchase | undefined, id: string, news = NEWS[id][1]): void {
     const thanks = thanksOf(purchase);

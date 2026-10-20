@@ -1,8 +1,8 @@
 # PinballMachine
 
 The pinball machine, Coin-Op City's pinball table, as its own project: a streamer's chat puts balls in a line
-(`ball`) and flips the flippers together (`left`, `right`), and a drained ball pays its owner and everyone who flipped it.
-It is in development (only the owner's own PC plays it), on the pyramid table, whose picture is built in Blender.
+(`ball`) and flips the flippers together (`left`, `right`), and a drained ball pays its owner and everyone who flipped
+it. It is in development (only the owner's own PC plays it), on the pyramid table, whose picture is built in Blender.
 
 ```sh
 npm install

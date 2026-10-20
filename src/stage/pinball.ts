@@ -103,8 +103,8 @@ export function tiltTable<T extends THREE.Object3D>(group: T): T {
 /**
  * The stage's camera, for a frame `width` × `height`: at the player's end, looking down the table at CAMERA_PITCH, as
  * far back as it must be for the whole table (its side rails, the front rail and the arch's walls, by the table's size,
- * TABLE) to fit between FRAME_TOP and FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put it
- * there.
+ * TABLE) to fit between FRAME_TOP and FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put
+ * it there.
  * `matrix` is the camera's world matrix (column-major, three's Y-up world, with the table tilted in it as the stage
  * tilts it) and `fovY` its vertical field of view in degrees. The stage (fitCamera) and the Blender picture
  * (tools/export-scene.ts) both use it, so the picture lines up with the live parts drawn over it.
@@ -318,8 +318,9 @@ export class PinballScene implements MachineScene {
     this.scene.environment = neonEnvironment(this.renderer, look.env);
     this.scene.environmentIntensity = look.envIntensity;
 
-    // The picture, full-frame (it was rendered at the stage's size through its camera), drawn through inverseAces so the
-    // stage's tone mapping gives it back as it was rendered. Hidden until it loads; if it can't, the stand-in table.
+    // The picture, full-frame (it was rendered at the stage's size through its camera), drawn through inverseAces so
+    // the stage's tone mapping gives it back as it was rendered. Hidden until it loads; if it can't, the stand-in
+    // table.
     const map = new THREE.TextureLoader().load(
       picture,
       () => {

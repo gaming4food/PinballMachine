@@ -9,8 +9,8 @@
 // `lock=held` makes the same run with a ball held in the lock throughout, as multiball holds one (held before each run,
 // and still held after it, or the run stops): so every ball that reaches the lock is kicked back out (sim.ts's
 // LOCK_KICK). `wind=on` makes the same run in the sandstorm's wind at its full strength (RULES.wind.strength), toward
-// +x for the first 10 s of each run, then -x for the next 10, and so on: steady rather than gusting, so every ball meets
-// the hardest push it ever can, both ways. Any of them can be given together.
+// +x for the first 10 s of each run, then -x for the next 10, and so on: steady rather than gusting, so every ball
+// meets the hardest push it ever can, both ways. Any of them can be given together.
 // Usage: npm run pinball-stress [-- toys=up] [lock=held] [wind=on] (or npx tsx tools/pinball-stress.ts)
 import { initPhysics } from '@kit/server';
 import { DT, PinballSim } from '../src/server/sim';

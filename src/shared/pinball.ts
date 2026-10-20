@@ -32,8 +32,8 @@ export interface PinballState {
   };
   /**
    * Chat's events, each null while it isn't on: the sandstorm until when, on the table's clock, and which way along x
-   * its wind blows; Pharaoh's curse until when; and the summoned mummy until when it goes down unpaid. A page that opens
-   * late draws what is on from here.
+   * its wind blows; Pharaoh's curse until when; and the summoned mummy until when it goes down unpaid. A page that
+   * opens late draws what is on from here.
    */
   events: {
     sandstorm: { until: number; dir: 1 | -1 } | null;
@@ -50,8 +50,8 @@ export interface PinballMsg {
 
 /**
  * The state in a message from the pinball, or null for any other message (or one without a valid state). A state whose
- * quest is missing or isn't an object is given the empty quest, and one whose events are is given none on, so that every
- * reader of the state can take its quest and its events as there.
+ * quest is missing or isn't an object is given the empty quest, and one whose events are is given none on, so that
+ * every reader of the state can take its quest and its events as there.
  */
 export function pinballStateOf(msg: unknown): PinballState | null {
   if (typeof msg !== 'object' || msg === null) return null;

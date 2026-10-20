@@ -566,7 +566,7 @@ test('the summoned mummy rises, its third hit pays 10,000 undoubled to that ball
 test('each event is refused with no ball, and the mummy while up, in its mode and in the finale; the buyer is refunded and the feed is quiet', () => {
   const { game, sent, feed, hold, ballOn, bought, done } = aGame();
   try {
-    /** A bought press refused with `why`: nothing sent (no line, no moment, no state), and the game gives nothing back. */
+    /** A bought press refused with `why`: nothing sent (no line, no moment, no state); the game gives nothing back. */
     const refused = (id: string, why: string) => {
       const p = bought('ben', 100);
       const mark = sent.length;
