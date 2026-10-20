@@ -179,6 +179,20 @@ body.no-commands
   transform: translateX(-50%);
 }
 
+/*
+ * The corner and vertical layouts show only the middle 1040 px of the 1920-px stage (the city's style.css crops #stage
+ * to CORNER_SIZE's width, and scales the whole box with a transform, so neither vw nor the stage's own width measures
+ * that crop: a class on the body is what tells them apart). There the titles are smaller, to fit inside it.
+ * The arithmetic: the arcade font draws every glyph 1 em wide, and the longest title, THE MUMMY WAKES! +10,000, is 24
+ * glyphs (FALCON STRIKE! +10,000 is 22), so 24 em, and the pop grows it to 1.22 times for a moment: 29.28 em. At 50 px
+ * that's 1,464 px, which fits the full stage's 1920 but not 1040. At 34 px it's 996 px, with the 2-px stroke 1,000,
+ * leaving 20 px each side of the crop. The full stage keeps 50 px.
+ */
+body.corner #pinball-title,
+body.vertical #pinball-title {
+  font-size: 34px;
+}
+
 #pinball-title[hidden] {
   display: none;
 }
