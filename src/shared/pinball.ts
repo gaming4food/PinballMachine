@@ -219,8 +219,8 @@ export const MODE_NAME: Record<God, string> = {
  *
  * Tuned with `npm run pinball-play` and chosen by the owner, 2026-10-19 (300 balls each of seeds 1 to 3, with the
  * modelled chat). At the starting numbers (30 s modes, Sun Chase in 3 shots, 25,000 prizes) Sun Chase was a wall: its
- * modes made about half a shot each, and 2 of 136 were won, so 10% of modes were won and the finale came 0.33 times in
- * 150 balls. At these numbers 48% of modes are won, a mode starts or is won (or multiball or a jackpot comes) on 23% of
+ * modes made about half a shot each, and only 2 of its 136 were won. Of all four gods' modes 10% were won, and the
+ * finale came 0.33 times in 150 balls. At these numbers 48% of modes are won, a mode starts or is won (or multiball or a jackpot comes) on 23% of
  * balls, a mode or the finale runs on 73%, and the finale comes 2.7 times in 150 balls. A lower prize keeps a winning
  * ball's pay near the spec's aim (about 5 times an ordinary ball's, where 25,000 made it 8.5).
  */

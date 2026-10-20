@@ -65,11 +65,15 @@ the stage and the control panel.
 - `npm run pinball-stress`: the long physics run (minutes, so not in `npm test`): 250 launches and 3000 flipper shots,
   expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up, and
   `-- lock=held` with a ball held in the lock throughout. Run all three after a change to the table or the physics.
-- `npm run pinball-play`: plays unattended balls (auto-save only) and prints the average and median points, coins and
-  seconds a ball (`balls=N`, `seed=N`; `toys=up` keeps every toy up, and `rates` prints how often each bank matches and
-  each toy is hit, a ball and per 30 s; the top of `tests/pinball-play.ts` says how). It's how `RULES.pointsPerCoin`
-  was tuned (870 points a coin, about 9 coins a ball), and how the toys' spots were measured. It's for tuning, not a
-  test.
+- `npm run pinball-play`: plays balls and prints the average and median points, coins and seconds a ball (`balls=N`,
+  `seed=N`). Unattended, only the auto-save plays; `chat=human` is a modelled chat flipping instead, calibrated to the
+  spec's human-like column. It plays the Pharaoh's quest too, and prints its counts from the cues (each god's modes
+  started, won and lost, the finales and the jackpots), the spec's three aims and what a ball that finished a mode pays
+  beside one that finished none; `q.<name>=<number>` sets one of `QUEST`'s numbers for the run (`q.modeSeconds=45`,
+  `q.goals.ra=2`). `toys=up` keeps every toy up, and `rates` prints how often each bank matches and each toy is hit, a
+  ball and per 30 s; the top of `tests/pinball-play.ts` says how. It's how `RULES.pointsPerCoin` was tuned (530 points
+  a coin with `chat=human`: about 9 coins a ball that finishes no mode) and `QUEST`'s numbers chosen, and how the toys'
+  spots were measured. It's for tuning, not a test.
 - `npm run picture`: builds the table's picture in Blender (below); `-- hero` makes the promotional one instead.
 - `npm run typecheck`.
 
@@ -131,12 +135,14 @@ failure is real and fails again: read the step and find out why.
     (Tomb Raid's counts down with its time) to the ball that makes it, puts the toy away and crosses the god off; double
     score doubles neither. Out of time, the toy goes away and the god is left to try again.
   - **The finale**, Pharaoh's Gold, begins as the fourth god is crossed off: multiball (2 more balls, from the line and
-    then the house, unless multiball is on already), the tomb open, the pop-ups and the mummy up. Each ball the tomb
-    catches is a jackpot, each worth more than the last (`QUEST.jackpot`); a pop-up knocked down and each hit on the
-    mummy pay goal points, and each comes back up `QUEST.finaleRaise` seconds of play after it goes down. It ends when
-    multiball does: the toys go away, and the quest starts over with no god done.
-  - **A restart** in the middle of a mode picks it up from the save, its time, its progress and its toy; in the middle
-    of the finale, the finale begins again with the next ball in play, since its multiball went with the balls.
+    then the house, unless multiball is on already), the tomb open, the pop-ups and the mummy up (but the part the
+    fourth god's winning hit put down, which comes back later as below). Each ball the tomb catches is a jackpot, each
+    worth more than the last (`QUEST.jackpot`); a pop-up knocked down and each hit on the mummy pay goal points, and
+    each comes back up `QUEST.finaleRaise` seconds of play after it goes down. It ends when multiball does: the toys go
+    away, and the quest starts over with no god done.
+  - **A restart** in the middle of a mode picks it up from the save, its time, its progress and its toy (a time or a
+    progress past what `QUEST` allows now, since retuned, is cut to fit: the progress to one short of the goal); in the
+    middle of the finale, the finale begins again with the next ball in play, since its multiball went with the balls.
   - **To the stages**, each moment is a cue (`PinballCueMsg`, never in hello): a mode started, each goal hit (where the
     ball was), the mode won with its prize or lost, a jackpot with its value (where the ball was), the finale begun and
     over. What lasts is in the state (`PinballState.quest`): the gods done, the mode with its time left at a table time
@@ -171,11 +177,11 @@ thanks the supporter, and `supportEffect` names on the city's card what it set o
 On the stage (`pinball-hud.ts`), each moment gets a big title at its time (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!,
 NUDGE!, and a matched bank's: HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED), as do multiball from the lock, a
 saved ball and a ball's result. The quest's moments have titles too: a mode's start (SUN CHASE!, FALCON STRIKE!, THE
-MUMMY WAKES!, TOMB RAID!), won (the same with its prize, +25,000, or Tomb Raid's countdown) or lost (THE SUN SETS, THE
-FALCON FLIES, THE MUMMY SLEEPS, THE TOMB SEALS), a jackpot (JACKPOT 75,000!) and the finale's start, PHARAOH'S GOLD!,
-which has no MULTIBALL! title with it (the finale's end has none). One rule for every title: it is let go when it is
-more than 2 s late when its turn comes (the later of its moment and the end of the title before it), or more than 6.4 s
-after its moment.
+MUMMY WAKES!, TOMB RAID!), won (the same with its prize, +10,000, or Tomb Raid's countdown, +20,000 down to +5,000) or
+lost (THE SUN SETS, THE FALCON FLIES, THE MUMMY SLEEPS, THE TOMB SEALS), a jackpot (JACKPOT 50,000!, then 25,000 more
+each) and the finale's start, PHARAOH'S GOLD!, which has no MULTIBALL! title with it (the finale's end has none). One
+rule for every title: it is let go when it is more than 2 s late when its turn comes (the later of its moment and the
+end of the title before it), or more than 6.4 s after its moment.
 
 ## The flash
 

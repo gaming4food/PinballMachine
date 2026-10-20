@@ -21,7 +21,7 @@
 // often things happen: each bank matched, the pop-ups' and the mummy's hits, the tomb's catches, the lock's entries (a
 // ball into its sensor, lit or not) and the dish's visits (a ball up on its floor, from the left ramp), each per ball
 // and per 30 s of play. Play is the table's time from each `ball` to its drain (the seconds row's), so it counts each
-// ball's launch delay too: a rate a mode's 30 s can count on.
+// ball's launch delay too: a rate a mode's QUEST.modeSeconds can count on.
 // Usage: npm run pinball-play [-- balls=300 seed=1 chat=human q.modeSeconds=30 toys=up rates]
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

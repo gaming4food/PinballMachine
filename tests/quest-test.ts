@@ -245,7 +245,7 @@ test('the clock runs only while a ball is in play, and the mode is lost at 0: it
   assert.deepEqual(said(q.tick(QUEST.modeSeconds * 3, true)).cues, [{ cue: 'modeLost', god: 'ra' }]);
 });
 
-test("each mode won by its own goal: Ra's three shots (orbit or ramp), Horus's three pop-ups (each counted once), Ankh's three mummy hits, the Eye's one catch; goal points each time, the prize at the end (the tomb's by its countdown), the toy down, the god crossed off", () => {
+test(`each mode won by its own goal, QUEST.goals of it: Ra's shots (${QUEST.goals.ra}, orbit or ramp), Horus's pop-ups (${QUEST.goals.horus}, each counted once), Ankh's mummy hits (${QUEST.goals.ankh}), the Eye's catches (${QUEST.goals.eye}); goal points each time, the prize at the end (the tomb's by its countdown), the toy down, the god crossed off`, () => {
   // The Eye's prize is its countdown, so each mode is won with all its time left and with half.
   for (const spent of [0, QUEST.modeSeconds / 2]) {
     for (const god of GODS) {

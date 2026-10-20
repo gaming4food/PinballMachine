@@ -160,7 +160,7 @@ body.no-commands
  * The big title over the table (PinballHud): MULTIBALL!, BALL SAVER!, DOUBLE SCORE!, NUDGE!, BALL SAVED! and a ball's
  * result, in its own colour (data-title), popping in, holding and fading over TITLE_SECONDS (2.2 s), as the claw's hype
  * titles. data-run flips between two names for the same animation, so a title right after another starts it afresh.
- * The quest's titles (SUN CHASE!, THE SUN SETS, JACKPOT 75,000!, PHARAOH'S GOLD!) have no rule below: PinballHud sets
+ * The quest's titles (SUN CHASE!, THE SUN SETS, JACKPOT 50,000!, PHARAOH'S GOLD!) have no rule below: PinballHud sets
  * --c on the title for each, from its god's colour or gold, and takes it off again for the next title that has none.
  */
 #pinball-title {

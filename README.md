@@ -27,7 +27,7 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   right of the pyramid in front of the Horus bank, light the lock once both are down. The scarab saucer and the Eye of
   Ra magnet each hold a slow ball a moment and kick it out; there is a spinner on each orbit, the sun bumper, rollovers
   up the centre lane (all four lit pay 1,000) and an upper-right flipper that moves with `right`. The three top lanes
-  light the kickback, which kicks a ball out of the right outlane once. 870 points make a coin (`RULES.pointsPerCoin`).
+  light the kickback, which kicks a ball out of the right outlane once. 530 points make a coin (`RULES.pointsPerCoin`).
 - Four field toys, which the Pharaoh's quest plays on: three pop-up targets (each drops when hit), a mummy (it goes
   down on its third hit), a tomb in the pyramid's front corner (it catches a ball at its door and kicks it out) and a
   diverter gate on a ramp. The game raises and lowers them when asked (`PinballGame.setToy`), never into a ball. A bank
