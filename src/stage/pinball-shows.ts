@@ -253,7 +253,7 @@ export class PinballShows {
 
   /**
    * What a cue of the quest's does when its time comes (but a mode won's, which cue() queues as two moments), or null
-   * for the finale's end, which has no row.
+   * for the finale's end, which has no row, and for the summoned mummy put down, which has none yet.
    */
   private questPlay(m: Exclude<PinballCueMsg, PinballToyHit | { cue: 'modeWon' }>): (() => void) | null {
     const { sinks, lamps } = this;
@@ -296,6 +296,9 @@ export class PinballShows {
           sinks.shake(1);
         };
       case 'finaleEnd':
+        return null;
+      case 'summonDown':
+        // The summoned mummy's own row comes with the events' look; till then it plays nothing.
         return null;
     }
   }

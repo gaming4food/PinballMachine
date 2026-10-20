@@ -1050,6 +1050,39 @@ step('pinballStateOf gives a state whose quest is missing or no object the empty
   }
 });
 
+step("pinballCueOf reads summonDown, and pinballStateOf gives an older server's state no events", () => {
+  const down: PinballCueMsg = { kind: 'pinballCue', cue: 'summonDown', value: RULES.summonPrize, x: -2.1, z: 6.0, at: 14 };
+  assert.deepEqual(pinballCueOf(down), down, 'a summonDown comes back as it is');
+  assert.deepEqual(pinballCueOf(JSON.parse(JSON.stringify(down))), down, 'off the wire too');
+  for (const key of ['value', 'x', 'z'] as const) {
+    assert.equal(pinballCueOf({ ...down, [key]: undefined }), null, `a summonDown with no ${key}`);
+    assert.equal(pinballCueOf({ ...down, [key]: '3' }), null, `a summonDown whose ${key} is no number`);
+  }
+  // A server from before chat's events sends no events: every reader of the state may take them as there, and none on.
+  const state = game.state();
+  assert.deepEqual(state.events, { sandstorm: null, curse: null, mummy: null }, 'none on now');
+  assert.equal(pinballStateOf({ kind: 'pinball', state }), state, 'a state with its events comes back as the very object');
+  const none = { sandstorm: null, curse: null, mummy: null };
+  const missing: Partial<PinballState> = { ...state };
+  delete missing.events;
+  for (const [what, was] of [
+    ['missing', missing],
+    ['null', { ...state, events: null }],
+    ['a string', { ...state, events: 'sandstorm' }],
+  ] as [string, object][]) {
+    const before = JSON.stringify(was);
+    const got = pinballStateOf({ kind: 'pinball', state: was });
+    assert.deepEqual(got, { ...state, events: none }, `events that are ${what}: none, and the rest of the state as it was`);
+    assert.notEqual(got, was, `${what}: on a copy`);
+    assert.equal(JSON.stringify(was), before, `${what}: the message is left as it came`);
+  }
+  // A state older still, with neither a quest nor events, gets both.
+  const oldest: Partial<PinballState> = { ...state };
+  delete oldest.quest;
+  delete oldest.events;
+  assert.deepEqual(pinballStateOf({ kind: 'pinball', state: oldest }), { ...state, quest: { done: [], mode: null, finale: null }, events: none });
+});
+
 // --- The quest, played through the game (quest.ts's rules, fed from the table's hits and the table's clock) ---
 
 /** The quest as the state shows it. */

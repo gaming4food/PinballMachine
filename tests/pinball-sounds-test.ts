@@ -67,6 +67,7 @@ const state = (multiball: boolean): PinballState => ({
   lastResult: null,
   waiting: [],
   quest: { done: [], mode: null, finale: null },
+  events: { sandstorm: null, curse: null, mummy: null },
 });
 
 test('the picks name every moment, each with no files yet (so each plays its synth)', () => {

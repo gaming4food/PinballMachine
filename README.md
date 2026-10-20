@@ -63,11 +63,15 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   the stage's camera puts them on the picture's pixels. `picture-test` fails while the picture was made from another
   table or camera than the stage's, or at another size. `npm run pinball-stress` takes minutes, so it isn't part of
   `npm test`.
-- The control panel shows the pinball's card (the line, with a Remove button each), its four hype buttons and its
+- The control panel shows the pinball's card (the line, with a Remove button each), its seven hype buttons and its
   Reset (`src/panel.ts`; the buttons are listed in `src/entry.ts`, and the game plays them in `PinballGame.action`):
-  Multiball (2 more balls in now), Ball saver (15 s), Double score (30 s) and Nudge. The Reset clears the table and the
-  line; nobody is paid for the balls taken away.
-- Chat buys the hype buttons too, with coins: `!multiball`, `!saver`, `!double` and `!nudge` (each sale is in
+  Multiball (2 more balls in now), Ball saver (15 s), Double score (30 s), Nudge, and chat's three events: Sandstorm (a
+  gusting wind blows every ball sideways for 10 s), Pharaoh's curse (chat's left and right swap for 10 s) and Summon the
+  mummy (it rises for 20 s, and its third hit pays that ball 10,000). Each event is refused with no ball on the table,
+  and the mummy also while it's up already, in The Mummy Wakes and in the finale. The Reset clears the table and the
+  line, and ends the events; nobody is paid for the balls taken away.
+- Chat buys the hype buttons too, with coins: `!multiball`, `!saver`, `!double`, `!nudge`, `!sandstorm`, `!curse` and
+  `!mummy` (each sale is in
   `src/entry.ts`). Coin-Op City takes the coins, then `PinballGame.buyHype` presses the button for the buyer, or says
   why not, and the city gives the coins back.
 - Subs and gifts press one for free, by their size: under $1 a nudge, a sub or up to $5 a ball saver, up to $20 double

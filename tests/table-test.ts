@@ -366,7 +366,8 @@ const checks: [string, () => void][] = [
   }],
   ['the rules and the snapshot header', () => {
     assert.deepEqual(RULES, {
-      autoSaveAfter: 3, flipHold: 0.25, ballSaverStart: 5, saverHype: 15, doubleHype: 30, maxExtraBalls: 2,
+      autoSaveAfter: 3, flipHold: 0.25, ballSaverStart: 5, saverHype: 15, doubleHype: 30,
+      sandstormHype: 10, curseHype: 10, mummyHype: 20, summonPrize: 10000, maxExtraBalls: 2,
       pointsPerCoin: 530, ownerShare: 0.7, stuckSeconds: 4, launchDelay: 2,
       wind: { strength: 20, gustLow: 0.4, gustSeconds: 2.3, easeSeconds: 0.5 },
     });

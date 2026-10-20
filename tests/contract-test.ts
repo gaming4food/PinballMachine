@@ -1,5 +1,5 @@
 // The pinball machine keeps the machine contract (coin-op-city's docs/MACHINE_REPOS.md section 2; kit/src/kit/manifest.ts
-// and pages.ts): what coin-op-city checks when it imports this machine, checked here first. Its entry lists its four
+// and pages.ts): what coin-op-city checks when it imports this machine, checked here first. Its entry lists its seven
 // hype buttons, each for sale from chat. Its panel module gives the control panel its card, which of the buttons wait
 // (Ready), and the words for its Reset.
 // Usage: npm test (or npx tsx tests/contract-test.ts)
@@ -29,6 +29,7 @@ const idle: PinballState = {
   lastResult: null,
   waiting: [],
   quest: { done: [], mode: null, finale: null },
+  events: { sandstorm: null, curse: null, mummy: null },
 };
 
 const checks: [string, () => void][] = [
@@ -55,7 +56,7 @@ const checks: [string, () => void][] = [
     assert.equal(entry.release, 'development');
     assert.equal(manifest.server.runsUnseen, false);
   }],
-  ["the entry's four hype buttons, in order, each for sale from chat", () => {
+  ["the entry's seven hype buttons, in order, each for sale from chat", () => {
     // Read through the entry's type, as the platform reads it: there, `hype` is optional.
     const entry: MachineEntryText = manifest.entry;
     assert.deepEqual(entry.hype, [
@@ -86,6 +87,27 @@ const checks: [string, () => void][] = [
         icon: '🫨',
         hint: 'A bump of the table jolts every ball',
         sale: { words: ['nudge'], what: 'a nudge', price: 30, limits: { min: 5, max: 500 } },
+      },
+      {
+        id: 'sandstorm',
+        label: 'Sandstorm',
+        icon: '🌪️',
+        hint: 'A gusting wind blows every ball sideways for 10 seconds',
+        sale: { words: ['sandstorm'], what: 'a sandstorm', price: 75, limits: { min: 10, max: 1500 } },
+      },
+      {
+        id: 'curse',
+        label: "Pharaoh's curse",
+        icon: '🪲',
+        hint: "Chat's left and right swap for 10 seconds",
+        sale: { words: ['curse'], what: "Pharaoh's curse", price: 100, limits: { min: 20, max: 2000 } },
+      },
+      {
+        id: 'mummy',
+        label: 'Summon the mummy',
+        icon: '🧟',
+        hint: 'The mummy rises for 20 seconds: three hits pay 10,000',
+        sale: { words: ['mummy'], what: 'the mummy', price: 150, limits: { min: 25, max: 3000 } },
       },
     ]);
     const ids = entry.hype!.map((button) => button.id);

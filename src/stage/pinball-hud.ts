@@ -128,6 +128,8 @@ function questTitle(c: PinballCueMsg): Title | null {
     case 'goal':
     case 'toyHit':
     case 'finaleEnd':
+    // The summoned mummy put down gets its title with the events' scoreboard; till then it has none.
+    case 'summonDown':
       return null;
   }
 }

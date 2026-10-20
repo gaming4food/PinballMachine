@@ -51,5 +51,27 @@ export const entry = {
       hint: 'A bump of the table jolts every ball',
       sale: { words: ['nudge'], what: 'a nudge', price: 30, limits: { min: 5, max: 500 } },
     },
+    // Chat's three events: they're for chat's fun more than its help, so paid support never presses them.
+    {
+      id: 'sandstorm',
+      label: 'Sandstorm',
+      icon: '🌪️',
+      hint: 'A gusting wind blows every ball sideways for 10 seconds',
+      sale: { words: ['sandstorm'], what: 'a sandstorm', price: 75, limits: { min: 10, max: 1500 } },
+    },
+    {
+      id: 'curse',
+      label: "Pharaoh's curse",
+      icon: '🪲',
+      hint: "Chat's left and right swap for 10 seconds",
+      sale: { words: ['curse'], what: "Pharaoh's curse", price: 100, limits: { min: 20, max: 2000 } },
+    },
+    {
+      id: 'mummy',
+      label: 'Summon the mummy',
+      icon: '🧟',
+      hint: 'The mummy rises for 20 seconds: three hits pay 10,000',
+      sale: { words: ['mummy'], what: 'the mummy', price: 150, limits: { min: 25, max: 3000 } },
+    },
   ],
 } as const satisfies MachineEntryText;

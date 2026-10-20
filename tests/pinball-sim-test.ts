@@ -1588,8 +1588,8 @@ const checks: [string, () => void][] = [
     // held (a saucer's, say) or drained is fine; one that has moved under 0.5 units/s for the last 2 s is trapped. The
     // drops cover the inlanes, the outlanes, the walls and the corners: anywhere a ball fits, inside the outer wall and
     // out of the shooter lane (where a still ball is one waiting at the plunger), and not inside the pyramid's closed
-    // wall. The storm's 10 s is the sandstorm's (Task 2 adds it as RULES.sandstormHype, which this should then read).
-    const storm = 10;
+    // wall. A storm is as long as the sandstorm's (RULES.sandstormHype).
+    const storm = RULES.sandstormHype;
     let s = 7;
     const next = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
     const pyramid = TABLE_IN_USE.walls.find((w) => w.points.length > 2 && w.points[0].every((v, i) => v === w.points[w.points.length - 1][i]))!;

@@ -10,7 +10,8 @@
 // Each hit on a toy also goes to the stages, as a cue (cue). The Pharaoh's quest (quest.ts has its rules) hears what
 // happens on the table and its clock, and the game does what it says (The quest, below): its modes and their toys,
 // their goals and prizes, the finale and its multiball, and its moments to the stages. It is saved with the high
-// scores.
+// scores. Chat's three events are hype buttons too (Chat's events, below): a sandstorm's wind across the table, Pharaoh's
+// curse swapping chat's left and right, and the summoned mummy, whose third hit pays its ball 10,000.
 //
 // The physics is sim.ts; this is the rules. Every timer here runs on the table's clock (sim.time), never Date.now():
 // the city and the stand-in host stop stepping the machine while no stage shows it (runsUnseen: false), and the ball,
@@ -19,7 +20,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { BodyState, FeedItem, FeedTone, Platform, RoomInfo, ServerMsg } from '@kit/shared';
 import { type Economy, hypeId, type HypePurchase, log, type Machine, type MachineOutlet, type StreamEvent, type User } from '@kit/server';
-import { type HypeBuyer, isGod, LIT, parsePinballCommands, type PinballCueMsg, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
+import { gust, type HypeBuyer, isGod, LIT, parsePinballCommands, type PinballCueMsg, type PinballHypeMsg, type PinballMsg, type PinballState, RULES } from '../shared/pinball';
 import { TABLE_IN_USE, TABLE, isLockTarget, type Table } from '../shared/table';
 import { Quest, type QuestCue, type QuestEvent, type QuestOut, type QuestSave } from './quest';
 import { DT, PinballSim, type Hit } from './sim';
@@ -89,6 +90,9 @@ const BOUGHT: Record<string, string> = {
   saver: 'a ball saver',
   double: 'double score',
   nudge: 'a nudge',
+  sandstorm: 'a sandstorm',
+  curse: "Pharaoh's curse",
+  mummy: 'the mummy',
 };
 /** A press's line for the streamer (its first), and what follows the buyer's name in a bought one (its second). */
 const NEWS: Record<string, readonly [string, string]> = {
@@ -96,6 +100,9 @@ const NEWS: Record<string, readonly [string, string]> = {
   saver: ['Ball saver!', 'No ball can drain for 15 seconds.'],
   double: ['Double score!', 'Every point counts twice for 30 seconds.'],
   nudge: ['Nudge!', 'The table jolts.'],
+  sandstorm: ['Sandstorm!', 'The sand blows.'],
+  curse: ["Pharaoh's curse!", 'Left is right.'],
+  mummy: ['The mummy rises!', 'Three hits put it down.'],
 };
 /**
  * What paid support presses (supported), by the size of a gift as the city sizes them (a sub as a gift up to $5), each
@@ -221,6 +228,14 @@ export class PinballGame implements Machine {
   private readonly autoUp = { left: -Infinity, right: -Infinity };
   /** The auto-save's next flip on each side waits till this (its rest after a flip, or after a miss). */
   private readonly autoNext = { left: -Infinity, right: -Infinity };
+  /**
+   * Chat's events (Chat's events, below), each null while it isn't on, timed on the table's clock: the sandstorm from
+   * its start until its end, blowing toward `dir` along x (gust's arguments); Pharaoh's curse until its end; and the
+   * summoned mummy until it goes down unpaid. None is saved, so a restart forgets them.
+   */
+  private storm: { start: number; until: number; dir: 1 | -1 } | null = null;
+  private curseUntil: number | null = null;
+  private summonUntil: number | null = null;
   /** A ball saver pressed with no ball on the table: it starts with the next launch (null: none waits). */
   private saverWaiting: { purchase?: HypePurchase } | null = null;
   /** What the last paid support set off (supported), for the city's card, which it builds straight after the machines hear the event. */
@@ -342,6 +357,11 @@ export class PinballGame implements Machine {
       lastResult: this.lastResult,
       waiting: this.saverWaiting ? ['saver'] : [],
       quest: this.questState(),
+      events: {
+        sandstorm: this.storm && { until: this.storm.until, dir: this.storm.dir },
+        curse: this.curseUntil === null ? null : { until: this.curseUntil },
+        mummy: this.summonUntil === null ? null : { until: this.summonUntil },
+      },
     };
   }
 
@@ -495,6 +515,11 @@ export class PinballGame implements Machine {
     // Bought hype must not outlive the reset: the saver and double score, and a saver still waiting, whose buyer gets
     // their coins back (refund) when the city says so.
     this.saverUntil = this.doubleUntil = -Infinity;
+    // And chat's events end with nothing paid: the wind calm now, not at the next step, and the mummy down with the
+    // toys above.
+    this.storm = null;
+    this.curseUntil = this.summonUntil = null;
+    this.sim.setWind(0);
     this.lastWord = -Infinity;
     this.autoNext.left = this.autoNext.right = -Infinity;
     const waiting = this.saverWaiting;
@@ -516,8 +541,11 @@ export class PinballGame implements Machine {
     if (ev.kind !== 'chat') return;
     const cmd = parsePinballCommands(ev.text);
     if (cmd.join) this.join(user);
-    if (cmd.left) this.chatFlip('left', user);
-    if (cmd.right) this.chatFlip('right', user);
+    // Pharaoh's curse swaps chat's words here, where they're read, so the auto-save keeps its own sides and a cursed
+    // flip still counts its viewer on the ball, as any flip does.
+    const cursed = this.cursed;
+    if (cmd.left) this.chatFlip(cursed ? 'right' : 'left', user);
+    if (cmd.right) this.chatFlip(cursed ? 'left' : 'right', user);
   }
 
   // --- The hype buttons ---
@@ -592,11 +620,100 @@ export class PinballGame implements Machine {
         this.pressLine(purchase, id);
         this.moment(id, purchase);
         break;
+      case 'sandstorm':
+      case 'curse':
+      case 'mummy': {
+        if (!onTable) return this.refuse(purchase, "there's no ball on the table", "There's no ball on the table.");
+        const why = this.startEvent(id);
+        if (why) return this.refuse(purchase, why, `${why.charAt(0).toUpperCase()}${why.slice(1)}.`);
+        this.pressLine(purchase, id);
+        this.moment(id, purchase);
+        break;
+      }
       default:
         return "that hype isn't for sale";
     }
     this.stateDirty = true;
     return null;
+  }
+
+  // --- Chat's events ---
+
+  /** Whether Pharaoh's curse is on: chat's left and right are swapped (handle). */
+  private get cursed(): boolean {
+    return this.curseUntil !== null && this.sim.time < this.curseUntil;
+  }
+
+  /**
+   * Starts one of chat's events, with a ball on the table (press has seen to it), or says why it can't, in lowercase
+   * with no full stop. Every clock is the table's, from now, and runs on whether a ball is in play or not: the events
+   * are short, and belong to the moment they were bought in.
+   * - A sandstorm blows its wind (gust) for RULES.sandstormHype, toward a side picked at random. One on already blows on
+   *   as long again from its end, its own way, and keeps its start, so its ease out moves to the new end.
+   * - Pharaoh's curse swaps chat's left and right (handle) for RULES.curseHype, and a second adds as long again.
+   * - The summoned mummy is raised as the quest raises it (setToy: it waits for a ball in its way), for RULES.mummyHype
+   *   from now, even while it waits: its third hit pays summonPrize (hit), and at its time it goes down unpaid
+   *   (eventClocks). It is refused while it is up already, summoned or the quest's, and in its own mode and the finale,
+   *   which have it. It is allowed in Sun Chase: up, it blocks the left ramp and so Sun Chase's gate shots, but the
+   *   orbits still count, and its hits are no shot of Sun Chase's.
+   */
+  private startEvent(id: 'sandstorm' | 'curse' | 'mummy'): string | null {
+    const now = this.sim.time;
+    switch (id) {
+      case 'sandstorm':
+        if (this.storm) this.storm.until += RULES.sandstormHype;
+        else this.storm = { start: now, until: now + RULES.sandstormHype, dir: Math.random() < 0.5 ? -1 : 1 };
+        return null;
+      case 'curse':
+        this.curseUntil = Math.max(now, this.curseUntil ?? now) + RULES.curseHype;
+        return null;
+      case 'mummy': {
+        const { mode, finale } = this.quest.view();
+        if (mode?.god === 'ankh') return 'the mummy is in its mode';
+        if (finale) return 'the mummy is in the finale';
+        if (this.summonUntil !== null || this.toyWanted('mummy')) return 'the mummy is up already';
+        this.summonUntil = now + RULES.mummyHype;
+        this.setToy('mummy', true);
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Chat's events' clocks, once a step before the physics: each event over at its time is sent as over (the state), the
+   * summoned mummy put down unpaid (unless the quest wants it up, which never leaves a summon on: followQuest ends it),
+   * and the wind set for the step from the storm, or calm with none.
+   */
+  private eventClocks(): void {
+    const now = this.sim.time;
+    if (this.storm && now >= this.storm.until) {
+      this.storm = null;
+      this.stateDirty = true;
+    }
+    if (this.curseUntil !== null && now >= this.curseUntil) {
+      this.curseUntil = null;
+      this.stateDirty = true;
+    }
+    if (this.summonUntil !== null && now >= this.summonUntil) {
+      this.summonUntil = null;
+      if (!this.quest.toysWanted().mummy) this.setToy('mummy', false);
+      this.stateDirty = true;
+    }
+    const { storm } = this;
+    this.sim.setWind(storm ? gust(now, storm.start, storm.until, storm.dir) : 0);
+  }
+
+  /**
+   * The summoned mummy put down by its third hit, by ball `ball` (its play `b`): summonPrize to that ball as it is, not
+   * doubled, since double score doubles the table's own parts and not set prizes; the summon over; and a summonDown cue
+   * to the stages at the ball's place, after the hit's own.
+   */
+  private summonDown(b: BallPlay, ball: number): void {
+    this.summonUntil = null;
+    this.score(b, RULES.summonPrize);
+    const { x, z } = this.sim.items.get(ball)!.body.translation();
+    const msg: PinballCueMsg = { kind: 'pinballCue', cue: 'summonDown', value: RULES.summonPrize, x, z, at: this.sim.time };
+    this.out.send({ t: 'machine', msg });
   }
 
   /** A press that does nothing, and why: the streamer's says so in the feed (`line`); a bought one is told `reason` instead. */
@@ -746,6 +863,7 @@ export class PinballGame implements Machine {
     this.launches();
     this.autoSave();
     this.setFlippers();
+    this.eventClocks();
     this.sim.step();
     this.questClock();
     this.raiseDrops();
@@ -911,6 +1029,9 @@ export class PinballGame implements Machine {
             if (this.mummyHits >= MUMMY_HITS) this.setToy('mummy', false);
           }
           this.cue(hit.id, down, hit.ball);
+          // The summoned mummy's third hit pays (summonDown). The quest takes a summoned mummy over before its mode or
+          // the finale could count this hit (followQuest), so a summon still on here is never the quest's mummy.
+          if (rise === 'hold' && down && this.summonUntil !== null) this.summonDown(b, hit.ball);
           // And the quest hears of it: a pop-up knocked down, or a hit on the mummy, saying whether it put it down.
           this.questEvent(rise === 'hold' ? { kind: 'mummyHit', down } : { kind: 'popupDown', part: hit.id }, hit.ball);
           break;
@@ -1181,6 +1302,13 @@ export class PinballGame implements Machine {
           break;
         case 'toy':
           this.setToy(out.toy, out.up, out.except);
+          // The Mummy Wakes or the finale asking for the mummy while chat's summon has it up takes it over: the summon
+          // ends unpaid, and the mummy's hits start again from none (setToy keeps them for a mummy up already), so the
+          // mode can still be won.
+          if (out.toy === 'mummy' && out.up && this.summonUntil !== null) {
+            this.summonUntil = null;
+            this.mummyHits = 0;
+          }
           break;
         case 'raise':
           this.raisePart(out.part);

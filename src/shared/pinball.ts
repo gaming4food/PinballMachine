@@ -30,6 +30,16 @@ export interface PinballState {
     mode: { god: God; left: number; at: number; running: boolean; progress: number; goal: number } | null;
     finale: { jackpot: number } | null;
   };
+  /**
+   * Chat's events, each null while it isn't on: the sandstorm until when, on the table's clock, and which way along x
+   * its wind blows; Pharaoh's curse until when; and the summoned mummy until when it goes down unpaid. A page that opens
+   * late draws what is on from here.
+   */
+  events: {
+    sandstorm: { until: number; dir: 1 | -1 } | null;
+    curse: { until: number } | null;
+    mummy: { until: number } | null;
+  };
 }
 
 /** The pinball's own message to the panel and the stage. */
@@ -40,8 +50,8 @@ export interface PinballMsg {
 
 /**
  * The state in a message from the pinball, or null for any other message (or one without a valid state). A state whose
- * quest is missing or isn't an object is given the empty quest, so that every reader of the state can take its quest as
- * there.
+ * quest is missing or isn't an object is given the empty quest, and one whose events are is given none on, so that every
+ * reader of the state can take its quest and its events as there.
  */
 export function pinballStateOf(msg: unknown): PinballState | null {
   if (typeof msg !== 'object' || msg === null) return null;
@@ -50,10 +60,18 @@ export function pinballStateOf(msg: unknown): PinballState | null {
   const state = m.state as PinballState;
   // The server and the stage ship together, but a page can meet an older server for a moment (a stage rebuilt while the
   // server it talks to still runs the last version), and the states of one from before the quest have none. They get
-  // the empty quest on a shallow copy, so the message is left as it came and the usual path makes nothing.
+  // the empty quest on a shallow copy, so the message is left as it came and the usual path makes nothing. The states
+  // of one from before chat's events have no events, and get none on in the same way.
   const quest: unknown = state.quest;
-  if (typeof quest === 'object' && quest !== null) return state;
-  return { ...state, quest: { done: [], mode: null, finale: null } };
+  const events: unknown = state.events;
+  const hasQuest = typeof quest === 'object' && quest !== null;
+  const hasEvents = typeof events === 'object' && events !== null;
+  if (hasQuest && hasEvents) return state;
+  return {
+    ...state,
+    ...(hasQuest ? {} : { quest: { done: [], mode: null, finale: null } }),
+    ...(hasEvents ? {} : { events: { sandstorm: null, curse: null, mummy: null } }),
+  };
 }
 
 /** How a hype moment names the viewer who bought it, or whose support set it off. */
@@ -87,6 +105,8 @@ export function pinballHypeOf(msg: unknown): PinballHypeMsg | null {
  * - The quest's moments (server/quest.ts): a god's mode started (`modeStart`), each goal hit of it (`goal`), the mode
  *   won with the `prize` it paid (`modeWon`) or lost (`modeLost`); a jackpot with the `value` it paid (`jackpot`); and
  *   the finale begun (`finale`) and over (`finaleEnd`). A goal and a jackpot are at the ball's place, as a toy hit is.
+ * - `summonDown`: the summoned mummy (chat's event) put down by its third hit, with the `value` it paid that ball
+ *   (RULES.summonPrize), at the ball's place at that hit.
  */
 export type PinballCueMsg = {
   kind: 'pinballCue';
@@ -114,6 +134,7 @@ export type PinballCueMsg = {
   | { cue: 'jackpot'; value: number; x: number; z: number }
   | { cue: 'finale' }
   | { cue: 'finaleEnd' }
+  | { cue: 'summonDown'; value: number; x: number; z: number }
 );
 
 /** A toy hit's cue: what the stage's sounds and its toys' shows play. */
@@ -134,6 +155,7 @@ const CUE_FIELDS: Record<PinballCueMsg['cue'], (m: Record<string, unknown>) => b
   jackpot: (m) => finite(m, 'value', 'x', 'z'),
   finale: () => true,
   finaleEnd: () => true,
+  summonDown: (m) => finite(m, 'value', 'x', 'z'),
 };
 
 /**
@@ -162,6 +184,14 @@ export const RULES = {
   saverHype: 15,
   /** How long the Double Score hype button's double lasts, in seconds. */
   doubleHype: 30,
+  /** How long chat's Sandstorm blows its wind (gust), in seconds; a second one adds as long again to its end. */
+  sandstormHype: 10,
+  /** How long chat's Pharaoh's curse swaps chat's left and right, in seconds; a second one adds as long again. */
+  curseHype: 10,
+  /** How long chat's summoned mummy stays up, from the press, in seconds: then it goes down unpaid. */
+  mummyHype: 20,
+  /** What the summoned mummy's third hit pays the ball that hit it, in points (not doubled, as the quest's prizes). */
+  summonPrize: 10000,
   /** How many more balls multiball brings onto the table (from the line, then the house's). */
   maxExtraBalls: 2,
   /**

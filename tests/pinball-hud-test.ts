@@ -81,6 +81,7 @@ const state = (more: Partial<PinballState> = {}): PinballState => ({
   lastResult: null,
   waiting: [],
   quest: { done: [], mode: null, finale: null },
+  events: { sandstorm: null, curse: null, mummy: null },
   ...more,
 });
 const moment = (id: string, at: number, more: Partial<PinballHypeMsg> = {}): PinballHypeMsg => ({ kind: 'pinballHype', id, at, ...more });

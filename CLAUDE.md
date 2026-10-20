@@ -18,11 +18,11 @@ the stage and the control panel.
 
 | Folder | What's in it |
 |---|---|
-| `src/entry.ts` | The machine as the city shows it: its name, icon, How to Play lines, corner tag and Test button, and its four hype buttons with their chat sales. Plain data. |
+| `src/entry.ts` | The machine as the city shows it: its name, icon, How to Play lines, corner tag and Test button, and its seven hype buttons (chat's three events among them) with their chat sales. Plain data. |
 | `src/manifest.ts` | The server side's manifest: the machine interface version, the entry, how the server makes the game, and that it stops when no stage is open. |
 | `src/pages.ts` | The stage side: the scene, the scoreboard drawn over it, the snapshot type and its header. |
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
-| `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, moving the quest's toys and running the quest (feeding it the table's hits and its clock, and doing what it says), the high scores and the saved quest), the quest's rules on their own (`quest.ts`: the four god modes the banks start, their clock, goals and prizes, the finale and its jackpots, and what to save; plain logic with no physics) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
+| `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, chat's events (the sandstorm's wind, the curse and the summoned mummy), moving the quest's toys and running the quest (feeding it the table's hits and its clock, and doing what it says), the high scores and the saved quest), the quest's rules on their own (`quest.ts`: the four god modes the banks start, their clock, goals and prizes, the finale and its jackpots, and what to save; plain logic with no physics) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
 | `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the quest's in it, the hype moments and the cues (the toys' hits and the quest's moments), `RULES`, the quest's gods and numbers (`QUEST`), chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
 | `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys and the lamps the light shows light among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the flash (The flash, below: the show book and the table's clock as drawn in `pinball-shows.ts`, the light shows and their player in `light-show.ts`, the screen flash in `screen-hits.ts`, the sparks and the tomb's beam in `sparks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
 | `src/assets/` | The table's picture (`pinball.png`) with its sidecar (`pinball.json`), and the live plaques' pictures (`plaques/`): made by `npm run picture` and `blender/plaques.py`, not by hand. |
@@ -159,15 +159,32 @@ failure is real and fails again: read the step and find out why.
 
 ## The hype buttons
 
-The streamer's four (`src/entry.ts`) come to the game as a `machine.action` `{ kind: 'hype', id }` (`PinballGame.action`;
-an id it hasn't got does nothing): **Multiball** (2 more balls in now; the ball in play stays in play, none is held,
+The streamer's seven (`src/entry.ts`) come to the game as a `machine.action` `{ kind: 'hype', id }`
+(`PinballGame.action`; an id it hasn't got does nothing): **Multiball** (2 more balls in now; the ball in play stays in play, none is held,
 and it ends when one ball is left; refused with no ball on the table or multiball already on), **Ball saver** (15 s;
 with no ball on the table it waits for the next launch, and the panel marks it Ready), **Double score** (30 s; a second
 press adds 30) and **Nudge** (jolts every ball; refused with none).
 
-Chat buys them too (`multiball`, `saver`, `double`, `nudge`): coin-op-city takes the coins, then calls
-`PinballGame.buyHype(id, purchase)`, which does what the streamer's press does or says why not (the city gives the
-coins back). Its feed line leads with the buyer, and its moment (`PinballHypeMsg`, never in hello) names them. A waiting
+Then chat's three events (`PinballGame.startEvent`), each refused with no ball on the table, each on the table's clock
+(running on between balls too), and none saved, so a restart forgets them:
+- **Sandstorm** (10 s, `RULES.sandstormHype`): a gusting wind across the table (`gust`, `PinballSim.setWind`), toward a
+  side picked at random. A second adds 10 s to its end, blowing the same way.
+- **Pharaoh's curse** (10 s, `RULES.curseHype`): chat's left and right swap where they're read (`handle`), so the
+  auto-save keeps its own sides and a cursed flip still counts its viewer on the ball. A second adds 10 s.
+- **Summon the mummy** (20 s from the press, `RULES.mummyHype`): the mummy rises as the quest raises it, waiting for a
+  ball in its way. Its hits score 750 as ever, and its third puts it down and pays that ball 10,000
+  (`RULES.summonPrize`, not doubled) with a `summonDown` cue at the ball; at its time it goes down unpaid. It is refused
+  while it's up already, in The Mummy Wakes and in the finale, and allowed in Sun Chase (its hits are no Sun Chase
+  shots). The Mummy Wakes or the finale starting while it's up takes it over: the summon ends unpaid and the mummy's
+  hits start again from none, so the mode can still be won.
+
+The state carries what is on (`PinballState.events`: the storm's end and direction, the curse's end, the summon's end),
+so a page that opens late draws it; `pinballStateOf` gives an older server's state none. The Reset ends all three,
+paying nothing. Paid support never presses them.
+
+Chat buys them too (`multiball`, `saver`, `double`, `nudge`, `sandstorm`, `curse`, `mummy`): coin-op-city takes the
+coins, then calls `PinballGame.buyHype(id, purchase)`, which does what the streamer's press does or says why not (the
+city gives the coins back; a bought refusal puts nothing in the feed). Its feed line leads with the buyer, and its moment (`PinballHypeMsg`, never in hello) names them. A waiting
 saver keeps its purchase, and a reset gives the coins back, saying so only when coins really went back.
 
 Paid support presses one for free (`PinballGame.supported`): a gift under $1 nudges, a sub or a gift up to $5 is a ball
