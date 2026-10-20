@@ -367,7 +367,7 @@ const checks: [string, () => void][] = [
   ['the rules and the snapshot header', () => {
     assert.deepEqual(RULES, {
       autoSaveAfter: 3, flipHold: 0.25, ballSaverStart: 5, saverHype: 15, doubleHype: 30, maxExtraBalls: 2,
-      pointsPerCoin: 870, ownerShare: 0.7, stuckSeconds: 4, launchDelay: 2,
+      pointsPerCoin: 530, ownerShare: 0.7, stuckSeconds: 4, launchDelay: 2,
     });
     assert.equal(SNAP_TYPE_PINBALL, 4);
     // u8 + f64 + u16 + 3 f32 + u32 lit + u32 down + u32 turned + 2 f32 + u32 toys

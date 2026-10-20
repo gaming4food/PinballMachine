@@ -1225,8 +1225,10 @@ step("each mode end to end through the table: Sun Chase's orbit and ramp switche
   const made = () => quest().mode?.progress ?? 0;
 
   // Sun Chase. The gate swings over, and its shots go round an orbit, either way, or up the left ramp and out through
-  // the gate's gap. Ann's ball makes all of them but the last, and drains; Bob's, next in line, makes the last, and the
-  // prize is his.
+  // the gate's gap. Ann's ball makes all of them but the last, round the orbits in turn, and drains; Bob's, next in
+  // line, makes the last, and the prize is his. The last is always the ramp, however many QUEST.goals.ra asks for, so
+  // what Bob's winning step scores is the goal points and the prize alone, and a retuned goal doesn't change the shot.
+  // (Each switch's own shots are tested one by one below: Sun Chase's shots by the switches.)
   const ann = viewer('ann', 'Ann');
   const bob = viewer('bob', 'Bob');
   let ball = freshBall(ann);
@@ -1234,9 +1236,9 @@ step("each mode end to end through the table: Sun Chase's orbit and ramp switche
   hitParked({ kind: 'bank', id: 'bank-ra', ball }, ball);
   park(0.5, ball);
   assert.ok(TOY_UP.ra(), 'the gate is over');
-  const raShots = [SHOTS.leftOrbit, SHOTS.rightOrbit, SHOTS.leftRamp];
+  const orbits = [SHOTS.leftOrbit, SHOTS.rightOrbit];
   for (let n = 1; n < QUEST.goals.ra; n++) {
-    aim(ball, raShots[(n - 1) % raShots.length]);
+    aim(ball, orbits[(n - 1) % orbits.length]);
     assert.ok(stepUntil(() => made() === n, () => 0), `Sun Chase: shot ${n} counts`);
     // Kept still past the half second a switch ignores a ball it has just seen pass (sim.ts's SWITCH_IGNORE).
     park(1, ball);
@@ -1257,7 +1259,7 @@ step("each mode end to end through the table: Sun Chase's orbit and ramp switche
   parkTillStill(ball);
   assert.equal(made(), QUEST.goals.ra - 1, "Bob's launch is no shot");
   let mark = msgs.length;
-  aim(ball, raShots[(QUEST.goals.ra - 1) % raShots.length]);
+  aim(ball, SHOTS.leftRamp);
   const raWon = stepUntil(() => quest().mode === null, () => scoreOf(bob));
   assert.ok(raWon, 'the last shot wins Sun Chase');
   assert.equal(wonCue(mark, 'ra')?.prize, QUEST.prize, 'its prize');

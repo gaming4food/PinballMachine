@@ -165,13 +165,18 @@ export const RULES = {
   /** How many more balls multiball brings onto the table (from the line, then the house's). */
   maxExtraBalls: 2,
   /**
-   * Points that make one coin, for a ball's result. Tuned with `npm run pinball-play` (300 unattended balls, seed 1,
-   * only the auto-save playing). The stand-in table, at 150 points a coin, paid 8.8 coins a ball (average 1,384 points,
-   * 14.5 s). The pyramid's balls average 8,087 points (median 7,155, 13.6 s), so 870 points a coin pays the same, 8.8
-   * coins a ball (9.2 on seeds 2 and 3), 2026-10-18. (On the first pyramid layout, with the drop targets behind the
-   * pyramid and the sun bumper above the right sling, they averaged 8,670 points, and 900 points a coin paid 9.1.)
+   * Points that make one coin, for a ball's result. Tuned with `npm run pinball-play` so that a ball that finishes no
+   * mode of the quest pays about 9 coins with the modelled chat flipping (`chat=human`), since the quest's big moments
+   * are meant to pay more and an ordinary ball not. At QUEST's numbers, 300 balls each of seeds 1 to 3, 2026-10-19:
+   * those balls average 5,160 points (10.9 s a ball), so 530 points a coin pays 9.3 coins (9.2, 9.0 and 9.6), and a
+   * ball that finishes a mode 46.4, 5.0 times as much (the spec aimed at 3 to 4; the owner took about 5). Unattended
+   * balls score more (7,660 points, 13.2 s: the auto-save lets fewer balls by), and pay 14.0 coins.
+   *
+   * Before the quest it was tuned unattended (300 balls, seed 1, only the auto-save playing): the stand-in table, at
+   * 150 points a coin, paid 8.8 coins a ball (average 1,384 points, 14.5 s), and the pyramid's balls averaged 8,087
+   * points (13.6 s), so 870 points a coin paid 8.8 coins a ball, 2026-10-18.
    */
-  pointsPerCoin: 870,
+  pointsPerCoin: 530,
   /** The share of a result's coins that goes to the machine's owner. */
   ownerShare: 0.7,
   /**
@@ -209,27 +214,34 @@ export const MODE_NAME: Record<God, string> = {
 };
 
 /**
- * The quest's numbers, in seconds and points; the rules are server/quest.ts. They are starting points, tuned with
- * `npm run pinball-play` and the owner, so the tests read them from here instead of repeating them.
+ * The quest's numbers, in seconds and points; the rules are server/quest.ts. The tests read them from here instead of
+ * repeating them, so a tuning changes this one place.
+ *
+ * Tuned with `npm run pinball-play` and chosen by the owner, 2026-10-19 (300 balls each of seeds 1 to 3, with the
+ * modelled chat). At the starting numbers (30 s modes, Sun Chase in 3 shots, 25,000 prizes) Sun Chase was a wall: its
+ * modes made about half a shot each, and 2 of 136 were won, so 10% of modes were won and the finale came 0.33 times in
+ * 150 balls. At these numbers 48% of modes are won, a mode starts or is won (or multiball or a jackpot comes) on 23% of
+ * balls, a mode or the finale runs on 73%, and the finale comes 2.7 times in 150 balls. A lower prize keeps a winning
+ * ball's pay near the spec's aim (about 5 times an ordinary ball's, where 25,000 made it 8.5).
  */
 export const QUEST = {
   /** How long a mode runs, in seconds of play: its clock runs only while a ball is in play. */
-  modeSeconds: 30,
+  modeSeconds: 45,
   /**
    * What each goal hit scores, the one that finishes the mode too. In the finale it is what a pop-up knocked down and
    * each hit on the mummy score, as in their modes.
    */
   goalPoints: 2500,
   /** What a finished mode pays the ball that finishes it. Tomb Raid pays its countdown instead (tombPrize). */
-  prize: 25000,
+  prize: 10000,
   /** Tomb Raid's prize counts down over its mode: `from` with all its time left, `to` with none. */
-  tombPrize: { from: 50000, to: 10000 },
+  tombPrize: { from: 20000, to: 5000 },
   /**
    * How many goal hits finish each god's mode: Ra's orbit and ramp shots, Horus's different pop-ups, Ankh's mummy hits
    * and the Eye's tomb catches. Horus's can't be more than the table's three pop-ups, nor Ankh's more than the mummy's
    * hits before it goes down (the game's MUMMY_HITS, 3): the mode could never be finished.
    */
-  goals: { ra: 3, horus: 3, ankh: 3, eye: 1 },
+  goals: { ra: 2, horus: 3, ankh: 3, eye: 1 },
   /** The finale's jackpots: the first ball the tomb catches pays `first`, and each after it `step` more than before. */
   jackpot: { first: 50000, step: 25000 },
   /** In the finale, a pop-up or the mummy that goes down comes back up this many seconds of play later. */
