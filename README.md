@@ -68,12 +68,13 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   Multiball (2 more balls in now), Ball saver (15 s), Double score (30 s), Nudge, and chat's three events: Sandstorm (a
   gusting wind blows every ball sideways for 10 s), Pharaoh's curse (chat's left and right swap for 10 s) and Summon the
   mummy (it rises for 20 s, and its third hit pays that ball 10,000). Each event is refused with no ball on the table,
-  and the mummy also while it's up already, in The Mummy Wakes and in the finale. The Reset clears the table and the
-  line, and ends the events; nobody is paid for the balls taken away.
+  and the mummy also while it's up already, in The Mummy Wakes and in the finale. On the stage a sandstorm lays an amber
+  haze and blowing sand over the picture, the curse pulses the rail lights red, and the summoned mummy's lamp blinks
+  green, each with a title and a sound. The Reset clears the table and the line, and ends the events; nobody is paid
+  for the balls taken away.
 - Chat buys the hype buttons too, with coins: `!multiball`, `!saver`, `!double`, `!nudge`, `!sandstorm`, `!curse` and
-  `!mummy` (each sale is in
-  `src/entry.ts`). Coin-Op City takes the coins, then `PinballGame.buyHype` presses the button for the buyer, or says
-  why not, and the city gives the coins back.
+  `!mummy` (each sale is in `src/entry.ts`). Coin-Op City takes the coins, then `PinballGame.buyHype` presses the
+  button for the buyer, or says why not, and the city gives the coins back.
 - Subs and gifts press one for free, by their size: under $1 a nudge, a sub or up to $5 a ball saver, up to $20 double
   score, $20 and up multiball (`PinballGame.supported`). The city's support card names what it set off.
 - `kit/` is Coin-Op City's kit, copied in by coin-op-city's `npm run kit:export`. Don't edit it.

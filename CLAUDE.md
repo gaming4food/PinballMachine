@@ -24,7 +24,7 @@ the stage and the control panel.
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
 | `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, chat's events (the sandstorm's wind, the curse and the summoned mummy), moving the quest's toys and running the quest (feeding it the table's hits and its clock, and doing what it says), the high scores and the saved quest), the quest's rules on their own (`quest.ts`: the four god modes the banks start, their clock, goals and prizes, the finale and its jackpots, and what to save; plain logic with no physics) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
 | `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the quest's in it, the hype moments and the cues (the toys' hits and the quest's moments), `RULES`, the quest's gods and numbers (`QUEST`), chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
-| `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys and the lamps the light shows light among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the flash (The flash, below: the show book and the table's clock as drawn in `pinball-shows.ts`, the light shows and their player in `light-show.ts`, the screen flash in `screen-hits.ts`, the sparks and the tomb's beam in `sparks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
+| `src/stage/` | The scene (`pinball.ts`, with `stageCamera`, the camera the picture is rendered through), the picture's unseen occluders and the stand-in table for when it fails to load (`table-mesh.ts`), the live parts over it, the quest's toys and the lamps the light shows light among them (`pinball-parts.ts`), the snapshot's header (`pinball-header.ts`), the sandstorm's haze and sand (`sand.ts`), the scoreboard and big titles (`pinball-hud.ts`), the sounds (`pinball-sounds.ts`, with the picks in `pinball-sound-picks.ts`), the flash (The flash, below: the show book and the table's clock as drawn in `pinball-shows.ts`, the light shows and their player in `light-show.ts`, the screen flash in `screen-hits.ts`, the sparks and the tomb's beam in `sparks.ts`), the payout's coin burst (`coin-burst.ts`) and `pinball.css`. |
 | `src/assets/` | The table's picture (`pinball.png`) with its sidecar (`pinball.json`), and the live plaques' pictures (`plaques/`): made by `npm run picture` and `blender/plaques.py`, not by hand. |
 | `src/panel/` | The card: the line, with a Remove button on each viewer (`pinball-card.ts`). |
 | `blender/`, `tools/` | What builds the picture: `tools/picture.ts` (`npm run picture`) exports the table and the stage's camera (`export-scene.ts`), renders them with `blender/build_table.py` and grades the render (`grade.py`). `compose_art.py`, `gen_art.py` and `art/` are the printed art, `plaques.py` the live plaques'. `tools/pinball-stress.ts` is the stress run, and `tools/dev-toys.ts` and `tools/toy.ts` the dev host's toy switch (Running it). |
@@ -160,15 +160,20 @@ failure is real and fails again: read the step and find out why.
 ## The hype buttons
 
 The streamer's seven (`src/entry.ts`) come to the game as a `machine.action` `{ kind: 'hype', id }`
-(`PinballGame.action`; an id it hasn't got does nothing): **Multiball** (2 more balls in now; the ball in play stays in play, none is held,
-and it ends when one ball is left; refused with no ball on the table or multiball already on), **Ball saver** (15 s;
-with no ball on the table it waits for the next launch, and the panel marks it Ready), **Double score** (30 s; a second
-press adds 30) and **Nudge** (jolts every ball; refused with none).
+(`PinballGame.action`; an id it hasn't got does nothing): **Multiball** (2 more balls in now; the ball in play stays
+in play, none is held, and it ends when one ball is left; refused with no ball on the table or multiball already on),
+**Ball saver** (15 s; with no ball on the table it waits for the next launch, and the panel marks it Ready), **Double
+score** (30 s; a second press adds 30) and **Nudge** (jolts every ball; refused with none).
 
 Then chat's three events (`PinballGame.startEvent`), each refused with no ball on the table, each on the table's clock
 (running on between balls too), and none saved, so a restart forgets them:
 - **Sandstorm** (10 s, `RULES.sandstormHype`): a gusting wind across the table (`gust`, `PinballSim.setWind`), toward a
-  side picked at random. A second adds 10 s to its end, blowing the same way.
+  side picked at random. A second adds 10 s to its end, blowing the same way. The wind pushes along x only, so it never
+  lifts a ball, and held balls (lock, saucer, tomb) feel none. Its strength is `RULES.wind.strength`, 20 units/s²,
+  about the table's own downhill pull (21.7); it gusts between 40% and 100% of that on a 2.3 s cycle and eases in and
+  out over 0.5 s. The comment on `RULES.wind` has the measured limits. A storm may hold a ball in a corner while it
+  blows (about 1 drop in 80, the left inlane's corner); the stuck watcher nudges it, and no ball is left trapped once
+  the storm ends (`pinball-sim-test`, and `npm run pinball-stress -- wind=on`).
 - **Pharaoh's curse** (10 s, `RULES.curseHype`): chat's left and right swap where they're read (`handle`), so the
   auto-save keeps its own sides and a cursed flip still counts its viewer on the ball. A second adds 10 s.
 - **Summon the mummy** (20 s from the press, `RULES.mummyHype`): the mummy rises as the quest raises it, waiting for a
@@ -184,16 +189,19 @@ paying nothing. Paid support never presses them.
 
 Chat buys them too (`multiball`, `saver`, `double`, `nudge`, `sandstorm`, `curse`, `mummy`): coin-op-city takes the
 coins, then calls `PinballGame.buyHype(id, purchase)`, which does what the streamer's press does or says why not (the
-city gives the coins back; a bought refusal puts nothing in the feed). Its feed line leads with the buyer, and its moment (`PinballHypeMsg`, never in hello) names them. A waiting
-saver keeps its purchase, and a reset gives the coins back, saying so only when coins really went back.
+city gives the coins back; a bought refusal puts nothing in the feed). Its feed line leads with the buyer, and its
+moment (`PinballHypeMsg`, never in hello) names them. A waiting saver keeps its purchase, and a reset gives the coins
+back, saying so only when coins really went back.
 
 Paid support presses one for free (`PinballGame.supported`): a gift under $1 nudges, a sub or a gift up to $5 is a ball
 saver, up to $20 double score, $20 and up multiball; one that can't happen gives way to the next that can. Its line
 thanks the supporter, and `supportEffect` names on the city's card what it set off, once.
 
 On the stage (`pinball-hud.ts`), each moment gets a big title at its time (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!,
-NUDGE!, and a matched bank's: HORUS MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED), as do multiball from the lock, a
-saved ball and a ball's result. The quest's moments have titles too: a mode's start (SUN CHASE!, FALCON STRIKE!, THE
+NUDGE!, SANDSTORM!, PHARAOH'S CURSE!, THE MUMMY RISES! (each of the three names its buyer), and a matched bank's: HORUS
+MATCHED, RA MATCHED, ANKH MATCHED, EYE MATCHED), as do multiball from the lock, a saved ball and a ball's result. The
+summoned mummy put down has MUMMY DOWN! +10,000 at its cue. While an event is on, the status line shows a flag:
+SANDSTORM, CURSED or MUMMY. The quest's moments have titles too: a mode's start (SUN CHASE!, FALCON STRIKE!, THE
 MUMMY WAKES!, TOMB RAID!), won (the same with its prize, +10,000, or Tomb Raid's countdown, +20,000 down to +5,000) or
 lost (THE SUN SETS, THE FALCON FLIES, THE MUMMY SLEEPS, THE TOMB SEALS), a jackpot (JACKPOT 50,000!, then 25,000 more
 each) and the finale's start, PHARAOH'S GOLD!, which has no MULTIBALL! title with it (the finale's end has none). One
@@ -214,8 +222,25 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   and shakes the view 0.6 s. While the tomb is open, a beam of light stands in its doorway with motes rising in it.
 - The quest's moments: a mode's start sweeps the lamps up into its toy's, a goal bursts in the god's colour where it was
   hit, a mode won chases the ring and strobes, and a jackpot and the finale's start strobe gold with a gold flash and a
-  shake; a jackpot rains coins (`CoinBurst.rain`) and sounds a chime. A mode lost fades every glow to dark (0.5 s), holds
-  it dark 0.2 s and brings it back (0.5 s), once for each lamp.
+  shake; a jackpot rains coins (`CoinBurst.rain`) and sounds a chime. A mode lost fades every glow to dark (0.5 s),
+  holds it dark 0.2 s and brings it back (0.5 s), once for each lamp.
+- Chat's events, one row each: a sandstorm sweeps every lamp across x in the wind's direction, amber (0xffa030), for 1 s
+  and shakes the view 0.4 s; the curse strobes every lamp red (0xff2a2a) 3 times at 2.5 a second with a red flash of
+  0.5; the summoned mummy sweeps the lamps from z 0 up to its lamp, green, for 1 s; the mummy put down (`summonDown`)
+  bursts gold from where it was hit (reach 4, 0.6 s) with a gold flash of 0.6, 24 sparks at the ball and a shake of
+  0.5 s.
+- **The look of an event** comes from the state each frame, as a mode's does. A sandstorm lays a haze on the picture,
+  0xd9a35a at most 0.18, easing in and out over 0.8 real seconds (`HazeTracker`, `sand.ts`; it never changes faster
+  than that, a hello or a restarted clock included, and a page's very first look shows the haze as it is, at once), and
+  blows sand across in the wind's direction from a pool of its own, 240 grains (`MAX_GRAINS`), so it never takes the
+  sparks'. The curse pulses the rail lights and orbit arrows red once a second between `GLOW_DIM` and `GLOW_LIT`,
+  over a mode's colour while it lasts. The summoned mummy's lamp blinks green while the mummy is up, dark while it is
+  down. The haze is not a flash, and the pulse and the blink stay at the two levels the 3-a-second rule never counts as
+  rises.
+- **The events' sounds** are synthesised, with no files: a filtered noise swell for the storm's first 2 s (`wind`), a
+  low falling sting for the curse (`curse`), the toys' rise for the summoned mummy (`summonRise`), and for
+  `summonDown` the toys' knocked-down sound (`target()`, the pop-up's; a pick the owner can swap in
+  `pinball-sound-picks`).
 - **The look of a mode** comes from the state each frame, so a stage opened late shows it. While a mode runs, its toy's
   lamp blinks in the god's colour and the rail lights and the orbit arrows glow steadily in it; while the finale runs,
   the ring chases gold and the rainbow in laps of 0.9 s. The state reaches the stage unguarded: `pinballStateOf` gives
