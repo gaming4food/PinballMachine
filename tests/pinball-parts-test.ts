@@ -1648,10 +1648,15 @@ test('the reflection scene lays the table picture on the floor under the ball, w
   assert.ok(floor.position.y < 0, `under the origin: ${floor.position.y}`);
   const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(floor.quaternion);
   assert.ok(near(normal.y, 1, 1e-6), `faces up: ${normal.y}`);
-  // From the origin the floor's edge must sit within a degree of the horizon, so it fills the view below it.
+  // The picture's edge must fall well inside the view below the horizon (5 to 15 degrees down), or the ball sees a sliver.
   const params = (floor.geometry as THREE.PlaneGeometry).parameters;
-  assert.ok(Math.min(params.width, params.height) / 2 >= 50 * -floor.position.y, `fills the view: ${params.width}`);
-  const panels = meshes.filter((m) => m !== floor);
+  const edge = (Math.atan2(-floor.position.y, Math.min(params.width, params.height) / 2) * 180) / Math.PI;
+  assert.ok(edge >= 5 && edge <= 15, `the picture's edge is ${edge.toFixed(1)} degrees below the horizon`);
+  assert.equal(floor.material instanceof THREE.MeshBasicMaterial && floor.material.map!.wrapS, THREE.ClampToEdgeWrapping, 'clamped');
+  const skirt = meshes.filter((m) => m !== floor && m.position.y < floor.position.y);
+  assert.equal(skirt.length, 1, 'a dark skirt just below the floor');
+  assert.ok(near(mat(skirt[0]).color.getHex(), 0x05030a), 'in the room colour');
+  const panels = meshes.filter((m) => m !== floor && m !== skirt[0]);
   assert.equal(panels.length, 5, 'five neon panels');
   const want = [[0xffffff, light.top], [0xff2bd6, light.pink], [0x22e6ff, light.cyan], [0xffb060, light.warm], [0x7040ff, light.violet]];
   for (const [hex, strength] of want) {
