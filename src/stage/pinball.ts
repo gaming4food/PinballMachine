@@ -576,9 +576,9 @@ export class PinballScene implements MachineScene {
     view.mesh.position.set(this.p[0], this.p[1], this.p[2]);
     view.mesh.quaternion.set(this.q[0], this.q[1], this.q[2], this.q[3]);
     // A saved ball respawns with a new id, and a teleport or an unstick is seen by show()'s own check (a move of more
-    // than 4 ball diameters in a frame starts the path again), so jump() is never needed here. The state doesn't say a
-    // ball is held (in the lock, on a flipper), so none is passed as held: a held ball isn't moving, and its trail
-    // is dark.
+    // than 4 ball diameters, faster than any ball flies, starts the path again), so jump() is never needed here. The
+    // state doesn't say a ball is held (in the lock, on a flipper), so none is passed as held: a held ball isn't
+    // moving, and its trail is dark.
     this.trails.show(track.id, this.p[0], this.p[1], this.p[2], this.colourOf(track), false, this.tableClock.now);
     const text = this.tagFor(track);
     if (text !== view.tagText) {
@@ -690,7 +690,8 @@ export class PinballScene implements MachineScene {
     }
     const shown = new Set(drawn.map((b) => b.id));
     for (const id of [...this.balls.keys()]) if (!shown.has(id)) this.dropBall(id);
-    this.trails.frame(now);
+    // The trails' and glows' RiseLimits count real seconds, as the parts' do.
+    this.trails.frame(now, real);
     this.cues.balls(drawn);
     this.cues.frame(t);
 

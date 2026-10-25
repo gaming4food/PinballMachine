@@ -9,9 +9,14 @@
 // The trail is not a lamp (the plan's Decision 6): it never blinks on, its brightness follows the ball's speed. A ball
 // rattling between bumpers swings its speed across the whole range several times a second, though, which would make
 // the trail flash as fast. So its brightness may rise only TRAIL_RISE of its peak a second and fall only TRAIL_FALL:
-// going from dark to lit (DARK_BELOW to LIT_ABOVE, light-show.ts) and back takes 0.35 s at the least, and 4 rises
-// take 1.05 s, so it never rises more than 3 times in any second, as the stage's lights never do.
+// going from dark to lit (DARK_BELOW to LIT_ABOVE, light-show.ts) and back takes 0.35 s at the least on the drawn
+// clock. That alone can't promise the 3 a second, though: the drawn clock can run faster than real time, and a path
+// started again (a jump, a new ball, a held ball let go) starts it from dark at once. What does promise it is a
+// RiseLimit on each place's trail and one on its glow, counting real seconds on the browser's clock, which frame() is
+// given: whatever the trail's level asks for, what is drawn rises from dark to lit at most once in FLASH_GAP, so never
+// more than 3 times in any real second, as the stage's lights never do.
 import * as THREE from 'three';
+import { RiseLimit } from './light-show';
 
 /**
  * How a ball looks (the plan's Decisions 2 to 4). Its trail shows from `trailFrom` units a second, faintly, and is at
@@ -35,15 +40,22 @@ export const GLOW_SEGMENTS = 16;
 
 /**
  * How fast a trail's brightness may rise and fall, in its peak a second. Together they keep a dark-to-lit-and-back
- * cycle to (LIT_ABOVE - DARK_BELOW) × (1/rise + 1/fall) = 0.35 s at the least, over a third of a second, so that 4
- * rises take more than a second. Rising faster than it falls lets a ball that is hit light its trail quickly.
+ * cycle to (LIT_ABOVE - DARK_BELOW) × (1/rise + 1/fall) = 0.35 s at the least on the drawn clock, so a trail eases
+ * rather than blinks; the RiseLimits in frame() are what hold it to 3 rises in a real second. Rising faster than it
+ * falls lets a ball that is hit light its trail quickly.
  */
 const TRAIL_RISE = 3;
 const TRAIL_FALL = 1.5;
 /** The glow's height over the playfield: just above it, so it is drawn on it and not into it. */
 const GLOW_Y = 0.01;
-/** A jump of more than this many ball diameters in one frame is the ball being put somewhere, not flying there. */
+/**
+ * A move of more than this many ball diameters in one frame, at more than JUMP_SPEED units a second, is the ball being
+ * put somewhere, not flying there. The speed matters as much as the distance: a page that drops a frame sees a ball
+ * flying at 40 move more than 4 diameters in it, and that is flight, whose trail must ease as ever. The sim holds a
+ * ball to 60 units a second (MAX_SPEED, sim.ts), so 150 is well above any ball's flight.
+ */
 const JUMP_DIAMETERS = 4;
+const JUMP_SPEED = 150;
 /** Where a place not in use is parked: far under the playfield, where nothing is drawn. */
 const PARKED = -1000;
 
@@ -74,10 +86,23 @@ export class BallTrails {
   private readonly count: Int32Array;
   /** Each place's ball's colour (its red, green and blue as three draws them), whether it is held, and when shown. */
   private readonly rgb: Float32Array;
+  /** Whether each place's ball has been given its owner's colour, which it then keeps (see show()). */
+  private readonly coloured: Uint8Array;
   private readonly held: Uint8Array;
   private readonly seenAt: Float64Array;
   /** Each place's trail brightness, of its peak (0 to 1), eased toward what its speed asks (see TRAIL_RISE). */
   private readonly level: Float64Array;
+  /** Each place's trail brightness as drawn, of its peak: its level through its RiseLimit, at the last frame(). */
+  private readonly drawn: Float64Array;
+  /**
+   * Each place's RiseLimits, on the real clock, for its trail and for its glow. They are never reset, not when a new
+   * ball takes the place nor at clear(): the real clock never starts again, and a ball draining as another takes its
+   * place is a light going dark and lit again, to be counted like any other.
+   */
+  private readonly trailLimits: RiseLimit[] = [];
+  private readonly glowLimits: RiseLimit[] = [];
+  /** Each place's glow as drawn, of its full opacity: 1 through its RiseLimit, at the last frame(). */
+  private readonly glowDrawn: Float64Array;
   /** Each place's trail's last sideways direction across the table (x, z), kept for a point where the path stops. */
   private readonly side: Float64Array;
   /** A colour to read a hex into: made once, used at every show. */
@@ -93,13 +118,20 @@ export class BallTrails {
     this.newest = new Int32Array(maxBalls);
     this.count = new Int32Array(maxBalls);
     this.rgb = new Float32Array(maxBalls * 3);
+    this.coloured = new Uint8Array(maxBalls);
     this.held = new Uint8Array(maxBalls);
     this.seenAt = new Float64Array(maxBalls);
     this.level = new Float64Array(maxBalls);
+    this.drawn = new Float64Array(maxBalls);
+    this.glowDrawn = new Float64Array(maxBalls);
+    for (let s = 0; s < maxBalls; s++) {
+      this.trailLimits.push(new RiseLimit());
+      this.glowLimits.push(new RiseLimit());
+    }
     this.side = new Float64Array(maxBalls * 2);
 
-    // The trails: a strip for each place, two vertices at each of its points (one each side of the path), the head's
-    // first; each point's two triangles join it to the next point's vertices.
+    // The trails: a strip for each place, two vertices at each of its points (one each side of the path), the
+    // head's first; each point's two triangles join it to the next point's vertices.
     const trailVertices = maxBalls * points * 2;
     const trail = new THREE.BufferGeometry();
     this.trailPosition = new THREE.BufferAttribute(new Float32Array(trailVertices * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -152,7 +184,10 @@ export class BallTrails {
 
   /**
    * Ball `id` drawn at (x, y, z) this frame, at `t` on the drawn clock, in its owner's `color` (null for gold). A ball
-   * new to the trails takes a free place; with every place taken it is not drawn. A held ball shows no trail.
+   * new to the trails takes a free place; with every place taken it is not drawn. A held ball shows no trail. A ball
+   * given a colour keeps it when later given null: the state reaches the stage at once but the balls are drawn about
+   * 0.12 s behind it, so a drained ball is gone from the state, and has no colour there, for its last frames on the
+   * table. A ball given null from the start (a house ball, or one from a server too old to send a colour) is gold.
    */
   show(id: number, x: number, y: number, z: number, color: number | null, held: boolean, t: number): void {
     let s = this.slotOf(id);
@@ -163,13 +198,24 @@ export class BallTrails {
       this.forget(s);
       this.level[s] = 0;
       this.seenAt[s] = t;
+      this.coloured[s] = 0;
     }
     this.shown[s] = 1;
-    this.hex.setHex(color ?? BALL_LOOK.houseColor);
-    this.rgb[3 * s] = this.hex.r;
-    this.rgb[3 * s + 1] = this.hex.g;
-    this.rgb[3 * s + 2] = this.hex.b;
+    if (color !== null || !this.coloured[s]) {
+      this.hex.setHex(color ?? BALL_LOOK.houseColor);
+      this.rgb[3 * s] = this.hex.r;
+      this.rgb[3 * s + 1] = this.hex.g;
+      this.rgb[3 * s + 2] = this.hex.b;
+      if (color !== null) this.coloured[s] = 1;
+    }
     this.held[s] = held ? 1 : 0;
+
+    // The drawn clock gone back (it starts fresh when the table's clock does, without a clear() from the stage): the
+    // path's times are all ahead of it now, and would all count as within trailSeconds of it, so it is forgotten.
+    if (t < this.seenAt[s]) {
+      this.forget(s);
+      this.seenAt[s] = t;
+    }
 
     // A held ball has no trail at once, and starts a new path when it goes.
     if (held) {
@@ -179,11 +225,13 @@ export class BallTrails {
       this.seenAt[s] = t;
       return;
     }
-    // Put somewhere further than a ball flies in a frame: its path starts again here, from dark.
+    // Put somewhere further and faster than a ball flies: its path starts again here, from dark. A move in no time at
+    // all is at no speed that is flight, so it is a jump too.
     if (this.count[s] > 0) {
       const n = this.at(s, 0);
       const moved = Math.hypot(x - this.ring[n], y - this.ring[n + 1], z - this.ring[n + 2]);
-      if (moved > JUMP_DIAMETERS * 2 * this.ballRadius) {
+      const took = t - this.ring[n + 3];
+      if (moved > JUMP_DIAMETERS * 2 * this.ballRadius && !(moved <= JUMP_SPEED * took)) {
         this.forget(s);
         this.level[s] = 0;
       }
@@ -214,7 +262,10 @@ export class BallTrails {
     this.changed();
   }
 
-  /** Ball `id` was put somewhere (a save, an unstick): its path is forgotten, so no streak is drawn from where it was. */
+  /**
+   * Ball `id` was put somewhere (a save, an unstick): its path is forgotten, so no streak is drawn from where it
+   * was.
+   */
   jump(id: number): void {
     const s = this.slotOf(id);
     if (s < 0) return;
@@ -224,19 +275,24 @@ export class BallTrails {
 
   /**
    * After every ball has been shown: a ball not shown since the last frame has left, and its place is freed; every
-   * place's trail and glow are written into the buffers for `t`, the drawn clock's time.
+   * place's trail and glow are written into the buffers for `t`, the drawn clock's time. `real` is the browser's own
+   * clock in seconds (performance.now() / 1000), which the RiseLimits count: every place's trail and glow go through
+   * theirs each frame, a free place's as dark, so each sees the light go dark as well as rise.
    */
-  frame(t: number): void {
+  frame(t: number, real: number): void {
     for (let s = 0; s < this.maxBalls; s++) {
       if (!Number.isNaN(this.ids[s]) && !this.shown[s]) this.free(s);
-      if (Number.isNaN(this.ids[s])) this.park(s);
+      const free = Number.isNaN(this.ids[s]);
+      this.drawn[s] = this.trailLimits[s].level(free || this.held[s] ? 0 : this.level[s], real);
+      this.glowDrawn[s] = this.glowLimits[s].level(free ? 0 : 1, real);
+      if (free) this.park(s);
       else this.draw(s, t);
       this.shown[s] = 0;
     }
     this.changed();
   }
 
-  /** Lets every ball go (a fresh hello, or the drawn clock starting again). */
+  /** Lets every ball go (a fresh hello, or the drawn clock starting again); the RiseLimits keep counting. */
   clear(): void {
     for (let s = 0; s < this.maxBalls; s++) {
       this.free(s);
@@ -245,11 +301,11 @@ export class BallTrails {
     this.changed();
   }
 
-  /** Ball `id`'s trail at its head now, its opacity: 0 for a ball held, unknown or too slow. */
+  /** Ball `id`'s trail at its head as last drawn, its opacity: 0 for a ball held, unknown or too slow. */
   trailOpacity(id: number): number {
     const s = this.slotOf(id);
     if (s < 0 || this.held[s]) return 0;
-    return this.level[s] * BALL_LOOK.trailPeak;
+    return this.drawn[s] * BALL_LOOK.trailPeak;
   }
 
   /** The place ball `id` has (FREE finds a free place), or -1. */
@@ -296,6 +352,8 @@ export class BallTrails {
     this.shown[s] = 0;
     this.held[s] = 0;
     this.level[s] = 0;
+    this.drawn[s] = 0;
+    this.coloured[s] = 0;
     this.forget(s);
   }
 
@@ -306,7 +364,7 @@ export class BallTrails {
     // The points of the path within trailSeconds of now (the head always): with fewer than two there is no trail.
     let n = 1;
     while (n < this.count[s] && t - this.ring[this.at(s, n) + 3] <= BALL_LOOK.trailSeconds + 1e-9) n++;
-    const opacity = this.held[s] ? 0 : this.level[s] * BALL_LOOK.trailPeak;
+    const opacity = this.held[s] ? 0 : this.drawn[s] * BALL_LOOK.trailPeak;
     if (n < 2 || opacity <= 0) {
       this.parkTrail(s);
       return;
@@ -347,7 +405,10 @@ export class BallTrails {
     }
   }
 
-  /** Writes place `s`'s glow, a disc lying on the playfield under (x, z): its colour at its centre, fading to its rim. */
+  /**
+   * Writes place `s`'s glow, a disc lying on the playfield under (x, z): its colour at its centre, fading to its rim,
+   * as bright as its RiseLimit lets it be.
+   */
   private drawGlow(s: number, x: number, z: number): void {
     const pos = this.glowPosition.array as Float32Array;
     const col = this.glowColor.array as Float32Array;
@@ -362,7 +423,7 @@ export class BallTrails {
       col[4 * v] = this.rgb[3 * s];
       col[4 * v + 1] = this.rgb[3 * s + 1];
       col[4 * v + 2] = this.rgb[3 * s + 2];
-      col[4 * v + 3] = k === 0 ? BALL_LOOK.glowOpacity : 0;
+      col[4 * v + 3] = k === 0 ? BALL_LOOK.glowOpacity * this.glowDrawn[s] : 0;
     }
   }
 

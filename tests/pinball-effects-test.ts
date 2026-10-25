@@ -14,8 +14,10 @@
 // sandstorm's sand (stage/sand.ts) blows across from the windward edge from a pool of its own (240), and none enters
 // with no wind; its haze (hazeAt) eases in and out over 0.8 s to at most 0.18, and the stage draws it through
 // easeHaze, which never lets it change faster than that. A ball's trail (stage/ball-trail.ts) shows from 18 units a
-// second and is full at 36, in its owner's colour or gold, never for a held ball nor across a jump, and never rises
-// from dark to lit more than 3 times a second; its glow lies under it. No page or graphics card is needed.
+// second and is full at 36, in its owner's colour (kept to its last frame) or gold, never for a held ball nor across a
+// jump or a clock gone back; its glow lies under it. The trail and the glow go through RiseLimits on the real clock, so
+// neither rises from dark to lit more than 3 times in a real second: not for a ball rattling between bumpers, a page
+// dropping frames, nor anything that starts a trail again. No page or graphics card is needed.
 // Usage: npm run pinball-effects-test
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -1607,7 +1609,7 @@ function drive(
     last = from + k * dt;
     const [x, z] = path(last);
     b.show(id, x, BALL_Y, z, opts.color ?? null, opts.held ?? false, last);
-    b.frame(last);
+    b.frame(last, last);
   }
   return last;
 }
@@ -1616,6 +1618,13 @@ function drive(
 const upAt =
   (speed: number) =>
   (t: number): [number, number] => [0, 2 + speed * t];
+
+/**
+ * An opacity read back from the buffers as a share of `peak`, to a millionth. A trail can stop at exactly LIT_ABOVE (at
+ * 30 Hz it rises 0.1 a frame), which the 32-bit buffer holds as a hair over it, though what RiseLimit was given and
+ * what a viewer sees is not over it.
+ */
+const share = (a: number, peak: number) => Math.round((a / peak) * 1e6) / 1e6;
 
 /** A hex colour as the buffers hold it (three's working colour, in 32 bits). */
 function rgbOf(hex: number) {
@@ -1681,7 +1690,7 @@ test("each ball's trail and glow take its owner's colour; a house ball's, or a b
     t = k / 60;
     b.show(1, -2, BALL_Y, 2 + 40 * t, 0x3a7bff, false, t);
     b.show(2, 2, BALL_Y, 2 + 40 * t, null, false, t);
-    b.frame(t);
+    b.frame(t, t);
   }
   const blue = rgbOf(0x3a7bff);
   const gold = rgbOf(BALL_LOOK.houseColor);
@@ -1719,8 +1728,55 @@ test("each ball's trail and glow take its owner's colour; a house ball's, or a b
   }
   // The colour follows the ball: a ball taken over by a streamer turns their colour.
   b.show(2, 2, BALL_Y, 50, 0xff3a6e, false, t);
-  b.frame(t);
+  b.frame(t, t);
   assert.deepEqual([glow(b, 1).r, glow(b, 1).g, glow(b, 1).b], rgbOf(0xff3a6e));
+});
+
+test("a ball keeps its owner's colour to the end when the state drops it before its despawn is drawn; the next ball in its slot starts gold", () => {
+  // The state reaches the stage at once, the balls are drawn about 0.12 s behind it: a ball that drains is gone from
+  // the state, so the stage finds no colour for it (null), for its last frames on the table.
+  const b = new BallTrails(8, R);
+  const blue = rgbOf(0x3a7bff);
+  const gold = rgbOf(BALL_LOOK.houseColor);
+  let t = drive(b, 1, upAt(40), 0, 0.5, { color: 0x3a7bff });
+  t = drive(b, 1, upAt(40), t + 1 / 60, t + 0.12, { color: null });
+  const head = strip(b, 0)[0];
+  assert.ok(head.a > 0, 'its trail is still drawn');
+  assert.deepEqual([head.r, head.g, head.b], blue, "its trail is still its owner's colour");
+  assert.deepEqual([glow(b, 0).r, glow(b, 0).g, glow(b, 0).b], blue, 'and so is its glow');
+  // Its despawn drawn, a house ball takes the slot: gold, not the last ball's colour.
+  b.end(1);
+  drive(b, 2, upAt(40), t + 1 / 60, t + 0.3, { color: null });
+  assert.deepEqual([glow(b, 0).r, glow(b, 0).g, glow(b, 0).b], gold, 'the next ball in the slot is gold');
+  // A ball the trails let go of without end() (missed for a frame) starts its colour again too.
+  const c = new BallTrails(8, R);
+  t = drive(c, 1, upAt(40), 0, 0.3, { color: 0x3a7bff });
+  c.frame(t + 1 / 60, t + 1 / 60);
+  drive(c, 3, upAt(40), t + 2 / 60, t + 0.3, { color: null });
+  assert.deepEqual([glow(c, 0).r, glow(c, 0).g, glow(c, 0).b], gold);
+});
+
+test('the drawn clock going back without a clear() forgets the path: no streak is drawn back along the old one', () => {
+  // The table's clock starting again (DrawnClock starts fresh when the drawn time goes back more than a second) with
+  // the stage not calling clear(): the old path's times are all ahead of the new clock.
+  const b = new BallTrails(8, R);
+  let t = drive(b, 1, upAt(40), 100, 100.5);
+  assert.ok(b.trailOpacity(1) > 0.5);
+  // On the new clock the ball is a little on, as far as it flies in a frame, so no jump is seen.
+  const z = 2 + 40 * t + 40 / 60;
+  b.show(1, 0, BALL_Y, z, null, false, 0);
+  b.frame(0, t + 1 / 60);
+  assert.ok(
+    strip(b, 0).every((v) => v.a === 0 || Math.hypot(v.x, v.z - z) <= 2 * R),
+    'nothing drawn back along the old path',
+  );
+  // Flying on, on the new clock, its trail comes back from where it is.
+  t = drive(b, 1, (s) => [0, z + 40 * s], 1 / 60, 0.5);
+  assert.ok(b.trailOpacity(1) > 0.5, 'lit again');
+  assert.ok(
+    strip(b, 0).every((v) => v.a === 0 || v.z >= z - 1e-4),
+    'its trail lies along the new path only',
+  );
 });
 
 test('a held ball shows no trail, and an ended one frees its slot and leaves nothing drawn', () => {
@@ -1740,7 +1796,7 @@ test('a held ball shows no trail, and an ended one frees its slot and leaves not
   t = drive(b, 1, upAt(40), t + 1 / 60, t + 0.5);
   assert.ok(b.trailOpacity(1) > 0.5);
   b.end(1);
-  b.frame(t);
+  b.frame(t, t);
   assert.equal(b.trailOpacity(1), 0);
   assert.ok(
     strip(b, 0).every((v) => v.a === 0),
@@ -1751,30 +1807,30 @@ test('a held ball shows no trail, and an ended one frees its slot and leaves not
 
   // Eight balls take all eight slots; one ends and a new ball takes its slot; a ninth while all are taken is not drawn.
   for (let id = 10; id < 18; id++) b.show(id, id - 14, BALL_Y, 5, null, false, t);
-  b.frame(t);
+  b.frame(t, t);
   for (let s = 0; s < 8; s++) assert.ok(near(glow(b, s).x, s - 4, 1e-6), `slot ${s} is ball ${s + 10}'s`);
   for (let id = 10; id < 18; id++) b.show(id, id - 14, BALL_Y, 5, null, false, t);
   b.show(99, 3.5, BALL_Y, 9, 0x3a7bff, false, t);
-  b.frame(t);
+  b.frame(t, t);
   for (let s = 0; s < 8; s++) assert.ok(glow(b, s).z === 5, 'a ninth takes no slot');
   b.end(13);
   for (let id = 10; id < 18; id++) if (id !== 13) b.show(id, id - 14, BALL_Y, 5, null, false, t);
   b.show(99, 3.5, BALL_Y, 9, 0x3a7bff, false, t);
-  b.frame(t);
+  b.frame(t, t);
   assert.ok(near(glow(b, 3).x, 3.5, 1e-6) && glow(b, 3).z === 9, "the new ball has ball 13's slot");
 
   // A ball that leaves without end() is gone the next frame, and its slot is free.
   b.show(99, 3.5, BALL_Y, 9, 0x3a7bff, false, t + 1 / 60);
-  b.frame(t + 1 / 60);
+  b.frame(t + 1 / 60, t + 1 / 60);
   for (let s = 0; s < 8; s++) if (s !== 3) assert.equal(glow(b, s).a, 0, `slot ${s} not shown: hidden`);
   b.show(50, 1, BALL_Y, 1, null, false, t + 2 / 60);
-  b.frame(t + 2 / 60);
+  b.frame(t + 2 / 60, t + 2 / 60);
   assert.ok(near(glow(b, 0).x, 1, 1e-6), 'and free for the next');
   assert.equal(b.trailOpacity(12345), 0, 'an unknown ball has no trail');
 
   // clear() (a hello, or the clock starting again) lets every ball go.
   b.clear();
-  b.frame(0);
+  b.frame(0, t + 3 / 60);
   for (let s = 0; s < 8; s++) assert.equal(glow(b, s).a, 0);
   assert.equal(b.trailOpacity(50), 0);
 });
@@ -1790,7 +1846,7 @@ test('a ball moved further than a jump in one frame draws no streak from where i
   assert.ok(b.trailOpacity(1) > 0.5);
   t += 1 / 60;
   b.show(1, 2, BALL_Y, 2 + 40 * t, null, false, t);
-  b.frame(t);
+  b.frame(t, t);
   assert.ok(drawnNear(b, 2, 2 + 40 * t, 2 * R), 'nothing drawn back to where it was');
   // Flying on from there, its trail starts at the new place.
   const from = t;
@@ -1805,7 +1861,7 @@ test('a ball moved further than a jump in one frame draws no streak from where i
   t = drive(c, 1, (t) => [0, 2 + 40 * t], 0, 0.5);
   t += 1 / 60;
   c.show(1, 1.5, BALL_Y, 2 + 40 * t, null, false, t);
-  c.frame(t);
+  c.frame(t, t);
   assert.ok(!drawnNear(c, 1.5, 2 + 40 * t, 1), 'the trail reaches back to where it was');
 
   // jump() (a save or an unstick) forgets the path whatever the move.
@@ -1814,7 +1870,7 @@ test('a ball moved further than a jump in one frame draws no streak from where i
   d.jump(1);
   t += 1 / 60;
   d.show(1, 1.5, BALL_Y, 2 + 40 * t, null, false, t);
-  d.frame(t);
+  d.frame(t, t);
   assert.ok(drawnNear(d, 1.5, 2 + 40 * t, 2 * R), 'after jump() nothing back to where it was');
 });
 
@@ -1848,7 +1904,7 @@ test('eight balls at once each have their own trail; the pools never grow and no
     const t = k / 60;
     for (let i = 0; i < 8; i++) b.show(i + 1, i - 3.5, BALL_Y, 1 + (38 + i) * (t % 0.3), colours[i], false, t);
     b.show(9, 4.5, BALL_Y, 5, null, false, t);
-    b.frame(t);
+    b.frame(t, t);
     for (const m of made) {
       assert.equal(m.mesh.geometry, m.g);
       assert.equal(m.g.attributes.position, m.position);
@@ -1900,7 +1956,7 @@ test('a trail never rises from dark to lit more than 3 times in any second, even
         // Out fast and back slow, so it drifts along between turns: what matters is how fast it goes.
         x += (out ? 50 : -3) * dt;
         b.show(1, x, BALL_Y, 6, null, false, t);
-        b.frame(t);
+        b.frame(t, t);
         const o = b.trailOpacity(1) / BALL_LOOK.trailPeak;
         if (o < DARK_BELOW) dark = true;
         else if (dark && o > LIT_ABOVE) {
@@ -1918,6 +1974,102 @@ test('a trail never rises from dark to lit more than 3 times in any second, even
     }
   }
   assert.equal(most, 3, 'the worst rattle lights its trail 3 times in a second, and no more');
+});
+
+test('a page dropping frames never lights a trail more than 3 times in any real second: 30 Hz with frames dropped, 60 Hz with 40-60 ms hitches, at 33 to 60 units a second', () => {
+  // A busy PC (OBS, other streams) drops frames: at 30 Hz one frame in `every` takes two frames' time, and at 60 Hz one
+  // in `every` takes 40 to 60 ms. A ball in ordinary flight (33 to 60 units a second, the sim's top speed being 60)
+  // then moves further in that frame than in the others, but no faster. The head's opacity as drawn (of the peak) is
+  // watched for rises as RiseLimit counts them, on the real clock, which here is the frames' own time; and again with
+  // the drawn clock 1.5 times as fast as the real one, as the city's dt can be.
+  const patterns: { label: string; frame: (k: number) => number }[] = [];
+  for (const every of [2, 3, 4, 5, 6, 7, 9, 12]) {
+    patterns.push({ label: `30 Hz, 1 in ${every} dropped`, frame: (k) => (k % every === every - 1 ? 2 / 30 : 1 / 30) });
+  }
+  for (const hitch of [0.04, 0.05, 0.06]) {
+    for (const every of [6, 8, 10, 12, 14, 16, 20]) {
+      patterns.push({ label: `60 Hz, a ${hitch * 1000} ms hitch every ${every}`, frame: (k) => (k % every === every - 1 ? hitch : 1 / 60) });
+    }
+  }
+  let worst = 0;
+  let worstAt = '';
+  for (const fast of [1, 1.5]) {
+    for (const { label, frame } of patterns) {
+      for (let speed = 33; speed <= 60; speed++) {
+        const b = new BallTrails(8, R);
+        let real = 0;
+        let z = 2;
+        const levels: number[] = [];
+        const times: number[] = [];
+        for (let k = 0; real < 3; k++) {
+          const dt = frame(k);
+          real += dt;
+          z += speed * fast * dt;
+          b.show(1, 0, BALL_Y, z, null, false, real * fast);
+          b.frame(real * fast, real);
+          levels.push(share(strip(b, 0)[0].a, BALL_LOOK.trailPeak));
+          times.push(real);
+        }
+        const n = mostInASecond(riseTimes(levels, times));
+        if (n > worst) {
+          worst = n;
+          worstAt = `${label} at ${speed} units a second${fast > 1 ? ', drawn 1.5 times as fast' : ''}`;
+        }
+      }
+    }
+  }
+  assert.ok(worst <= 3, `${worst} rises in a real second (${worstAt})`);
+});
+
+test('the RiseLimits hold a trail and a glow to 3 rises in a real second whatever starts them again: jumps, a held ball let go, new ids, and a ball not drawn for a frame', () => {
+  // Each of these starts a trail from dark at once, which its easing alone would let light again within 0.17 s: every
+  // `gap` a ball fast enough to light its trail is put somewhere, held for a frame, drained as a new ball takes its
+  // place, or missed for a frame (its place freed, its glow gone). The trail's and the glow's drawn opacities are
+  // watched for rises on the real clock.
+  type Restart = 'jump' | 'held' | 'new id' | 'missed';
+  let worst = 0;
+  let worstAt = '';
+  for (const restart of ['jump', 'held', 'new id', 'missed'] as Restart[]) {
+    for (const gap of [0.18, 0.2, 0.25, 0.3]) {
+      const b = new BallTrails(8, R);
+      let id = 1;
+      let z = 2;
+      let next = gap;
+      const trail: number[] = [];
+      const glows: number[] = [];
+      const times: number[] = [];
+      for (let k = 0; k * (1 / 60) < 3; k++) {
+        const t = k / 60;
+        let held = false;
+        let skip = false;
+        if (t >= next - 1e-9) {
+          next += gap;
+          if (restart === 'jump') z += 10;
+          else if (restart === 'held') held = true;
+          else if (restart === 'new id') id++;
+          else skip = true;
+        }
+        z += 50 / 60;
+        if (!skip) b.show(id, 0, BALL_Y, z, null, held, t);
+        b.frame(t, t);
+        trail.push(share(strip(b, 0)[0].a, BALL_LOOK.trailPeak));
+        glows.push(share(glow(b, 0).a, BALL_LOOK.glowOpacity));
+        times.push(t);
+      }
+      for (const [what, levels] of [
+        ['trail', trail],
+        ['glow', glows],
+      ] as const) {
+        const n = mostInASecond(riseTimes(levels, times));
+        if (n > worst) {
+          worst = n;
+          worstAt = `the ${what}, ${restart} every ${gap} s`;
+        }
+      }
+    }
+  }
+  assert.ok(worst <= 3, `${worst} rises in a real second (${worstAt})`);
+  assert.equal(worst, 3, 'they still rise as often as the rule allows');
 });
 
 let failed = 0;
