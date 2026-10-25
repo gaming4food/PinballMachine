@@ -81,6 +81,8 @@ const FRAME_BOTTOM = 1066;
 /** How hard the view shakes in a quake (frame pixels), and the city behind it (scene units), as the claw's. */
 const QUAKE_PIXELS = 22;
 const QUAKE_SHAKE = 0.28;
+/** Places in the trails' pools beyond the most balls at once, so a ball a frame late to leave never takes another's. */
+const TRAIL_SPARE = 2;
 /** Snapshot headers kept to draw between. */
 const MAX_SAMPLES = 6;
 /** A ball despawned and another of the same owner spawned within this long (sim time) is the same ball, saved. */
@@ -204,10 +206,8 @@ export class PinballScene implements MachineScene {
   readonly flash = new ScreenFlash();
   /** The sparks' fixed pool, in the table group. */
   readonly sparks = new Sparks();
-  /** The balls' trails and glows, from fixed pools, in the table group; the pools hold the most balls a table has. */
-  readonly trails = new BallTrails(1 + RULES.maxExtraBalls + 2, TABLE.ballRadius);
-  /** Balls that came back from a save, so their paths start again where they are. */
-  private readonly savedBack = new Set<number>();
+  /** The balls' trails and glows, in the table group: pools for the most balls at once, and a spare. */
+  readonly trails = new BallTrails(1 + RULES.maxExtraBalls + TRAIL_SPARE, TABLE.ballRadius);
   /** The open tomb's beam, in the table group: its motes are sparks. */
   readonly beam = new TombBeam(TABLE_IN_USE, this.sparks);
   /** The sandstorm's sand, a pool of its own, in the table group. */
@@ -538,7 +538,15 @@ export class PinballScene implements MachineScene {
 
   /** The text of a ball's tag: its owner's name and score, from its spawn's label or the state. Empty: no tag. */
   private tagFor(track: Track): string {
-    const ball = track.owner === undefined ? undefined : this.state?.balls.find((b) => b.owner === track.owner);
+    let ball: PinballState['balls'][number] | undefined;
+    if (track.owner !== undefined && this.state) {
+      for (const b of this.state.balls) {
+        if (b.owner === track.owner) {
+          ball = b;
+          break;
+        }
+      }
+    }
     const name = track.label ?? ball?.name ?? null;
     if (!name) return '';
     return ball ? `${name} · ${ball.score.toLocaleString('en-US')}` : name;
@@ -546,8 +554,9 @@ export class PinballScene implements MachineScene {
 
   /** The colour of a ball's owner, from the state (null: a house ball, or a server too old to send one). */
   private colourOf(track: Track): number | null {
-    if (track.owner === undefined) return null;
-    return this.state?.balls.find((b) => b.owner === track.owner)?.color ?? null;
+    if (track.owner === undefined || !this.state) return null;
+    for (const b of this.state.balls) if (b.owner === track.owner) return b.color ?? null;
+    return null;
   }
 
   /** A ball at this.p, this.q, with its tag over it (the tag isn't the ball's child, so it doesn't spin with it). */
@@ -566,9 +575,10 @@ export class PinballScene implements MachineScene {
     }
     view.mesh.position.set(this.p[0], this.p[1], this.p[2]);
     view.mesh.quaternion.set(this.q[0], this.q[1], this.q[2], this.q[3]);
-    // A ball back from a save starts its path afresh, before this frame's show. The state doesn't say a ball is held (in
-    // the lock, on a flipper), so none is passed as held: a held ball isn't moving, and its trail is dark at once.
-    if (this.savedBack.delete(track.id)) this.trails.jump(track.id);
+    // A saved ball respawns with a new id, and a teleport or an unstick is seen by show()'s own check (a move of more
+    // than 4 ball diameters in a frame starts the path again), so jump() is never needed here. The state doesn't say a
+    // ball is held (in the lock, on a flipper), so none is passed as held: a held ball isn't moving, and its trail
+    // is dark.
     this.trails.show(track.id, this.p[0], this.p[1], this.p[2], this.colourOf(track), false, this.tableClock.now);
     const text = this.tagFor(track);
     if (text !== view.tagText) {
@@ -613,9 +623,6 @@ export class PinballScene implements MachineScene {
       if (last) this.drains.push({ x: last[0], z: last[2], at: gone.despawnAt });
       const back = [...net.tracks.values()].some((tr) => tr.id !== gone.id && tr.owner === gone.owner && Math.abs(tr.spawnAt - gone.despawnAt) < SAVED_WITHIN);
       if (back) {
-        for (const tr of net.tracks.values()) {
-          if (tr.id !== gone.id && tr.owner === gone.owner && Math.abs(tr.spawnAt - gone.despawnAt) < SAVED_WITHIN) this.savedBack.add(tr.id);
-        }
         this.cues.saved();
         ballSaved(gone.despawnAt);
       } else {
@@ -793,7 +800,6 @@ export class PinballScene implements MachineScene {
     this.tableClock.reset();
     this.sparks.clear();
     this.trails.clear();
-    this.savedBack.clear();
     this.beam.reset();
     // The haze isn't reset: it eases from what the picture shows toward what the new connection says.
     this.sand.clear();

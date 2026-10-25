@@ -261,10 +261,10 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   1.6 ball radii across on the playfield at 0.22 opacity, additive, on while the ball is drawn. The chrome ball also
   reflects the table: `tableEnvironment` (`table-environment.ts`) builds, once when the picture has loaded, a room with
   the picture on a floor under the ball and the neon panels above it, and swaps it in for the neon room (which stays
-  with the stand-in table). **None of it flashes.** The trail follows the ball's speed smoothly (rising at 3 a second at
-  most) and is never a lamp, so the 3-a-second rule has nothing to count; a test holds that, even for a ball rattling
-  between bumpers. The state doesn't say a ball is held, so the stage passes `held` as false: a held ball isn't moving,
-  and its trail is dark.
+  with the stand-in table). **None of it flashes.** The trail follows the ball's speed smoothly and is never a
+  lamp: it never goes dark to lit more than 3 times in a second, so the 3-a-second rule has nothing to count; a test
+  holds that, even for a ball rattling between bumpers. The state doesn't say a ball is held, so the stage passes `held`
+  as false: a held ball isn't moving, and its trail is dark.
 - **Fixed pools.** The sparks are one pool of `MAX_SPARKS` (400) and the coins one of 180, made at the start: a busy
   moment takes the oldest again. Nothing is made per frame.
 - **The table's clock.** The shows, the flash, the sparks, the beam and the coins run on the table's time as drawn
