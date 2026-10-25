@@ -348,7 +348,7 @@ export class PinballGame implements Machine {
     const now = this.sim.time;
     return {
       phase: this.balls.size > 0 ? 'playing' : this.upNext ? 'launching' : 'idle',
-      balls: [...this.balls.values()].map((b) => ({ owner: b.owner?.id ?? null, name: b.owner?.name ?? null, score: b.points })),
+      balls: [...this.balls.values()].map((b) => ({ owner: b.owner?.id ?? null, name: b.owner?.name ?? null, score: b.points, color: b.owner?.color ?? null })),
       line: this.line.map((u) => ({ userId: u.id, name: u.name })),
       multiball: this.multiball,
       doubleUntil: this.doubleUntil > now ? this.doubleUntil : null,

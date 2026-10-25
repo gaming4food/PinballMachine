@@ -156,16 +156,16 @@ test('an empty line hides .pinball-next', () => {
 
 test("the ball on the table: its owner's name and its score; a house ball says so", () => {
   const { hud, part } = board();
-  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 7, name: 'Alex', score: 12345 }] })));
+  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 7, name: 'Alex', score: 12345, color: null }] })));
   const text = part('pinball-ball').text();
   assert.ok(text.includes('Alex') && text.includes('12,345'), text);
-  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: null, name: null, score: 40 }] })));
+  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: null, name: null, score: 40, color: null }] })));
   assert.ok(part('pinball-ball').text().includes('HOUSE'), part('pinball-ball').text());
 });
 
 test('a chat name is text, never markup', () => {
   const { hud, part } = board();
-  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 7, name: '<b>x</b>', score: 1 }], line: [{ userId: 2, name: '<i>y</i>' }] })));
+  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 7, name: '<b>x</b>', score: 1, color: null }], line: [{ userId: 2, name: '<i>y</i>' }] })));
   const ball = part('pinball-ball');
   const next = part('pinball-next');
   for (const el of [ball, next]) assert.ok(!el.find((e) => e.innerHTML.includes('<i>') || e.innerHTML.includes('<b>x')), 'no name goes in as markup');
@@ -221,7 +221,7 @@ test("a bought moment names its buyer over the title, in their colour; the strea
 
 test('multiball started by the lock (no moment) shows MULTIBALL! from the state; one from a press shows once', () => {
   const { hud, shown } = board();
-  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 1, name: 'Alex', score: 0 }] })));
+  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 1, name: 'Alex', score: 0, color: null }] })));
   hud.tick(5);
   hud.message(msgOf(state({ phase: 'playing', multiball: true })));
   hud.tick(5.1);
@@ -613,7 +613,7 @@ test("a saved finale begun by the next ball shows PHARAOH'S GOLD! and no MULTIBA
   b.hud.tick(49.9);
   // The next ball is in play: the finale begins, with its multiball.
   b.hud.message(cue(50, { cue: 'finale' }));
-  b.hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 1, name: 'Alex', score: 0 }], multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
+  b.hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 1, name: 'Alex', score: 0, color: null }], multiball: true, quest: quest({ done: [...GODS], finale: { jackpot: QUEST.jackpot.first } }) })));
   assert.deepEqual(titlesShown(b, 49.9, 60).map((t) => t.words), ["PHARAOH'S GOLD!"]);
 });
 
@@ -708,13 +708,13 @@ test('a state with no quest (from a server older than it) shows no banner and no
     delete s.quest;
     return msgOf(s as PinballState);
   };
-  hud.message(old({ phase: 'playing', balls: [{ owner: 7, name: 'Alex', score: 100 }] }));
+  hud.message(old({ phase: 'playing', balls: [{ owner: 7, name: 'Alex', score: 100, color: null }] }));
   hud.tick(1);
   assert.equal(part('pinball-banner').hidden, true, 'no banner');
   assert.equal(part('pinball-gods').hidden, true, 'no lamps');
   assert.ok(part('pinball-ball').text().includes('Alex'), 'the rest of the scoreboard is drawn');
   // Its titles still come from the states: multiball, and a new last ball.
-  hud.message(old({ phase: 'playing', multiball: true, balls: [{ owner: 7, name: 'Alex', score: 100 }] }));
+  hud.message(old({ phase: 'playing', multiball: true, balls: [{ owner: 7, name: 'Alex', score: 100, color: null }] }));
   hud.tick(1.1);
   assert.equal(shown(), 'MULTIBALL!');
   hud.message(old({ phase: 'playing', multiball: true, lastResult: { name: 'Bea', points: 800, coins: 3 } }));

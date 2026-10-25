@@ -254,6 +254,13 @@ step('multiball pulls from the line, then the house', () => {
   assert.ok(Math.hypot(p.x - TABLE_IN_USE.lock.x, p.z - TABLE_IN_USE.lock.z) < 0.01, "Gus's ball is held in the lock");
 });
 
+step("each ball in the state carries its owner's colour, and a house ball none", () => {
+  const { balls } = game.state();
+  assert.equal(balls.find((b) => b.owner === gus.id)!.color, gus.color);
+  assert.equal(balls.find((b) => b.owner === hal.id)!.color, hal.color);
+  assert.equal(balls.find((b) => b.owner === null)!.color, null);
+});
+
 step('a house ball pays nobody', () => {
   const house = ballOf(null)!;
   // Past its ball saver, so the drain counts.

@@ -5,8 +5,11 @@
 /** The pinball's state as its server sends it, in hello's `machine` and each 'machine' message. */
 export interface PinballState {
   phase: 'idle' | 'launching' | 'playing';
-  /** The balls on the table: whose each is (null for a house ball), their names and what each has scored. */
-  balls: { owner: number | null; name: string | null; score: number }[];
+  /**
+   * The balls on the table: whose each is (null for a house ball), their names, what each has scored and the owner's
+   * chat colour (null for a house ball), which the stage draws the ball's trail and glow in.
+   */
+  balls: { owner: number | null; name: string | null; score: number; color: number | null }[];
   /** The balls still in the line, in order. */
   line: { userId: number; name: string }[];
   multiball: boolean;
