@@ -1,6 +1,7 @@
-// The ball's reflections with the table in them: the kit's neon room (neonEnvironment, kit/src/client/stage/environment.ts)
-// plus a floor under the ball carrying the table's picture, so chrome shows the playfield it rolls on. The kit's builder
-// stays as it is; this one makes its own five panels with the same colours and the look's strengths.
+// The ball's reflections with the table in them: the kit's neon room (neonEnvironment,
+// kit/src/client/stage/environment.ts) plus a floor under the ball carrying the table's picture, so chrome shows the
+// playfield it rolls on. The kit's builder stays as it is; this one makes its own five panels with the same colours and
+// the look's strengths.
 import * as THREE from 'three';
 import type { Look } from '@kit/stage';
 
@@ -8,16 +9,19 @@ const PINK = 0xff2bd6;
 const CYAN = 0x22e6ff;
 
 // How far below the origin the floor lies, and how wide it is. At 14 across and 1 down, the picture's edges sit about
-// 8 degrees below the horizon from the origin, so the ball's lower half reflects the whole table picture at a size it can
-// be read at; a floor much wider would show it only as one blurred colour. Beyond the picture's edge a dark skirt, the
-// room's own colour, stands in for the floor. The picture's wrapping is the texture's default, clamp, which is left as it is
-// since the plate shares the texture.
+// 8 degrees below the horizon from the origin, so the ball's lower half reflects the whole table picture at a size it
+// can be read at; a floor much wider would show it only as one blurred colour. Beyond the picture's edge a dark skirt,
+// the room's own colour, stands in for the floor. The picture's wrapping is the texture's default, clamp, which is left
+// as it is since the plate shares the texture.
 const FLOOR_DEPTH = 1;
 const FLOOR_SIZE = 14;
 const SKIRT_SIZE = 400;
 const ROOM = 0x05030a;
 
-/** The reflection room as a scene, with no renderer needed: the picture on a floor facing up, and the five neon panels. */
+/**
+ * The reflection room as a scene, with no renderer needed: the picture on a floor facing up, and the five neon
+ * panels.
+ */
 export function tableEnvironmentScene(picture: THREE.Texture, light: Look['env']): THREE.Scene {
   const env = new THREE.Scene();
   env.background = new THREE.Color(ROOM);

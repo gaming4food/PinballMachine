@@ -258,13 +258,17 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   too old to send one, is gold, `0xffc23a`) by `BallTrails` (`ball-trail.ts`, numbers in `BALL_LOOK`): a trail behind it
   that shows from 18 units a second at nothing and is full at 36, covers the last 0.12 s of its path as 8 points, is as
   wide as the ball at its head and tapers to nothing, and peaks at 0.55 opacity, additive; and a glow under it, a disc
-  1.6 ball radii across on the playfield at 0.22 opacity, additive, on while the ball is drawn. The chrome ball also
-  reflects the table: `tableEnvironment` (`table-environment.ts`) builds, once when the picture has loaded, a room with
-  the picture on a floor under the ball and the neon panels above it, and swaps it in for the neon room (which stays
-  with the stand-in table). **None of it flashes.** The trail follows the ball's speed smoothly and is never a
-  lamp: it never goes dark to lit more than 3 times in a second, so the 3-a-second rule has nothing to count; a test
-  holds that, even for a ball rattling between bumpers. The state doesn't say a ball is held, so the stage passes `held`
-  as false: a held ball isn't moving, and its trail is dark.
+  with a radius of 1.6 ball radii on the playfield at 0.22 opacity, additive, on while the ball is drawn. A ball keeps
+  its owner's colour to its last frame, though the state drops it about 0.12 s before its despawn is drawn. The chrome
+  ball also reflects the table: `tableEnvironment` (`table-environment.ts`) builds, once when the picture has loaded, a
+  room with the picture on a floor under the ball and the neon panels above it, and swaps it in for the neon room
+  (which stays with the stand-in table). **None of it flashes.** The trail follows the ball's speed smoothly and is
+  never a lamp, but what guarantees the 3-a-second rule is a `RiseLimit` on each trail and each glow, on the browser's
+  real clock (`frame(now, real)`, given `performance.now() / 1000`, as the parts are): it holds for a ball rattling
+  between bumpers, a page dropping frames, a drawn clock running fast, and anything that starts a trail from dark
+  again (a jump, a new ball, a held ball let go). A jump is a move of over 4 ball diameters at over 150 units a second,
+  well above the sim's top speed of 60, so a dropped frame is never taken for one. The state doesn't say a ball is
+  held, so the stage passes `held` as false: a held ball isn't moving, and its trail is dark.
 - **Fixed pools.** The sparks are one pool of `MAX_SPARKS` (400) and the coins one of 180, made at the start: a busy
   moment takes the oldest again. Nothing is made per frame.
 - **The table's clock.** The shows, the flash, the sparks, the beam and the coins run on the table's time as drawn
