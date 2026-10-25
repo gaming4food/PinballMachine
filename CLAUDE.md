@@ -254,6 +254,17 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   to it besides, whatever lights it. The screen flash (`screen-hits.ts`) lights only the table's picture, adding at
   most `FLASH_CAP` (0.3) of its colour, and drops a flash that would begin, or first show, less than `FLASH_GAP` after
   the last one did, at any frame rate.
+- **The ball's look.** Each ball is drawn in its owner's colour (`PinballState.balls[].color`; a house ball, or a server
+  too old to send one, is gold, `0xffc23a`) by `BallTrails` (`ball-trail.ts`, numbers in `BALL_LOOK`): a trail behind it
+  that shows from 18 units a second at nothing and is full at 36, covers the last 0.12 s of its path as 8 points, is as
+  wide as the ball at its head and tapers to nothing, and peaks at 0.55 opacity, additive; and a glow under it, a disc
+  1.6 ball radii across on the playfield at 0.22 opacity, additive, on while the ball is drawn. The chrome ball also
+  reflects the table: `tableEnvironment` (`table-environment.ts`) builds, once when the picture has loaded, a room with
+  the picture on a floor under the ball and the neon panels above it, and swaps it in for the neon room (which stays
+  with the stand-in table). **None of it flashes.** The trail follows the ball's speed smoothly (rising at 3 a second at
+  most) and is never a lamp, so the 3-a-second rule has nothing to count; a test holds that, even for a ball rattling
+  between bumpers. The state doesn't say a ball is held, so the stage passes `held` as false: a held ball isn't moving,
+  and its trail is dark.
 - **Fixed pools.** The sparks are one pool of `MAX_SPARKS` (400) and the coins one of 180, made at the start: a busy
   moment takes the oldest again. Nothing is made per frame.
 - **The table's clock.** The shows, the flash, the sparks, the beam and the coins run on the table's time as drawn

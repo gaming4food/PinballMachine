@@ -47,6 +47,8 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   bumpers. Change the table and run `npm run picture` again, then commit the new picture and its sidecar
   (`blender/README.md` says what it needs). If the picture doesn't load, the stage draws a plain three.js stand-in table
   instead (`src/stage/table-mesh.ts`).
+- The ball: chrome that reflects the table's picture, with a glow under it and a trail at speed in its owner's colour
+  (gold for the house's).
 - The flash: each moment on the table (a bank matched, the hype buttons, multiball from the lock, a payout, the toys'
   hits, the quest's moments) plays some of these: a light show over the table's glows, a flash of the picture, sparks
   and a shake. The open tomb sends up a beam of light, and `src/stage/pinball-shows.ts` says which each moment plays.
