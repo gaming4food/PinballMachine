@@ -27,6 +27,7 @@ import './stub-assets';
 const { GOLD, TableParts } = await import('../src/stage/pinball-parts');
 const { fitStageCamera, tiltTable } = await import('../src/stage/pinball');
 const { pictureDepth } = await import('../src/stage/table-mesh');
+const { tableEnvironmentScene } = await import('../src/stage/table-environment');
 const { exportScene } = await import('../tools/export-scene');
 const { WIDTH, HEIGHT } = await import('@kit/stage');
 
@@ -1633,6 +1634,31 @@ test("a sling's plastic finds its back wall even when the wall's end differs fro
   const box = new THREE.Box3().setFromBufferAttribute(plastics[0].geometry.attributes.position as THREE.BufferAttribute);
   // Its back corner is the wall's (back.points[1]), not a guess.
   assert.ok(near(box.min.x, Math.min(s.a[0], s.b[0], back.points[1][0]), 1e-6), `its corner: ${box.min.x}`);
+});
+
+test('the reflection scene lays the table picture on the floor under the ball, with the neon panels above it in their colours', () => {
+  const picture = new THREE.Texture();
+  const light = { top: 2, pink: 3, cyan: 4, warm: 1.5, violet: 2.5 };
+  const scene = tableEnvironmentScene(picture, light);
+  const meshes = scene.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
+  const mat = (m: THREE.Mesh) => m.material as THREE.MeshBasicMaterial;
+  const floors = meshes.filter((m) => mat(m).map === picture);
+  assert.equal(floors.length, 1, 'one floor carries the picture');
+  const floor = floors[0];
+  assert.ok(floor.position.y < 0, `under the origin: ${floor.position.y}`);
+  const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(floor.quaternion);
+  assert.ok(near(normal.y, 1, 1e-6), `faces up: ${normal.y}`);
+  // From the origin the floor's edge must sit within a degree of the horizon, so it fills the view below it.
+  const params = (floor.geometry as THREE.PlaneGeometry).parameters;
+  assert.ok(Math.min(params.width, params.height) / 2 >= 50 * -floor.position.y, `fills the view: ${params.width}`);
+  const panels = meshes.filter((m) => m !== floor);
+  assert.equal(panels.length, 5, 'five neon panels');
+  const want = [[0xffffff, light.top], [0xff2bd6, light.pink], [0x22e6ff, light.cyan], [0xffb060, light.warm], [0x7040ff, light.violet]];
+  for (const [hex, strength] of want) {
+    const c = new THREE.Color(hex).multiplyScalar(strength);
+    assert.ok(panels.some((m) => !mat(m).map && mat(m).color.equals(c)), `a panel of ${hex.toString(16)} at ${strength}`);
+  }
+  for (const m of panels) assert.ok(m.position.y > floor.position.y, 'the panels sit above the floor');
 });
 
 let failed = 0;
