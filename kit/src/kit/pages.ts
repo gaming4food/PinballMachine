@@ -15,7 +15,8 @@ export interface MachineOverlay {
  * `root` is the overlay slot over the whole 1920x1080 stage. `panel` is the machine's own section at the top of the
  * stage's right column, above the live feed (added 2026-10-26, for the pinball's scoreboard): given in the full-screen
  * layout only, empty and shown, and null in the corner and vertical layouts, where the machine keeps what it shows in
- * `root`. The panel is 372 px wide less its padding (332 px of content), takes its height from what the machine puts in
+ * `root`. A panel still empty when the factory returns is hidden again (mountOverlay); a machine that fills it later
+ * sets `panel.hidden = false` itself. The panel is 372 px wide less its padding (332 px of content), takes its height from what the machine puts in
  * it (the feed and tips below give way), and has no border of its own: the machine styles its content. A machine that
  * takes only `root` gets no panel and nothing changes for it.
  */
@@ -24,8 +25,10 @@ export type OverlayFactory = (root: HTMLElement, panel: HTMLElement | null) => M
 export type StageMode = 'full' | 'corner' | 'vertical';
 /**
  * Starts a machine's overlay on a stage (the city's and the stand-in host's): the panel slot is emptied, shown and
- * given to the machine in the full-screen layout, and emptied, hidden and kept from it in the others. Null for a
- * machine with no overlay (its panel slot stays empty and hidden).
+ * given to the machine in the full-screen layout, and emptied, hidden and kept from it in the others. If the panel is
+ * still empty (no element, no text but whitespace) when the factory returns, it is hidden again: a machine fills it in
+ * its factory, or unhides it itself (`panel.hidden = false`) when it fills it later. Null for a machine with no overlay
+ * (its panel slot stays empty and hidden).
  */
 export function mountOverlay(pages: MachinePages | undefined, root: HTMLElement, slot: HTMLElement | null, mode: StageMode): MachineOverlay | null {
   const panel = slot && mode === 'full' && pages?.stage.overlay ? slot : null;
@@ -33,7 +36,11 @@ export function mountOverlay(pages: MachinePages | undefined, root: HTMLElement,
     slot.replaceChildren();
     slot.hidden = panel === null;
   }
-  return pages?.stage.overlay?.(root, panel) ?? null;
+  const overlay = pages?.stage.overlay?.(root, panel) ?? null;
+  // A machine that ignores its panel (the claw, the Speedway) leaves it empty: hidden again, so it takes no room. Only
+  // whitespace counts as empty too.
+  if (panel && panel.childElementCount === 0 && !panel.textContent?.trim()) panel.hidden = true;
+  return overlay;
 }
 /** A machine's card in the control panel, fed its own messages; `act` sends its buttons' actions to the machine. */
 export type CardFactory = (root: HTMLElement, act: (action: unknown) => void) => { message(msg: unknown): void };

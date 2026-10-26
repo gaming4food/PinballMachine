@@ -20,14 +20,15 @@ body.host-stage {
 /*
  * The city's right column (its #right, .panel from the stage's style.css), at the same place and width, holding only the
  * machine's own section (#machine-panel, its overlay's panel); in the city the live feed and tips fill the rest. Shown
- * only while the machine puts something in it.
+ * only while the machine puts something in it, and as tall as its panel.
  */
 #host-right {
   right: 30px;
+  bottom: auto;
   pointer-events: none;
   z-index: 2;
 }
-#host-right:not(:has(> #machine-panel:not([hidden]):not(:empty))) {
+#host-right:not(:has(> #machine-panel:not([hidden]))) {
   display: none;
 }
 #host-offline {
