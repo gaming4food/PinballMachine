@@ -1,17 +1,22 @@
 /*
- * The pinball's scoreboard (PinballHud, pinball-hud.ts), in the stage's #machine-overlay: the backglass over the top of
- * the table, as the claw's turn box sits across its cabinet's base.
+ * The pinball's scoreboard (PinballHud, pinball-hud.ts), in the stage's #machine-overlay: at the frame's foot, under
+ * the plunger, across the cabinet's front, as the claw's turn box sits across its cabinet's base (the owner placed it,
+ * 2026-10-26). It's anchored by its bottom edge, so it grows upward over the cabinet's front as lines come and go.
+ * 448 px wide and centred, so the corner and vertical layouts (the stage's middle 1040 px) show it whole. Long lines
+ * wrap inside it, and a name with no break in it is broken anywhere rather than spilling out of the box.
  */
 #pinball-hud {
   position: absolute;
-  top: 14px;
+  bottom: 0;
   left: 50%;
-  width: 640px;
+  width: 448px;
   transform: translateX(-50%);
-  padding: 10px 22px 9px;
-  border-radius: 14px;
+  padding: 9px 14px 8px;
+  border-radius: 14px 14px 0 0;
+  overflow-wrap: anywhere;
   background: rgba(10, 4, 24, 0.86);
   border: 3px solid var(--cyan);
+  border-bottom-width: 0;
   font-family: var(--arcade);
   font-size: 15px;
   line-height: 1.6;
@@ -166,7 +171,11 @@ body.no-commands
 #pinball-title {
   --c: var(--yellow);
   position: absolute;
-  top: 420px;
+  /*
+   * Over the playfield's upper middle: where it was in the table's old frame (420 px, in 168 to 1066), in its frame now
+   * (FRAME_TOP 58 to FRAME_BOTTOM 882, pinball.ts).
+   */
+  top: 290px;
   left: 50%;
   white-space: nowrap;
   text-align: center;

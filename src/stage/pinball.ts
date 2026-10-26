@@ -73,11 +73,14 @@ const onAt = (event: { until: number } | null | undefined, now: number): boolean
 const CAMERA_PITCH = 40;
 const CAMERA_FOV = 32;
 /**
- * Where the table sits in the frame, in frame pixels from the top: under the scoreboard (the backglass, pinball.css)
- * down to the frame's foot.
+ * Where the table's frame (its rails, the front rail to past the top rail: stageCamera) sits in the frame, in frame
+ * pixels from the top. The owner placed it by hand (2026-10-26): high in the frame, at 92% of its old size (168 to 1066),
+ * so the cabinet's front and the plunger's knob below the rails (to about y 942) are in view, and the temple behind the
+ * top rail reaches the frame's top edge. The scoreboard (pinball.css) sits under it at the frame's foot, over the
+ * cabinet's front.
  */
-const FRAME_TOP = 168;
-const FRAME_BOTTOM = 1066;
+export const FRAME_TOP = 58;
+export const FRAME_BOTTOM = 882;
 /** How hard the view shakes in a quake (frame pixels), and the city behind it (scene units), as the claw's. */
 const QUAKE_PIXELS = 22;
 const QUAKE_SHAKE = 0.28;
