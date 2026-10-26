@@ -1,9 +1,9 @@
 /*
- * The pinball's scoreboard (PinballHud, pinball-hud.ts), in the stage's #machine-overlay: at the frame's foot, under
- * the plunger, across the cabinet's front, as the claw's turn box sits across its cabinet's base (the owner placed it,
- * 2026-10-26). It's anchored by its bottom edge, so it grows upward over the cabinet's front as lines come and go.
- * 448 px wide and centred, so the corner and vertical layouts (the stage's middle 1040 px) show it whole. Long lines
- * wrap inside it, and a name with no break in it is broken anywhere rather than spilling out of the box.
+ * The pinball's scoreboard (PinballHud, pinball-hud.ts), in the stage's #machine-overlay: centred at the frame's foot,
+ * under the table's cabinet, as the claw's turn box sits across its cabinet's base (the owner placed it, 2026-10-26).
+ * It's anchored by its bottom edge, so it grows upward from the frame's foot as lines come and go, and covers the
+ * cabinet's front only when it's tall (a mode, multiball and the like). 448 px wide, so the corner and vertical layouts
+ * (the stage's middle 1040 px) show it whole. Long lines wrap inside it (.pinball-row, below).
  */
 #pinball-hud {
   position: absolute;
@@ -13,7 +13,6 @@
   transform: translateX(-50%);
   padding: 9px 14px 8px;
   border-radius: 14px 14px 0 0;
-  overflow-wrap: anywhere;
   background: rgba(10, 4, 24, 0.86);
   border: 3px solid var(--cyan);
   border-bottom-width: 0;
@@ -39,8 +38,21 @@
   display: none;
 }
 
-#pinball-hud .pinball-row > span + span {
-  margin-left: 0.9em;
+/*
+ * A line of pieces (PinballHud.line: spans with no space between them): each piece wraps as a whole, so a name and its
+ * score, or POINTS, are never split; only a name too long for the line on its own breaks, anywhere in it.
+ */
+#pinball-hud .pinball-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: 0.9em;
+}
+
+#pinball-hud .pinball-row > .who,
+#pinball-hud .pinball-row > .name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /*
