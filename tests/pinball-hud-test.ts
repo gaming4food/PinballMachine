@@ -11,7 +11,7 @@ import { type God, GOD_COLOR, GODS, type PinballHypeMsg, type PinballState, QUES
 // The overlay is the stage's: its CSS and any pictures and sound files are stubbed (stub-assets.ts), so it loads in Node.
 import './stub-assets';
 
-const { PinballHud, ballSaved, TITLE_SECONDS } = await import('../src/stage/pinball');
+const { PinballHud, ballSaved, TITLE_SECONDS, pinballOverlay, isFullFrame } = await import('../src/stage/pinball');
 
 const tests: [string, () => void][] = [];
 const test = (name: string, fn: () => void) => tests.push([name, fn]);
@@ -101,8 +101,12 @@ const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 /** The gold of the jackpot's and the finale's titles, and of the finale's banner: Ra's. */
 const GOLD = GOD_COLOR.ra;
 
-/** A scoreboard built from fake elements, and its parts. `made` counts the elements it has made so far. */
-function board() {
+/**
+ * A scoreboard built from fake elements, and its parts. `made` counts the elements it has made so far. With `panel`, it
+ * is made as the full layout makes it, given the city's right-column panel (#machine-panel) besides the overlay's slot;
+ * its parts are then looked for in the panel.
+ */
+function board(opts: { panel?: boolean } = {}) {
   let made = 0;
   (globalThis as { document?: unknown }).document = {
     createElement: () => {
@@ -111,9 +115,10 @@ function board() {
     },
   };
   const slot = new FakeElement();
-  const hud = new PinballHud(slot as unknown as HTMLElement);
+  const panel = opts.panel ? new FakeElement() : null;
+  const hud = new PinballHud(slot as unknown as HTMLElement, panel as unknown as HTMLElement | null);
   const part = (name: string) => {
-    const el = slot.byClass(name);
+    const el = (panel ?? slot).byClass(name);
     assert.ok(el, `the scoreboard has .${name}`);
     return el;
   };
@@ -124,8 +129,53 @@ function board() {
   assert.ok(words && by, 'the title holds its words (.title-words) and a line over them (.title-by)');
   /** What the title shows: its words, or null when hidden. */
   const shown = () => (title.hidden ? null : words.textContent);
-  return { hud, slot, part, title, shown, by, made: () => made };
+  return { hud, slot, panel, part, title, shown, by, made: () => made };
 }
+
+test('with a panel (the full layout), the scoreboard is drawn in the panel, once, and not over the stage', () => {
+  const { hud, slot, panel, part } = board({ panel: true });
+  assert.ok(panel);
+  const inPanel = panel.byId('pinball-hud');
+  assert.ok(inPanel, 'the panel holds #pinball-hud');
+  assert.equal(slot.byId('pinball-hud'), null, 'the overlay over the stage has no scoreboard');
+  assert.equal(inPanel.dataset.place, 'panel', "it is marked for the panel's look (pinball.css)");
+  panel.hidden = true;
+  hud.message(msgOf(state()));
+  assert.equal(panel.hidden, false, 'the panel is shown whenever the scoreboard draws into it, whatever the host did before');
+  hud.message(msgOf(state({ phase: 'playing', balls: [{ owner: 7, name: 'Alex', score: 12345, color: null }], line: [{ userId: 2, name: 'Bea' }], quest: quest({ done: ['ra'], mode: mode('horus') }) })));
+  for (const name of ['pinball-gods', 'pinball-banner', 'pinball-ball', 'pinball-next', 'pinball-type']) {
+    assert.ok(inPanel.byClass(name), `.${name} is in the panel`);
+    assert.equal(slot.byClass(name), null, `.${name} is not over the stage`);
+  }
+  assert.ok(part('pinball-ball').text().includes('12,345'), 'the panel shows the play');
+  assert.ok(part('pinball-banner').text().includes('FALCON'), "and the mode's banner");
+});
+
+test('with a panel, the big title stays over the table (in the overlay), not in the panel', () => {
+  const { hud, slot, panel, shown } = board({ panel: true });
+  assert.ok(panel);
+  assert.ok(slot.byId('pinball-title'), 'the overlay has #pinball-title');
+  assert.equal(panel.byId('pinball-title'), null, 'the panel has none');
+  hud.message(moment('multiball', 10));
+  hud.tick(10);
+  assert.equal(shown(), 'MULTIBALL!');
+});
+
+test('without a panel (corner, 9:16), the scoreboard is over the stage as before, unmarked', () => {
+  const { slot } = board();
+  const root = slot.byId('pinball-hud');
+  assert.ok(root, 'the overlay holds #pinball-hud');
+  assert.equal(root.dataset.place, undefined, 'with no mark: its look is the one under the table');
+  assert.deepEqual(slot.children.map((c) => c.id), ['pinball-hud', 'pinball-title'], 'the scoreboard, then the title, as before');
+});
+
+test("the overlay tells the scene the layout: full (the machine fills the frame's height) with a panel, not without", () => {
+  (globalThis as { document?: unknown }).document = { createElement: () => new FakeElement() };
+  pinballOverlay(new FakeElement() as unknown as HTMLElement, new FakeElement() as unknown as HTMLElement);
+  assert.equal(isFullFrame(), true, 'a panel: the full layout');
+  pinballOverlay(new FakeElement() as unknown as HTMLElement, null);
+  assert.equal(isFullFrame(), false, 'no panel: corner or 9:16');
+});
 
 test('a state with two in line shows both names in .pinball-next, in order', () => {
   const { hud, part } = board();

@@ -53,7 +53,7 @@ import { BallTrails } from './ball-trail';
 import { CoinBurst } from './coin-burst';
 import { LightShowPlayer } from './light-show';
 import { type PinballHeader, readPinballHeader } from './pinball-header';
-import { ballSaved } from './pinball-hud';
+import { ballSaved, PinballHud } from './pinball-hud';
 import { type QuestLook, TableParts } from './pinball-parts';
 import { DrawnClock, PinballShows } from './pinball-shows';
 import { HAZE, HazeTracker, Sand } from './sand';
@@ -84,6 +84,83 @@ const CAMERA_FOV = 32;
  */
 export const FRAME_TOP = 58;
 export const FRAME_BOTTOM = 882;
+/**
+ * The machine as the picture shows it, in frame pixels (its opaque box: picture-test measures the picture and holds it
+ * to these): from the temple's top to the cabinet's foot with the plunger's knob, and across the cabinet.
+ */
+export const MACHINE = { top: 4, bottom: 942, left: 555, right: 1365 } as const;
+/**
+ * In the full layout (the scoreboard in the city's right column, not under the table) the machine fills the frame's
+ * height: its top at FULL_TOP and its foot at FULL_BOTTOM, a small margin each end (the owner's design, 2026-10-26),
+ * centred across. That is a zoom of about 1.134 (fullFrameView).
+ */
+export const FULL_TOP = 8;
+export const FULL_BOTTOM = 1072;
+/**
+ * The picture is rendered at this many times the frame's size each way (npm run picture: 2880 x 1620), so the full
+ * layout's zoom still has more than a texel for each screen pixel and the picture stays sharp. The plate stretches it
+ * over the frame whatever its size, so nothing else depends on it.
+ */
+export const PICTURE_SCALE = 1.5;
+
+/** A rectangle of the frame (frame pixels, y down) drawn over the whole screen: the stage's view of its frame. */
+export interface ViewRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+/** The whole frame: the corner and vertical layouts' view, as fitStageCamera frames it. */
+export const WHOLE_FRAME: ViewRect = { x: 0, y: 0, width: WIDTH, height: HEIGHT };
+
+/**
+ * The full layout's view: the rectangle of the frame (as fitStageCamera frames it) that is drawn over the whole screen,
+ * so that MACHINE's top and foot land on FULL_TOP and FULL_BOTTOM. It has the frame's shape (one zoom both ways) and is
+ * centred across, as the machine is.
+ */
+export function fullFrameView(): ViewRect {
+  const zoom = (FULL_BOTTOM - FULL_TOP) / (MACHINE.bottom - MACHINE.top);
+  const width = WIDTH / zoom;
+  const height = HEIGHT / zoom;
+  return { x: (WIDTH - width) / 2, y: MACHINE.top - FULL_TOP / zoom, width, height };
+}
+
+/**
+ * Draws `view` of the frame over the whole screen, shaken (dx, dy) screen pixels (dy down): one 2D zoom of the 3D
+ * camera and of the picture alike. The 3D camera keeps its place and aim (fitStageCamera's) and only its view offset
+ * changes, to the view's sub-rectangle of the frame it was fitted for (moved by `viewY`, its own offset); the plate
+ * camera takes the same sub-rectangle of the picture. A pinhole camera's sub-rectangle is exactly a zoom of its image,
+ * so the live parts stay on the picture's pixels (picture-test). The shake is divided by the zoom, so it moves the
+ * screen by the same pixels zoomed or not. The city behind is drawn through its own camera and never zooms.
+ */
+export function setStageView(camera: THREE.PerspectiveCamera, viewY: number, plateCamera: THREE.OrthographicCamera, plate: THREE.Object3D, view: ViewRect, dx: number, dy: number): void {
+  const k = view.width / WIDTH;
+  camera.setViewOffset(WIDTH, HEIGHT, view.x - dx * k, viewY + view.y - dy * k, view.width, view.height);
+  plateCamera.setViewOffset(WIDTH, HEIGHT, view.x, view.y, view.width, view.height);
+  plate.position.set(dx * k, -dy * k, 0);
+}
+
+/**
+ * Whether the stage draws the full layout, as the overlay was last told (pinballOverlay): the scenes on the page frame
+ * the machine by it. The scene and the overlay are made apart, from the machine's pages, the scene first.
+ */
+let fullFrame = false;
+const scenes = new Set<PinballScene>();
+/** Whether the overlay was last made for the full layout (a panel given). */
+export const isFullFrame = (): boolean => fullFrame;
+
+/**
+ * The pinball's overlay (its pages' OverlayFactory): the scoreboard and the big titles (PinballHud), and the layout
+ * for the scene. A `panel` (the city's right column) is given in the full layout only, so it is what says the layout:
+ * with one, the scoreboard goes there and the machine fills the frame's height (fullFrameView); without, the
+ * scoreboard is under the table and the frame is whole. The stand-in host gives a panel too.
+ */
+export function pinballOverlay(root: HTMLElement, panel: HTMLElement | null): PinballHud {
+  fullFrame = panel !== null;
+  for (const scene of scenes) scene.frameFull(fullFrame);
+  return new PinballHud(root, panel);
+}
+
 /** How hard the view shakes in a quake (frame pixels), and the city behind it (scene units), as the claw's. */
 const QUAKE_PIXELS = 22;
 const QUAKE_SHAKE = 0.28;
@@ -247,6 +324,8 @@ export class PinballScene implements MachineScene {
   private readonly effects: { update(dt: number): boolean }[] = [];
   /** The view's place in the frame (fitCamera), and until when (the scene's clock) it shakes (quake). */
   private viewY = 0;
+  /** The rectangle of the frame drawn over the screen: the whole frame, or the full layout's zoom (frameFull). */
+  private view: ViewRect = fullFrame ? fullFrameView() : WHOLE_FRAME;
   private shakeUntil = 0;
   private readonly p = [0, 0, 0];
   private readonly q = [0, 0, 0, 1];
@@ -352,7 +431,10 @@ export class PinballScene implements MachineScene {
       },
     );
     map.colorSpace = THREE.SRGBColorSpace;
-    map.anisotropy = 8;
+    // Drawn flat over the frame at PICTURE_SCALE texels a screen pixel, or that over the full layout's zoom (1.32):
+    // both under 2, where a plain linear filter is sharp, and mipmaps would blend in their half-size level and blur it.
+    map.generateMipmaps = false;
+    map.minFilter = THREE.LinearFilter;
     this.plate = new THREE.Mesh(
       new THREE.PlaneGeometry(WIDTH, HEIGHT),
       new THREE.ShaderMaterial({
@@ -443,6 +525,13 @@ export class PinballScene implements MachineScene {
     this.labelRenderer.setSize(WIDTH, HEIGHT);
     // For looking inside from the browser's console while testing (as the claw's window.clawScene).
     (window as unknown as { pinballScene: PinballScene }).pinballScene = this;
+    scenes.add(this);
+  }
+
+  /** The full layout (true: the machine fills the frame's height, fullFrameView) or not (the whole frame). */
+  frameFull(full: boolean): void {
+    this.view = full ? fullFrameView() : WHOLE_FRAME;
+    this.shake(0, 0);
   }
 
   /** A point on the table (its own coordinates) in the world. */
@@ -450,15 +539,21 @@ export class PinballScene implements MachineScene {
     return new THREE.Vector3(x, y, z).applyMatrix4(this.table.matrixWorld);
   }
 
-  /** The camera where stageCamera puts it: its place and aim, and its place in the frame (a view offset). */
+  /**
+   * The camera where stageCamera puts it: its place and aim, and its place in the frame (a view offset), with the
+   * layout's view over it (setStageView).
+   */
   private fitCamera(): void {
     this.viewY = fitStageCamera(this.camera, WIDTH, HEIGHT);
+    this.shake(0, 0);
   }
 
-  /** The view and the picture moved (dx, dy) frame pixels (dy down) from where fitCamera put them; (0, 0) puts them back. */
+  /**
+   * The view and the picture moved (dx, dy) screen pixels (dy down) from where fitCamera and the layout's view put them;
+   * (0, 0) puts them back (setStageView).
+   */
   private shake(dx: number, dy: number): void {
-    this.camera.setViewOffset(WIDTH, HEIGHT, -dx, this.viewY - dy, WIDTH, HEIGHT);
-    this.plate.position.set(dx, -dy, 0);
+    setStageView(this.camera, this.viewY, this.plateCamera, this.plate, this.view, dx, dy);
   }
 
   private addLights(): void {

@@ -1,4 +1,5 @@
-// The pinball's scoreboard over the stage (PinballHud, an OverlayFactory's; pinball.css), as the claw's turn box is:
+// The pinball's scoreboard (PinballHud, an OverlayFactory's; pinball.css), as the claw's turn box is: in the full
+// layout in the city's right column (the overlay's panel), and in the corner and vertical layouts under the table:
 // the balls on the table with their owners and scores, what's lit (multiball, double score, the ball saver), the next
 // 3 in line, the words to type (hidden by the layout's Play commands switch, as the claw's are), and the last ball's
 // result. Over the table, big titles: each hype button's (MULTIBALL!, BALL SAVER!, DOUBLE SCORE!, NUDGE!) and each
@@ -184,9 +185,22 @@ export class PinballHud {
   private multiballMoments = 0;
   private lastMultiball = -Infinity;
 
-  /** The scoreboard goes in `slot` (the stage's #machine-overlay), and the big title over the table. */
-  constructor(slot: HTMLElement) {
+  /**
+   * The city's right-column panel (#machine-panel) the scoreboard is drawn in, in the full layout; null in the corner
+   * and vertical layouts, where it is drawn under the table.
+   */
+  private readonly panel: HTMLElement | null;
+
+  /**
+   * The big title goes over the table in `slot` (the stage's #machine-overlay), always. The scoreboard goes in `panel`
+   * when the stage gives one (the full layout: the city's right column, 332 px of content, marked data-place="panel"
+   * for its look in pinball.css), and otherwise in `slot` too, centred at the frame's foot under the table. It is
+   * drawn in one place only.
+   */
+  constructor(slot: HTMLElement, panel: HTMLElement | null = null) {
+    this.panel = panel;
     this.root.id = 'pinball-hud';
+    if (panel) this.root.dataset.place = 'panel';
     this.root.dataset.phase = 'idle';
     this.ball.className = 'pinball-ball';
     this.flags.className = 'pinball-flags';
@@ -221,7 +235,13 @@ export class PinballHud {
     this.by.className = 'title-by';
     this.by.hidden = true;
     this.title.append(this.words, this.by);
-    slot.append(this.root, this.title);
+    if (panel) {
+      panel.append(this.root);
+      slot.append(this.title);
+    } else {
+      slot.append(this.root, this.title);
+    }
+    this.showPanel();
     boards.add(this);
   }
 
@@ -256,8 +276,17 @@ export class PinballHud {
     this.waiting.sort((a, b) => (a.at ?? -Infinity) - (b.at ?? -Infinity));
   }
 
+  /**
+   * The panel shown: the city hides its panel slot again when it is empty after the overlay is made, so the scoreboard
+   * says it is there each time it draws into it, never relying on when the host looked.
+   */
+  private showPanel(): void {
+    if (this.panel) this.panel.hidden = false;
+  }
+
   private set(state: PinballState): void {
     const was = this.state;
+    this.showPanel();
     this.state = state;
     this.root.dataset.phase = state.phase;
     this.showBalls(state);

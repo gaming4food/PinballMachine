@@ -4,13 +4,15 @@
 import { definePages } from '@kit/stage';
 import { entry } from './entry';
 import { SNAP_PINBALL_HEADER, SNAP_TYPE_PINBALL } from './shared/pinball';
-import { PinballHud, PinballScene } from './stage/pinball';
+import { pinballOverlay, PinballScene } from './stage/pinball';
 
 export const pages = definePages({
   id: entry.id,
   stage: {
     Scene: PinballScene,
-    overlay: (slot) => new PinballHud(slot),
+    // The panel (the city's right column) comes in the full layout only: the scoreboard goes there, and the machine fills
+    // the frame's height (pinballOverlay).
+    overlay: pinballOverlay,
     snapshot: { type: SNAP_TYPE_PINBALL, headerBytes: SNAP_PINBALL_HEADER },
   },
 });

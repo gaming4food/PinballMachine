@@ -13,7 +13,7 @@ import { FLIPPER_SHAPE, TABLE, TABLE_IN_USE, tombMouth, wallsWithTomb, type Tabl
 // The stage's code loads in Node with its CSS and the like stubbed.
 import '../tests/stub-assets';
 
-const { stageCamera, tiltTable } = await import('../src/stage/pinball');
+const { PICTURE_SCALE, stageCamera, tiltTable } = await import('../src/stage/pinball');
 const { WIDTH, HEIGHT } = await import('@kit/stage');
 
 /** Table points (x, y, z in the table's own coordinates) whose pixels the build checks: corners, the top, a rail. */
@@ -32,8 +32,12 @@ export interface Pyramid {
 
 export interface Scene {
   pixels: { table: [number, number, number]; px: [number, number] }[];
+  /** The stage's frame, which the camera (and the probes' pixels) are for. */
   width: number;
   height: number;
+  /** The stage picture's render size: the frame at PICTURE_SCALE, the same camera with more pixels. */
+  renderWidth: number;
+  renderHeight: number;
   fovY: number;
   viewY: number;
   cameraMatrix: number[];
@@ -75,6 +79,8 @@ export function exportScene(): Scene {
     pixels,
     width: WIDTH,
     height: HEIGHT,
+    renderWidth: Math.round(WIDTH * PICTURE_SCALE),
+    renderHeight: Math.round(HEIGHT * PICTURE_SCALE),
     fovY: fit.fovY,
     viewY: fit.viewY,
     cameraMatrix: fit.matrix, // column-major, three's Y-up world

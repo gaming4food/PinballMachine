@@ -87,7 +87,7 @@ if (which === 'hero') {
   await run('python', ['-I', 'blender/grade.py', `${OUT}/stage.png`, 'src/assets/pinball.png']);
   const png = readFileSync(new URL('../src/assets/pinball.png', import.meta.url));
   const [width, height] = [png.readUInt32BE(16), png.readUInt32BE(20)];
-  if (width !== scene.width || height !== scene.height) throw new Error(`the picture is ${width} x ${height}, not ${scene.width} x ${scene.height}`);
+  if (width !== scene.renderWidth || height !== scene.renderHeight) throw new Error(`the picture is ${width} x ${height}, not ${scene.renderWidth} x ${scene.renderHeight}`);
   const sidecar = {
     tableHash: createHash('sha256').update(JSON.stringify(TABLE_IN_USE)).digest('hex'),
     camera: { matrix: scene.cameraMatrix, fovY: scene.fovY, viewY: scene.viewY },

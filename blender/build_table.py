@@ -1334,6 +1334,9 @@ os.makedirs(OUT, exist_ok=True)
 
 print('LIVE parts', len(LIVE), 'left out of the stage picture' if WHICH == 'stage' else 'in the hero picture')
 if WHICH == 'stage':
+    # The same camera at more pixels (the stage's PICTURE_SCALE, tools/export-scene.ts): the probes above were checked
+    # at the frame's size, and the camera's shift and angle are fractions of the frame, so the match holds at any size.
+    scene.render.resolution_x = S.get('renderWidth', W); scene.render.resolution_y = S.get('renderHeight', Hh)
     for ob_ in LIVE:
         ob_.hide_render = True
     scene.render.film_transparent = True
