@@ -345,6 +345,9 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
     texel a screen pixel. The camera and CAMERA MATCH are the frame's (`scene.json`'s `width` and `height`); only the
     render is bigger (`renderWidth`, `renderHeight`). The plate stretches it over the frame whatever its size, and
     samples it linearly with no mipmaps (1.32 to 1.5 texels a pixel, where mipmaps would only blur it).
+    Anisotropy was dropped on purpose: a screen-aligned quad gains nothing from it. The ball's reflection
+    (`tableEnvironment`) is built from a mipmapped copy of the picture, disposed once the map is made, since its blur
+    shrinks the picture about 10 to 1, where an unmipmapped one is point-sampled into noise.
 - **After any change to the table or the camera, run `npm run picture`** (about 25 s; Blender 5.2, and Python with
   Pillow and numpy; `blender/README.md` says the rest) **and commit the new `pinball.png` and `pinball.json`.**
   picture-test fails until you do (the picture is of another table or camera, or size), but it can't see a change to

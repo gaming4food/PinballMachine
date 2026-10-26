@@ -50,12 +50,33 @@ export function tableEnvironmentScene(picture: THREE.Texture, light: Look['env']
   return env;
 }
 
-/** The scene blurred into an environment map, made once when the picture has loaded. */
-export function tableEnvironment(renderer: THREE.WebGLRenderer, picture: THREE.Texture, light: Look['env']): THREE.Texture {
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const scene = tableEnvironmentScene(picture, light);
+/** What tableEnvironment needs of a PMREM generator (three's, or a stand-in in the tests, which have no WebGL). */
+export interface EnvironmentBlur {
+  fromScene(scene: THREE.Scene, sigma: number): { texture: THREE.Texture };
+  dispose(): void;
+}
+
+/**
+ * The scene blurred into an environment map, made once when the picture has loaded. The floor gets a mipmapped copy
+ * of the picture: the plate draws it with no mipmaps (sharp at its 1.3 to 1.5 texels a pixel), but the blur shrinks
+ * the floor about 10 to 1, where an unmipmapped picture is point-sampled into a noisy reflection. The copy shares the
+ * picture's image, and is disposed (its GPU copy and mipmaps let go) once the map is made.
+ */
+export function tableEnvironment(
+  renderer: THREE.WebGLRenderer,
+  picture: THREE.Texture,
+  light: Look['env'],
+  blur: (renderer: THREE.WebGLRenderer) => EnvironmentBlur = (r) => new THREE.PMREMGenerator(r),
+): THREE.Texture {
+  const floor = picture.clone();
+  floor.generateMipmaps = true;
+  floor.minFilter = THREE.LinearMipmapLinearFilter;
+  floor.needsUpdate = true;
+  const pmrem = blur(renderer);
+  const scene = tableEnvironmentScene(floor, light);
   const tex = pmrem.fromScene(scene, 0.02).texture;
   pmrem.dispose();
+  floor.dispose();
   // The scene is thrown away; its geometry and materials go with it, but the picture is the caller's and stays.
   scene.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;

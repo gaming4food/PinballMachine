@@ -27,7 +27,7 @@ import './stub-assets';
 const { GOLD, TableParts } = await import('../src/stage/pinball-parts');
 const { fitStageCamera, tiltTable } = await import('../src/stage/pinball');
 const { pictureDepth } = await import('../src/stage/table-mesh');
-const { tableEnvironmentScene } = await import('../src/stage/table-environment');
+const { tableEnvironment, tableEnvironmentScene } = await import('../src/stage/table-environment');
 const { exportScene } = await import('../tools/export-scene');
 const { WIDTH, HEIGHT } = await import('@kit/stage');
 
@@ -1664,6 +1664,51 @@ test('the reflection scene lays the table picture on the floor under the ball, w
     assert.ok(panels.some((m) => !mat(m).map && mat(m).color.equals(c)), `a panel of ${hex.toString(16)} at ${strength}`);
   }
   for (const m of panels) assert.ok(m.position.y > floor.position.y, 'the panels sit above the floor');
+});
+
+test("the reflection is built from a mipmapped copy of the picture, disposed after, and the plate's own texture is left alone", () => {
+  // The plate's texture has no mipmaps (sharp at 1.3 to 1.5 texels a pixel); PMREM shrinks the floor about 10 to 1,
+  // where an unmipmapped picture is point-sampled into noise. A fake PMREM generator stands in for WebGL.
+  const picture = new THREE.Texture();
+  picture.generateMipmaps = false;
+  picture.minFilter = THREE.LinearFilter;
+  let floorMap: THREE.Texture | null = null;
+  let copyDisposedAtBuild = true;
+  let copyDisposed = false;
+  let pmremDisposed = false;
+  let pictureDisposed = false;
+  picture.addEventListener('dispose', () => (pictureDisposed = true));
+  const made = new THREE.Texture();
+  const fake = {
+    fromScene(scene: THREE.Scene) {
+      scene.traverse((o) => {
+        const map = o instanceof THREE.Mesh ? (o.material as THREE.MeshBasicMaterial).map : null;
+        if (map) floorMap = map;
+      });
+      if (floorMap) {
+        const copy: THREE.Texture = floorMap;
+        copyDisposedAtBuild = false;
+        copy.addEventListener('dispose', () => (copyDisposed = true));
+      }
+      return { texture: made };
+    },
+    dispose() {
+      pmremDisposed = true;
+    },
+  };
+  const tex = tableEnvironment({} as THREE.WebGLRenderer, picture, { top: 1, pink: 1, cyan: 1, warm: 1, violet: 1 }, () => fake);
+  assert.equal(tex, made, "the generator's texture is the environment");
+  assert.ok(floorMap, 'the floor carries a picture');
+  const copy = floorMap as THREE.Texture;
+  assert.notEqual(copy, picture, 'a copy, not the plate texture');
+  assert.equal(copy.image, picture.image, 'of the same picture');
+  assert.equal(copy.generateMipmaps, true, 'the copy has mipmaps');
+  assert.equal(copy.minFilter, THREE.LinearMipmapLinearFilter, 'and is sampled through them');
+  assert.ok(!copyDisposedAtBuild && copyDisposed, 'the copy is disposed after fromScene');
+  assert.ok(pmremDisposed, 'and the generator too');
+  assert.ok(!pictureDisposed, "the plate's texture is not disposed");
+  assert.equal(picture.generateMipmaps, false, "the plate's texture keeps no mipmaps");
+  assert.equal(picture.minFilter, THREE.LinearFilter, 'and its linear filter');
 });
 
 let failed = 0;
