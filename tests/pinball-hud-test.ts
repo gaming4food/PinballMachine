@@ -96,6 +96,8 @@ const mode = (god: God, more: Partial<Mode> = {}): Mode => ({ god, left: QUEST.m
 const cue = (at: number, rest: { cue: string } & Record<string, unknown>) => ({ kind: 'pinballCue', at, ...rest });
 
 const money = (n: number) => n.toLocaleString('en-US');
+/** Text with its non-breaking spaces as plain ones, for comparing what it says. */
+const plain = (s: string) => s.replace(/\u00a0/g, ' ');
 /** A colour as the stage writes it in CSS. */
 const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 /** The gold of the jackpot's and the finale's titles, and of the finale's banner: Ra's. */
@@ -577,14 +579,26 @@ test('the flags show while each event lasts, from the state alone, and go when i
   // A page opened late: its first state already has the events on.
   hud.message(msgOf(state({ phase: 'playing', events: { sandstorm: { until: 150, dir: 1 }, curse: { until: 140 }, mummy: { until: 130 } } })));
   assert.equal(flags.hidden, false);
-  assert.equal(flags.textContent, 'SANDSTORM · CURSED · MUMMY');
+  assert.equal(plain(flags.textContent), 'SANDSTORM · CURSED · MUMMY');
   hud.message(msgOf(state({ phase: 'playing', events: { sandstorm: { until: 150, dir: -1 }, curse: null, mummy: null } })));
   assert.equal(flags.textContent, 'SANDSTORM');
   hud.message(msgOf(state({ phase: 'playing', multiball: true, events: { sandstorm: null, curse: { until: 160 }, mummy: null } })));
-  assert.equal(flags.textContent, 'MULTIBALL · CURSED');
+  assert.equal(plain(flags.textContent), 'MULTIBALL · CURSED');
   hud.message(msgOf(state({ phase: 'playing' })));
   assert.equal(flags.hidden, true, 'gone when each ends');
   assert.equal(flags.textContent, '');
+});
+
+test('a flag wraps only as a whole: a line of flags breaks only after a separator, never inside BALL SAVER or LOCK LIT', () => {
+  const { hud, part } = board();
+  hud.message(msgOf(state({ phase: 'playing', multiball: true, doubleUntil: 130, saverUntil: 120, lockLit: true })));
+  const text = part('pinball-flags').textContent;
+  assert.equal(plain(text), 'MULTIBALL · 2× SCORE · BALL SAVER · LOCK LIT');
+  // The places a line may break (ordinary spaces) are exactly one after each separator.
+  const breaks = [...text.matchAll(/ /g)].map((m) => m.index);
+  const after = [...text.matchAll(/·/g)].map((m) => (m.index ?? 0) + 1);
+  assert.deepEqual(breaks, after, `breaks only after a dot (${JSON.stringify(text)})`);
+  for (const flag of ['2×\u00a0SCORE', 'BALL\u00a0SAVER', 'LOCK\u00a0LIT']) assert.ok(text.includes(flag), `${JSON.stringify(flag)} is held together`);
 });
 
 test("a page opened mid-mode shows the banner and the lamps from hello's state, and no title", () => {

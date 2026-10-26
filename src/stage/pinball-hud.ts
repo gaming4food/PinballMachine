@@ -333,7 +333,9 @@ export class PinballHud {
 
   private showFlags(s: PinballState): void {
     const on = [s.multiball && 'MULTIBALL', s.doubleUntil !== null && '2× SCORE', s.saverUntil !== null && 'BALL SAVER', s.lockLit && 'LOCK LIT', s.events.sandstorm !== null && 'SANDSTORM', s.events.curse !== null && 'CURSED', s.events.mummy !== null && 'MUMMY'].filter(Boolean) as string[];
-    this.flags.textContent = on.join(' · ');
+    // Each flag wraps only as a whole: its own words are joined by non-breaking spaces, and the one ordinary space is
+    // after each separator, so a line breaks only between flags, with the dot ending the line before.
+    this.flags.textContent = on.map((f) => f.replace(/ /g, '\u00a0')).join('\u00a0· ');
     this.flags.hidden = on.length === 0;
   }
 
