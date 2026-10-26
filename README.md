@@ -44,7 +44,8 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   is the stress run. The stage draws the picture as its backdrop with the live parts over it: the balls, the three
   flippers, the turning plaques, the drop targets, the quest's toys (the pop-ups and the mummy rising and sinking, the
   tomb's door sliding up into the pyramid, the diverter's gate swinging), both spinners and glows over the lamps and
-  bumpers. Change the table and run `npm run picture` again, then commit the new picture and its sidecar
+  bumpers. The table fills the frame from near its top edge, and the scoreboard sits under it at the frame's foot,
+  across the cabinet's front (`CLAUDE.md`, The stage's layout). Change the table and run `npm run picture` again, then commit the new picture and its sidecar
   (`blender/README.md` says what it needs). If the picture doesn't load, the stage draws a plain three.js stand-in table
   instead (`src/stage/table-mesh.ts`).
 - The ball: chrome that reflects the table's picture, with a glow under it and a trail at speed in its owner's colour
