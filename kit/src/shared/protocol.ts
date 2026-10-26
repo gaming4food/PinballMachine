@@ -1,4 +1,5 @@
 // Messages between the server and the browser pages (stage and control panel).
+import type { AutoEventsState, MachineAutoEvents } from './auto-events';
 import type { StageLayout } from './layouts';
 import type { CloudState } from './dashboard';
 import type { CareerLeader, CareerView } from './career';
@@ -25,6 +26,30 @@ export interface ContentProgress {
   total: number;
   /** The file being downloaded, or what went wrong and when it's tried again. */
   detail: string;
+  /** Ask me first: new songs or loops held back until the streamer says Download. */
+  offer?: Partial<Record<keyof ContentChoice, ContentOffer>>;
+  /** The held lists' fingerprints: a new id means something newer was published (the bar shows again). */
+  offerId?: string;
+  /** What last arrived, e.g. "20 new songs: A, B, C and 17 more." */
+  arrived?: string;
+}
+
+/** New songs or loops waiting for Download: how many files, their bytes, and what they are. */
+export interface ContentOffer {
+  files: number;
+  bytes: number;
+  summary: string;
+}
+
+/**
+ * What else the app downloads besides the alert voice (server/content.ts): the installer's two boxes, then the panel's
+ * Downloads card. Unticked, it isn't downloaded, and what was is taken off the PC.
+ */
+export interface ContentChoice {
+  /** The house songs (royalty-free music). */
+  music: boolean;
+  /** The city backdrops (the video loops behind the machines). */
+  backdrops: boolean;
 }
 
 export interface RoomInfo {
@@ -32,7 +57,7 @@ export interface RoomInfo {
   label: string;
   /** Platforms whose viewers play in this room. */
   platforms: Platform[];
-  /** Platforms whose viewers are credited by name on this room's stage (song requests). */
+  /** Platforms shown under PLAY FROM on this room's stage. */
   shownPlatforms: Platform[];
   /** Whether the stage shows platform badges (PLAY FROM, the leaderboard, the feed, alert cards). */
   badges: boolean;
@@ -255,14 +280,21 @@ export interface BillingView {
   prices: { month: number; year: number };
 }
 
-/** A viewer's Spotify song request. `startedAt` is 0 while it's still waiting in the queue. */
-export interface SongRequestInfo {
-  title: string;
-  artist: string;
-  requester: string;
-  platform: Platform;
-  startedAt: number;
-  seconds: number;
+/**
+ * A licence key's referrals, as the checker's /check answers them beside the signed note (it unlocks nothing; the
+ * License card shows it). See docs/superpowers/specs/2026-10-17-referrals-design.md.
+ */
+export interface ReferralView {
+  /** The key's referral code, and the link that carries it (coinopcity.com/r/<code>). */
+  code: string;
+  link: string;
+  /** Referred people still in their trial, and those who paid after it (each a free month). */
+  pending: number;
+  earned: number;
+  /** Earned months waiting for a live subscription (or for Stripe to take them). */
+  banked: number;
+  /** Until when (ms since 1970) the months make All machines free; 0 for never. */
+  bundleUntil: number;
 }
 
 /** What every stage should be playing: the server picks the songs, stages follow. */
@@ -291,24 +323,34 @@ export interface MusicState {
   mutedHere: boolean;
   /** A music source is open (see mutedHere). Checked once a second, so the stages and it always switch together. */
   musicSourceOpen: boolean;
-  /** A Spotify request playing right now; the stages fade the house music out while it plays. */
-  request: SongRequestInfo | null;
-  queue: SongRequestInfo[];
-  requests: {
-    /** Switched on in the control panel. */
-    enabled: boolean;
-    /** Switched on and Spotify is connected, so !sr works. */
-    ready: boolean;
-    /** Explicit songs can be requested (off unless the streamer turns it on). */
-    allowExplicit: boolean;
-    spotify: string;
-    cost: number;
-    skipCost: number;
-  };
+  /** What !skip costs viewers (the streamer's price), shown in How to play. */
+  skipCost: number;
+  /** The streamer's own music folder (server/my-music.ts); missing on a hosted server, which can't reach one. */
+  mine?: MyMusicState;
 }
 
 /** The house-music part of MusicState, which the DJ owns. */
-export type HouseMusic = Omit<MusicState, 'request' | 'queue' | 'requests' | 'musicSourceOpen'>;
+export type HouseMusic = Omit<MusicState, 'skipCost' | 'musicSourceOpen' | 'mine'>;
+
+/**
+ * Where the music comes from (issue #5): the house songs, the streamer's own folder, both shuffled together, or an
+ * internet radio station's stream.
+ */
+export const MUSIC_SOURCES = ['house', 'mine', 'both', 'radio'] as const;
+export type MusicSource = (typeof MUSIC_SOURCES)[number];
+
+export interface MyMusicState {
+  source: MusicSource;
+  /** The folder's full path on this PC; empty until one is chosen. */
+  folder: string;
+  /** Songs found in it. */
+  count: number;
+  scanning: boolean;
+  /** Why it has no songs (a folder that isn't there, or no playable files); empty otherwise. */
+  error: string;
+  /** The internet radio station: the link the streamer gave, its name, and whether it works. */
+  radio: { url: string; name: string; checking: boolean; error: string };
+}
 
 /** One backdrop video loop (made in the Studio or with `npm run backdrops`), shown behind the machine. */
 export interface BackdropInfo {
@@ -465,6 +507,8 @@ export type ServerMsg =
   | { t: 'prices'; prices: Prices; limits: PriceLimits; shop?: boolean }
   /** The alert voice picked (a VOICE_CHOICES id, or 'off'; see shared/voices.ts), and the voices on offer (all when missing). */
   | { t: 'voice'; voice: string; offered?: string[] }
+  /** Each machine's auto events and when the next ones go off (shared/auto-events.ts). */
+  | { t: 'autoEvents'; state: AutoEventsState }
   /** The channel's picture setting, for its panel and its stages (a stage at another one starts again at it). */
   | { t: 'picture'; quality: PictureQuality }
   /** The control panel's viewer lookup: viewers whose name matches what was typed. */
@@ -475,8 +519,11 @@ export type ServerMsg =
   | { t: 'studio'; state: StudioState }
   | { t: 'signin.code'; platform: 'twitch' | 'youtube'; userCode: string; verificationUri: string; expiresAt: number }
   | { t: 'notice'; tone: 'info' | 'error'; text: string }
-  /** The Windows app's downloads: how they're going (server/content.ts). */
-  | { t: 'content'; progress: ContentProgress }
+  /**
+   * The Windows app's downloads (server/content.ts): how they're going, what's picked, and what the songs and the loops
+   * weigh in the download list (bytes; 0 until it has been read).
+   */
+  | { t: 'content'; progress: ContentProgress; choice: ContentChoice; sizes: Record<keyof ContentChoice, number>; ask: boolean }
   /** The StreamElements channels whose tips come in. */
   | { t: 'tips'; channels: TipChannelInfo[] }
   /**
@@ -526,6 +573,8 @@ export type ClientMsg =
   | { t: 'countdown.reset'; id: string }
   /** Any prices left out stay as they are. The switch (`hypeOff`) is the whole list of machines switched off. */
   | { t: 'prices.set'; prices: PricesInput }
+  /** One machine's auto events, from its Auto events card (shared/auto-events.ts). */
+  | { t: 'autoEvents.set'; room: string; events: MachineAutoEvents }
   /** The owner's limits on the streamer's prices, the city's and each hype button's. Any left out stay as they are. */
   | { t: 'prices.limits'; limits: LimitsInput }
   | { t: 'voice.set'; voice: string }
@@ -556,11 +605,12 @@ export type ClientMsg =
   | { t: 'music.pause'; paused: boolean }
   | { t: 'music.volume'; music?: number; sfx?: number }
   | { t: 'music.muteHere'; muted: boolean }
-  | { t: 'requests.enable'; enabled: boolean }
-  | { t: 'requests.explicit'; allowed: boolean }
-  | { t: 'requests.skip' }
-  | { t: 'requests.clear' }
-  | { t: 'spotify.signOut' }
+  /** The Music player's source and folder (issue #5): a new folder is scanned. */
+  | { t: 'music.source'; source: MusicSource; folder?: string }
+  /** Reads the music folder again (songs added or removed). */
+  | { t: 'music.rescan' }
+  /** The internet radio station's link, and a name to show (issue #5); an empty link forgets it. */
+  | { t: 'music.radio'; url: string; name?: string }
   | { t: 'backdrop.choose'; id: string; chosen: boolean }
   | { t: 'backdrop.show'; id: string }
   | { t: 'backdrop.minutes'; minutes: number }
@@ -585,6 +635,12 @@ export type ClientMsg =
   | { t: 'guide.seen' }
   /** Back from Stripe's checkout or billing page: ask Stripe how the plan stands now. */
   | { t: 'billing.sync' }
+  /** The app's Downloads card: whether the songs and the loops come to this PC (unticked ones are taken off it). */
+  | { t: 'downloads.choose'; choice: ContentChoice }
+  /** Ask me first's Download: the new songs and loops held back come now. */
+  | { t: 'downloads.accept' }
+  /** New songs and backdrops: Ask me first (true) or Download automatically. */
+  | { t: 'downloads.ask'; ask: boolean }
   /**
    * The one thing a stage sends: whether it's on screen. OBS stops drawing a source in a scene that isn't showing, and
    * the server sends a hidden stage nothing until it's back, then everything afresh (see Hub).
@@ -609,4 +665,6 @@ export interface LicenceState {
   error?: 'unknown-key' | 'too-many-pcs' | 'offline' | 'no-key' | 'bad-note';
   /** When the last good note was given (ms): an offline app runs on it for 7 days. */
   issuedAt?: number;
+  /** The key's referral link and counts, from the last good check (kept in memory only: it unlocks nothing). */
+  referral?: ReferralView;
 }

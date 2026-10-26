@@ -27,6 +27,8 @@ export interface HypeItem {
   price: number;
   /** The owner's starting limits on the price, in coins. The owner can change them. */
   limits: { min: number; max: number };
+  /** Bought with no waits (HypeSale.noWait). Left out for the usual waits. */
+  noWait?: true;
 }
 
 /**
@@ -52,6 +54,7 @@ export function hypeItems(entries: readonly MachineEntry[]): HypeItem[] {
         what: sale.what,
         price: sale.price,
         limits: { ...sale.limits },
+        ...(sale.noWait ? { noWait: true as const } : {}),
       });
     }
   }
@@ -72,10 +75,8 @@ export const TAKEN_WORDS: ReadonlySet<string> = new Set([
   // Its streamer drops, with every spelling it reads (its game's STREAMER_COMMANDS). A viewer
   // who earned one can type them too.
   'rain', 'coinrain', 'goldrush', 'jackpot', 'barrage', 'bombs', 'bombbarrage',
-  // The city's own commands (server/city-services.ts): !coins, !color, !stats and !fireworks.
-  'coins', 'balance', 'bal', 'color', 'colors', 'colour', 'colours', 'stats', 'career', 'me', 'fireworks', 'firework', 'fw',
-  // The song requests (server/requests.ts): !sr and !skip.
-  'sr', 'songrequest', 'request', 'skip',
+  // The city's own commands (server/city-services.ts): !coins, !color, !stats, !fireworks and !skip.
+  'coins', 'balance', 'bal', 'color', 'colors', 'colour', 'colours', 'stats', 'career', 'me', 'fireworks', 'firework', 'fw', 'skip',
 ]);
 
 const HYPE_WORD = /^!([a-z]+)\b/i;
@@ -121,11 +122,13 @@ export interface HypeGroup {
  * The Prices card's hype: a group for each machine with something for sale, in the order the items come, and a row in it
  * for each of that machine's buttons. A row's price and limits are the prices' and the limits', else the item's own. A
  * price of 0 is a price, not a missing one. Every machine's group is there, whichever machine is on stream and whether or
- * not its switch is on, so prices can be set before going live.
+ * not its switch is on, so prices can be set before going live. Given `rooms` (the panel's: the machines made on its
+ * copy, rooms.ts machinesMade), only those machines' groups are, still in the items' order.
  */
-export function hypeGroups(prices: Prices, limits: PriceLimits, items: readonly HypeItem[] = HYPE_ITEMS): HypeGroup[] {
+export function hypeGroups(prices: Prices, limits: PriceLimits, items: readonly HypeItem[] = HYPE_ITEMS, rooms?: readonly string[]): HypeGroup[] {
   const groups = new Map<string, HypeGroup>();
   for (const item of items) {
+    if (rooms && !rooms.includes(item.room)) continue;
     let group = groups.get(item.room);
     if (!group) {
       group = { room: item.room, title: `${machineLabel(item.room)} hype`, on: !prices.hypeOff.includes(item.room), rows: [] };

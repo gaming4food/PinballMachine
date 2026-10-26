@@ -11,12 +11,17 @@ const SFX_LEVEL = 1.8;
 const MUSIC_LEVEL = 0.6;
 /** A bomb's blast, against the other game sounds: about 12 dB down from how it was first made. */
 const BOMB_LEVEL = 0.25;
-/** Alert voices (see voice()): recordings are already near full scale, so they go in as they are. */
-const VOICE_LEVEL = 1;
+/**
+ * Alert voices (see voice()): Piper's recordings are about -15 LUFS, peaking at full scale, so about 14 dB down (at full
+ * level they were far over the stage's other sounds, and at 0.4 still loud, the owner heard, 2026-10-17).
+ */
+const VOICE_LEVEL = 0.2;
 const GENERATED_MUSIC_LEVEL = 2.4;
 const CROSSFADE_SEC = 3;
 /** How quickly the music eases out when paused and back in when unpaused. */
 const PAUSE_FADE_SEC = 0.6;
+/** A live stream (internet radio) that drops tries again after this long. */
+const RADIO_RETRY_MS = 4000;
 /**
  * The music passing between the stages and the music source (MusicState.mutedHere): one eases out while the other
  * eases in at the same pace, playing the same song at the same spot, so the stream hears one steady copy throughout.
@@ -182,6 +187,11 @@ export interface StageSynth {
    */
   tray(owned: boolean, volume?: number): void;
   /**
+   * A coin hitting the pusher's pile: the stage's short metallic clink, its picked file or its synth, at `volume` times
+   * its own (1 by default). (Optional: a synth from an older kit hasn't one.)
+   */
+  clink?(volume?: number): void;
+  /**
    * Sound files to fetch and decode, each once, so they're ready to play (see sample). They load once the stage can be
    * heard; one that fails is logged and never plays. (Optional, like sample: a synth from an older kit has neither.)
    */
@@ -275,7 +285,6 @@ export class StageAudio implements StageSounds {
   private music: MusicPlayer | null = null;
   private window = { at: 0, count: 0 };
   private lastWinAt = 0;
-  private requestWasOn = false;
   /** Whether the music source had the music last time (see followMusic); null before the first word from the server. */
   private sourceHadIt: boolean | null = null;
 
@@ -337,6 +346,7 @@ export class StageAudio implements StageSounds {
       duck: (seconds) => this.duck(0.6, seconds),
       allow: (max) => this.allow(max),
       tray: (owned, volume) => this.tray(owned, volume),
+      clink: (volume) => this.clink(volume),
       preload: (urls) => this.preload(urls),
       sample: (files, o) => this.sample(files, o),
     };
@@ -410,8 +420,7 @@ export class StageAudio implements StageSounds {
   }
 
   followMusic(state: MusicState): void {
-    // Glide to new volumes rather than jumping, so dragging a slider sounds smooth. While a viewer's Spotify
-    // request plays (in the Spotify app, a separate OBS source), the house music fades right down.
+    // Glide to new volumes rather than jumping, so dragging a slider sounds smooth.
     const t = this.ctx.currentTime;
     // Muted on the streamer's end, with a music source open: that source plays the music for the stream and the
     // stages leave it out (the streamer hears the stages through OBS). Otherwise the stages play it, and it's silent.
@@ -420,16 +429,14 @@ export class StageAudio implements StageSounds {
     const handover = !first && sourceHasIt !== this.sourceHadIt;
     this.sourceHadIt = sourceHasIt;
     const ours = sourceHasIt === (this.part === 'music');
-    const level = state.request || !ours ? 0 : MUSIC_LEVEL * state.musicVolume;
+    const level = !ours ? 0 : MUSIC_LEVEL * state.musicVolume;
     const g = this.musicBus.gain;
     // A page that's just opened starts where it should be, so it never adds a moment of music that isn't its turn.
     if (first) {
       g.cancelScheduledValues(t);
       g.setValueAtTime(level, t);
     }
-    // Coming back after a request: ease the house music back in over a couple of seconds.
-    else g.setTargetAtTime(level, t, handover ? HANDOVER_SEC : level === 0 ? 0.6 : this.requestWasOn ? 0.7 : 0.08);
-    this.requestWasOn = Boolean(state.request);
+    else g.setTargetAtTime(level, t, handover ? HANDOVER_SEC : level === 0 ? 0.6 : 0.08);
     this.sfx.gain.setTargetAtTime(this.part === 'music' ? 0 : SFX_LEVEL * state.sfxVolume, t, 0.08);
     this.music ??= new MusicPlayer(this.ctx, this.musicBus);
     this.music.follow(state);
@@ -807,7 +814,9 @@ class MusicPlayer {
       if (this.current.el.paused && this.held) {
         this.held = false;
         const offset = (Date.now() - state.startedAt) / 1000;
-        if (offset >= 0 && offset < this.current.el.duration) this.current.el.currentTime = offset;
+        // A live stream (internet radio) can't seek: it starts again from now instead.
+        if (!Number.isFinite(this.current.el.duration)) this.current.el.load();
+        else if (offset >= 0 && offset < this.current.el.duration) this.current.el.currentTime = offset;
         const t = this.ctx.currentTime;
         this.current.gain.gain.cancelScheduledValues(t);
         this.current.gain.gain.setValueAtTime(0, t);
@@ -850,10 +859,23 @@ class MusicPlayer {
       'loadedmetadata',
       () => {
         const offset = (Date.now() - state.startedAt) / 1000;
-        if (offset > 1 && offset < el.duration - 1) el.currentTime = offset;
+        // A live stream (internet radio) has no length and plays from now.
+        if (Number.isFinite(el.duration) && offset > 1 && offset < el.duration - 1) el.currentTime = offset;
       },
       { once: true },
     );
+    // A live stream that drops (the station blips, or isn't answering yet) connects again a few seconds later, for as
+    // long as it's the music. A station that stays down is the server's to notice: it switches to the house songs.
+    if (state.seconds <= 0) {
+      const reconnect = () =>
+        setTimeout(() => {
+          if (this.current?.el !== el || this.held) return;
+          el.load();
+          void el.play().catch(() => {});
+        }, RADIO_RETRY_MS);
+      el.addEventListener('error', reconnect);
+      el.addEventListener('ended', reconnect);
+    }
     const t = this.ctx.currentTime;
     gain.gain.setValueAtTime(0, t);
     gain.gain.linearRampToValueAtTime(1, t + CROSSFADE_SEC);

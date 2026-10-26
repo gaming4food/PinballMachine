@@ -8,7 +8,7 @@ export type StageMoment =
   | 'clink' | 'tray' | 'trayOwned' | 'winSmall' | 'winMedium' | 'winBig' | 'explosion' | 'fuse'
   | 'impactGold' | 'impactGiant' | 'impactBomb' | 'quake' | 'turbo' | 'fanfare' | 'jingle' | 'donation';
 
-// Made by npm run sounds:apply from the soundboard's picks of 2026-10-11T01:19:19-04:00. Pick again there, not here.
+// Made by npm run sounds:apply from the soundboard's picks of 2026-10-17T04:01:10-04:00. Pick again there, not here.
 /** The picks, each file served from /media/sfx/. */
 export const STAGE_SOUNDS: Partial<Record<StageMoment, Pick>> = {
   clink: { files: [], volume: 1 },

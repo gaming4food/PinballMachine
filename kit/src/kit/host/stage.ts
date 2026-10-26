@@ -13,7 +13,7 @@ import { StageAudio } from '../../client/stage/audio';
 import { FULL_QUALITY, HEIGHT, WIDTH } from '../../client/stage/frame';
 import { lookFromUrl } from '../../client/stage/looks';
 import { StageNet } from '../../client/stage/net';
-import { snapshotOf } from '../pages';
+import { mountOverlay, snapshotOf } from '../pages';
 
 const stage = document.getElementById('stage')!;
 const fit = () => {
@@ -30,7 +30,8 @@ addEventListener('pointerdown', () => void audio.resume());
 
 const scene = new pages.stage.Scene(document.getElementById('gl') as HTMLCanvasElement, document.getElementById('labels')!, lookFromUrl(), audio, true, false, FULL_QUALITY, false);
 void document.fonts.ready.then(() => scene.paintSigns());
-const overlay = pages.stage.overlay?.(document.getElementById('machine-overlay')!) ?? null;
+// The host draws full screen, so the machine gets its panel in the right column too (kit/pages.ts mountOverlay).
+const overlay = mountOverlay(pages, document.getElementById('machine-overlay')!, document.getElementById('machine-panel'), 'full');
 const machineMessage = (msg: unknown) => {
   overlay?.message(msg);
   scene.machineMessage?.(msg);

@@ -6,7 +6,7 @@
 import { DEFAULT_ROOM, isRoomId } from './machine-list';
 import type { RoomId } from './protocol';
 
-export type LayoutMode = 'corner' | 'full';
+export type LayoutMode = 'corner' | 'full' | 'vertical';
 /** How a layout's countdown is set: minutes from when the streamer presses Start, or a go-live time of day. */
 export type TimerMode = 'minutes' | 'clock';
 
@@ -17,7 +17,8 @@ export interface StageLayout {
   room: RoomId;
   /**
    * 'corner': just the machine, on a transparent background (OBS shows the stream through it), framed tightly
-   * (CORNER_SIZE), for a corner of the screen. 'full': the 1920x1080 stage.
+   * (CORNER_SIZE), for a corner of the screen. 'full': the 1920x1080 stage. 'vertical': the 1080x1920 stage for the
+   * YouTube Shorts feed (VERTICAL_SIZE).
    */
   mode: LayoutMode;
   /** Full screen: the city (or video loop) behind the machine; off shows the stage's plain dark background. */
@@ -61,6 +62,13 @@ export const CORNER_SIZE = { width: 1040, height: 1200, machineHeight: 1080 } as
 /** Where the corner layout's frame sits in the 1920x1080 stage: the machine picture and a little room each side. */
 export const CORNER_LEFT = (1920 - CORNER_SIZE.width) / 2;
 
+/**
+ * The vertical layout's stage, 9:16 for the YouTube Shorts feed: the machine (1080 wide, machineHeight tall) and room
+ * for the panels around it. clearBottom is the strip along the bottom the Shorts app covers with its own buttons and
+ * caption, kept free of anything that matters.
+ */
+export const VERTICAL_SIZE = { width: 1080, height: 1920, machineHeight: 1121, clearBottom: 384 } as const;
+
 /** No countdown, as most layouts start (BRB can turn its own on: BACK IN 05:00). */
 const NO_TIMER = { countdown: false, timerMode: 'minutes', timerMinutes: 5, timerClock: '20:00', timerLabel: 'STARTING IN' } as const;
 
@@ -83,6 +91,11 @@ export const DEFAULT_LAYOUTS: StageLayout[] = [
   },
   {
     id: 'full', name: 'Full screen', room: DEFAULT_ROOM, mode: 'full', background: true,
+    scores: true, feed: true, tips: true, meter: true, music: true, banner: '', ...NO_TIMER,
+    commands: true, miniBoard: false, names: true, alerts: true,
+  },
+  {
+    id: 'vertical', name: 'Vertical (Shorts)', room: DEFAULT_ROOM, mode: 'vertical', background: true,
     scores: true, feed: true, tips: true, meter: true, music: true, banner: '', ...NO_TIMER,
     commands: true, miniBoard: false, names: true, alerts: true,
   },
@@ -172,7 +185,7 @@ export function cleanLayout(input: Partial<StageLayout>, fallback: StageLayout =
     id: cleanLayoutId(String(input.id ?? fallback.id)) || fallback.id,
     name: String(input.name ?? fallback.name).trim().slice(0, 40) || fallback.name,
     room: isRoomId(input.room) ? input.room : fallback.room,
-    mode: input.mode === 'corner' ? 'corner' : input.mode === 'full' ? 'full' : fallback.mode,
+    mode: input.mode === 'corner' || input.mode === 'full' || input.mode === 'vertical' ? input.mode : fallback.mode,
     background: flag('background'),
     scores: flag('scores'),
     feed: flag('feed'),

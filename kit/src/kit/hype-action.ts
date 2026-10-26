@@ -14,6 +14,11 @@ export interface HypeSale {
   price: number;
   /** The owner's starting limits on the price, in coins. The owner can change them. */
   limits: { min: number; max: number };
+  /**
+   * Bought with no waits (src/server/chat-hype.ts): back to back, and starting no wait for anything else. For a press the
+   * machine itself limits, such as a boost of which only one can wait for the next drop. Without it, the usual waits.
+   */
+  noWait?: boolean;
 }
 
 /**

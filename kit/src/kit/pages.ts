@@ -2,10 +2,39 @@
 // never loads them, and from each other so the control panel never loads the stage's scene: the stage page imports
 // machines/pages.ts, the control panel machines/panels.ts.
 import type { SceneClass } from '../client/stage/machine-scene';
+import type { Prices } from '../shared/prices';
 import { SNAP_HEADER } from '../shared/protocol';
 
-/** Something a machine draws over its stage (the Speedway's race box), fed its own messages and the stage's clock. */
-export type OverlayFactory = (root: HTMLElement) => { message(msg: unknown): void; tick(simTime: number): void };
+/** What a machine's OverlayFactory gives back: fed its own messages and the stage's clock. */
+export interface MachineOverlay {
+  message(msg: unknown): void;
+  tick(simTime: number): void;
+}
+/**
+ * Something a machine draws over its stage (the Speedway's race box), fed its own messages and the stage's clock.
+ * `root` is the overlay slot over the whole 1920x1080 stage. `panel` is the machine's own section at the top of the
+ * stage's right column, above the live feed (added 2026-10-26, for the pinball's scoreboard): given in the full-screen
+ * layout only, empty and shown, and null in the corner and vertical layouts, where the machine keeps what it shows in
+ * `root`. The panel is 372 px wide less its padding (332 px of content), takes its height from what the machine puts in
+ * it (the feed and tips below give way), and has no border of its own: the machine styles its content. A machine that
+ * takes only `root` gets no panel and nothing changes for it.
+ */
+export type OverlayFactory = (root: HTMLElement, panel: HTMLElement | null) => MachineOverlay;
+/** The stage's three ways of drawing (shared/layouts.ts's LayoutMode). */
+export type StageMode = 'full' | 'corner' | 'vertical';
+/**
+ * Starts a machine's overlay on a stage (the city's and the stand-in host's): the panel slot is emptied, shown and
+ * given to the machine in the full-screen layout, and emptied, hidden and kept from it in the others. Null for a
+ * machine with no overlay (its panel slot stays empty and hidden).
+ */
+export function mountOverlay(pages: MachinePages | undefined, root: HTMLElement, slot: HTMLElement | null, mode: StageMode): MachineOverlay | null {
+  const panel = slot && mode === 'full' && pages?.stage.overlay ? slot : null;
+  if (slot) {
+    slot.replaceChildren();
+    slot.hidden = panel === null;
+  }
+  return pages?.stage.overlay?.(root, panel) ?? null;
+}
 /** A machine's card in the control panel, fed its own messages; `act` sends its buttons' actions to the machine. */
 export type CardFactory = (root: HTMLElement, act: (action: unknown) => void) => { message(msg: unknown): void };
 
@@ -26,8 +55,12 @@ export interface MachinePages {
     overlay?: OverlayFactory;
     /** Its snapshot's type and header (SnapshotFormat). */
     snapshot?: SnapshotFormat;
-    /** Its own pages for the stage's rotating tips, after How to Play and the career leaders (the coin pusher's shop). */
-    tips?: () => HTMLElement[];
+    /**
+     * Its own pages for the stage's rotating tips, after How to Play and the career leaders (the coin pusher's shop).
+     * Called with the standard prices at first, and again with the channel's when they arrive (the stage swaps the pages
+     * for the new ones); a function that takes no prices keeps its pages as they were.
+     */
+    tips?: (prices: Prices) => HTMLElement[];
     /**
      * Its snapshot type alone, read with the coin pusher's header (bodies from SNAP_HEADER). The stage still reads it:
      * the Speedway gives it.

@@ -2,7 +2,10 @@
 // and the streamer drops they've earned by dropping coins. Kept forever with their wallet (server/economy.ts), shown
 // with !stats, in the control panel's viewer lookup, and on the stage's career leaders page.
 
-/** What viewers spend coins on (the coin shop's skins, colors and names; song requests and skips; a machine's hype). */
+/**
+ * What viewers spend coins on (the coin shop's skins, colors and names; skipping the house song; a machine's hype).
+ * 'songs' also holds what was spent on song requests before they were removed on 2026-10-18.
+ */
 export type SpendKind = 'drop' | 'fireworks' | 'skins' | 'colors' | 'songs' | 'hype';
 export const SPEND_KINDS: readonly SpendKind[] = ['drop', 'fireworks', 'skins', 'colors', 'songs', 'hype'];
 

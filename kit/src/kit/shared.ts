@@ -5,6 +5,9 @@ export type { BodyState, ChainBody, FeedItem, FeedTone, Platform, Quat, RoomInfo
 export { PUSHER_ID, SNAP_HEADER, SNAP_STRIDE, SNAP_TYPE, STREAMER_DROPS } from '../shared/protocol';
 // The coin skins and name colours viewers buy (the city's catalogue, and what each owns is in their wallet).
 export { COLOR_PRICE, COLORS, DEFAULT_SKIN, NAME_EFFECTS, patternNumber, SKINS, skinById, type Skin } from '../shared/skins';
+// The channel's prices (what hype costs) and its coin shop's: a machine's stage pages are drawn with them (MachinePages.stage.tips).
+export { DEFAULT_PRICES, type Prices } from '../shared/prices';
+export { colorPrice, DEFAULT_HOUSE_DRIP, DEFAULT_SHOP_PRICES, HOUSE_DRIP_BOUNDS, skinPrice, type HouseDrip, type ShopPrices } from '../shared/shop-prices';
 export { MACHINE_API, type MachineEntryText } from './manifest';
 
 /**

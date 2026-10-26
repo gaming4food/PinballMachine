@@ -1,27 +1,44 @@
 // The prices a streamer sets for their own channel (decided 2026-10-02, docs/CONTROL_PANELS.md), each within limits
-// the owner sets. Everything else in the economy (coin values, rewards, the house coin, skins) is the owner's and the
-// same on every stream.
+// the owner sets. The streamer also sets the coin shop's prices (any whole number from 0 to 100,000) and the coin
+// pusher's house drip (shared/shop-prices.ts; the owner's call, 2026-10-18). Everything else in the economy (coin
+// values, rewards, the house coin's size and worth) is still the owner's and the same on every stream.
 //
-// Besides the city's three prices, the streamer prices every hype button that chat can buy (shared/hype-sale.ts), and has
+// Besides the city's two prices, the streamer prices every hype button that chat can buy (shared/hype-sale.ts), and has
 // one switch for each machine's hype. Hype is saved under its item's key (`<machine id>.<button id>`), and the switch
 // under the machine's id. Which items there are comes from the machines' entries, not from here.
 import { HYPE_ITEMS, type HypeItem } from './hype-sale';
+import {
+  CEILING,
+  cleanHouseDrip,
+  cleanShopPrices,
+  DEFAULT_HOUSE_DRIP,
+  DEFAULT_SHOP_PRICES,
+  type HouseDrip,
+  type HouseDripInput,
+  type ShopPrices,
+  type ShopPricesInput,
+} from './shop-prices';
 
 export interface Prices {
   /** !fireworks */
   fireworks: number;
-  /** !sr, a song request */
-  songRequest: number;
-  /** !skip, skipping the song */
+  /** !skip, skipping the house song */
   skip: number;
   /** What chat pays for each hype button on sale, by `HypeItem.key`. */
   hype: Record<string, number>;
   /** The machines whose hype chat can't buy (the streamer's switch, by room id). Every machine is on to start with. */
   hypeOff: string[];
+  /** What the coin shop charges on this channel: skins, a new name color, animated names (no limits from the owner). */
+  shop: ShopPrices;
+  /** The coin pusher's automatic house coin drops. */
+  houseDrip: HouseDrip;
 }
 
-/** The city's own three prices. */
-export type PriceKey = 'fireworks' | 'songRequest' | 'skip';
+/**
+ * The city's own two prices. Song requests had one (songRequest) until they were removed on 2026-10-18 (issue #4): a
+ * file or panel that still has it is fine, since only these keys are read.
+ */
+export type PriceKey = 'fireworks' | 'skip';
 
 export interface Limit {
   min: number;
@@ -32,35 +49,31 @@ export interface Limit {
 export type PriceLimits = Record<PriceKey, Limit> & { hype: Record<string, Limit> };
 
 /** Prices as a panel or a file gives them: any left out stay as they are. */
-export type PricesInput = Partial<Record<PriceKey, number>> & { hype?: Record<string, number>; hypeOff?: string[] };
+export type PricesInput = Partial<Record<PriceKey, number>> & { hype?: Record<string, number>; hypeOff?: string[]; shop?: ShopPricesInput; houseDrip?: HouseDripInput };
 
 /** Limits as a panel or a file gives them: any left out, or any side left out, stay as they are. */
 export type LimitsInput = Partial<Record<PriceKey, Partial<Limit>>> & { hype?: Record<string, Partial<Limit>> };
 
 export const DEFAULT_PRICES: Prices = {
   fireworks: 25,
-  songRequest: 50,
   skip: 100,
   hype: Object.fromEntries(HYPE_ITEMS.map((item) => [item.key, item.price])),
   hypeOff: [],
+  shop: DEFAULT_SHOP_PRICES,
+  houseDrip: DEFAULT_HOUSE_DRIP,
 };
 export const DEFAULT_PRICE_LIMITS: PriceLimits = {
   fireworks: { min: 5, max: 500 },
-  songRequest: { min: 10, max: 1000 },
   skip: { min: 10, max: 2000 },
   hype: Object.fromEntries(HYPE_ITEMS.map((item) => [item.key, { ...item.limits }])),
 };
-export const PRICE_KEYS: readonly PriceKey[] = ['fireworks', 'songRequest', 'skip'];
+export const PRICE_KEYS: readonly PriceKey[] = ['fireworks', 'skip'];
 
 /** What each price is called in the control panel. */
 export const PRICE_LABELS: Record<PriceKey, string> = {
   fireworks: '!fireworks',
-  songRequest: 'Song request (!sr)',
-  skip: 'Skip the song (!skip)',
+  skip: 'Skip the house song (!skip)',
 };
-
-/** No limit goes past this. */
-const CEILING = 100_000;
 
 const whole = (value: unknown, fallback: number) => {
   const n = Math.round(Number(value));
@@ -102,5 +115,7 @@ export function cleanPrices(input: PricesInput | undefined, limits: PriceLimits,
   const asked = input?.hypeOff;
   const rooms = new Set(items.map((item) => item.room));
   out.hypeOff = [...new Set((Array.isArray(asked) ? asked : fallback.hypeOff).filter((room) => typeof room === 'string' && rooms.has(room)))];
+  out.shop = cleanShopPrices(input?.shop, fallback.shop ?? DEFAULT_SHOP_PRICES);
+  out.houseDrip = cleanHouseDrip(input?.houseDrip, fallback.houseDrip ?? DEFAULT_HOUSE_DRIP);
   return out;
 }

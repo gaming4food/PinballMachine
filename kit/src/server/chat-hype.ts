@@ -57,11 +57,13 @@ export class ChatHype {
     const now = Date.now();
 
     // The waits: the machine's, since the last hype bought on it, and the viewer's, since their last on any machine. The
-    // longer one is the one told.
-    const wait = Math.max(
-      this.limiter.remaining(`hype:${item.room}`, HYPE_MACHINE_WAIT_MS, now),
-      this.limiter.remaining(`hype-viewer:${user.id}`, HYPE_VIEWER_WAIT_MS, now),
-    );
+    // longer one is the one told. An item with no waits (noWait) has none, and starts none (below).
+    const wait = item.noWait
+      ? 0
+      : Math.max(
+          this.limiter.remaining(`hype:${item.room}`, HYPE_MACHINE_WAIT_MS, now),
+          this.limiter.remaining(`hype-viewer:${user.id}`, HYPE_VIEWER_WAIT_MS, now),
+        );
     if (wait > 0) {
       this.reply(machine, user, 'wait', `${user.name}: the next hype can be bought in ${Math.ceil(wait / 1000)} s`, now);
       return true;
@@ -119,8 +121,10 @@ export class ChatHype {
       this.reply(machine, user, 'refused', `${user.name}: ${reason}`, now);
       return true;
     }
-    this.limiter.allow(`hype:${item.room}`, HYPE_MACHINE_WAIT_MS, now);
-    this.limiter.allow(`hype-viewer:${user.id}`, HYPE_VIEWER_WAIT_MS, now);
+    if (!item.noWait) {
+      this.limiter.allow(`hype:${item.room}`, HYPE_MACHINE_WAIT_MS, now);
+      this.limiter.allow(`hype-viewer:${user.id}`, HYPE_VIEWER_WAIT_MS, now);
+    }
     this.deps.boardChanged();
     return true;
   }

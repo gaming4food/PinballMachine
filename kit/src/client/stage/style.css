@@ -256,6 +256,20 @@ body {
 }
 
 /*
+ * A machine's own section at the top of the right column (its overlay's panel, kit/pages.ts), in the full-screen layout
+ * only. As tall as what the machine puts in it, with no border of its own; the feed and tips below give way (fitFeed in
+ * hud.ts). Empty, it takes no room (and no gap), so a machine that doesn't use it changes nothing.
+ */
+#machine-panel {
+  flex: none;
+  min-width: 0;
+}
+
+#machine-panel:empty {
+  display: none;
+}
+
+/*
  * Five lines at most (MAX_FEED in hud.ts), taking only the room they need: the tips below get the rest. When long lines
  * take two rows, the oldest give way so the tips always fit (fitFeed in hud.ts).
  */
@@ -308,9 +322,16 @@ body {
   /* minmax(0, ...): long shop lines can't widen the column past the panel. */
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
+  /* Each page as tall as its own lines, so fitFeed can tell which fit (they have no background: nothing shows). */
+  align-items: start;
   flex: 1;
   min-height: 0;
   margin-top: 6px;
+}
+
+/* A page with no room under a machine's panel, even with one feed line, waits (fitFeed in hud.ts) rather than spill out. */
+.tip.squeezed {
+  visibility: hidden;
 }
 
 .tip {
@@ -581,15 +602,6 @@ body.machine-photo #insert {
 }
 
 #np-song {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-#np-by {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--pink);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -943,12 +955,17 @@ body.no-left #left,
 body.no-feed #right > h2,
 body.no-feed #feed,
 body.no-tips #tips,
-body.no-right #right,
+body.no-right #right:not(:has(> #machine-panel:not([hidden]):not(:empty))),
 body.no-music #np,
 body.no-names #labels,
 body.no-alerts #alert-slot,
 body.no-alerts #confetti {
   display: none;
+}
+
+/* Feed and tips both off, with a machine's panel in use: the right column stays for the panel alone, as tall as it. */
+body.no-right #right {
+  bottom: auto;
 }
 
 /* A full-screen layout's banner: BE RIGHT BACK, STARTING SOON or the streamer's own words. */
@@ -1052,6 +1069,185 @@ body.no-alerts #confetti {
 #strip-board .coins {
   color: var(--yellow);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The vertical layout (1080x1920, for the YouTube Shorts feed; see shared/layouts.ts): the corner's whole machine
+ * (1040x1080 of the stage) scaled to 1080 wide across the top, 1121 tall, then now playing, and the board and meter
+ * beside the feed, in #vertical-frame (main.ts moves them in and fit() scales it). The bottom 384 px are left clear
+ * (the Shorts app's buttons and caption go there).
+ * Always opaque: it's the whole stream, nothing shows through. With its background on, the city loop (#vertical-city)
+ * fills the whole frame behind the machine and the panels; the panels below the machine span the frame, 24 px each side.
+ */
+html:has(body.vertical),
+body.vertical {
+  background: #07040f;
+}
+
+body.vertical #stage {
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  /* Just the machine: the corner's crop (CORNER_LEFT each side of CORNER_SIZE's 1040). */
+  clip-path: inset(0 440px 0 440px);
+}
+
+#vertical-frame {
+  display: none;
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1080px;
+  height: 1920px;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+body.vertical #vertical-frame {
+  display: block;
+}
+
+#vertical-city {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1080px;
+  height: 1920px;
+  object-fit: cover;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+body.vertical-city #stage {
+  background: transparent;
+}
+
+body.vertical #topbar {
+  left: 470px;
+  right: 470px;
+}
+
+body.vertical #banner {
+  max-width: 960px;
+}
+
+body.vertical #sound-chip {
+  left: 470px;
+}
+
+/*
+ * The rotating tips (how to play, career leaders, the machine's own pages) fill the band under the panels, out of the
+ * feed's panel, at the panels' width (24 to 1056). Its own box, like a panel; body.no-tips still hides it.
+ */
+body.vertical #tips {
+  position: absolute;
+  left: 24px;
+  top: 1531px;
+  width: 1032px;
+  height: 365px;
+  margin: 0;
+  padding: 16px 22px 14px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 2px solid var(--edge);
+  border-radius: 18px;
+  box-shadow: 0 0 26px rgba(255, 43, 214, 0.18), inset 0 0 30px rgba(34, 230, 255, 0.06);
+}
+
+/* Two columns, so a machine's long how-to (the claw's 13 lines) fits the band; the heading spans both. */
+body.vertical .tip {
+  column-count: 2;
+  column-gap: 32px;
+}
+
+body.vertical .tip > h3 {
+  column-span: all;
+}
+
+body.vertical .tip > * {
+  break-inside: avoid;
+}
+
+body.vertical .panel {
+  top: 1185px;
+  bottom: auto;
+  height: 330px;
+  padding: 16px 18px 14px;
+  gap: 12px;
+}
+
+body.vertical #left {
+  left: 24px;
+  width: 508px;
+}
+
+body.vertical #right {
+  left: 548px;
+  right: auto;
+  width: 508px;
+}
+
+body.vertical #board,
+body.vertical #feed {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The top 5, as many as fit over the meter. */
+body.vertical #board {
+  gap: 4px;
+}
+
+body.vertical #board li {
+  padding: 3px 10px;
+  font-size: 18px;
+}
+
+body.vertical #board li:nth-child(n + 6) {
+  display: none;
+}
+
+body.vertical #meter h3 {
+  margin-bottom: 8px;
+}
+
+body.vertical #meter .meter-text {
+  margin-top: 6px;
+}
+
+body.vertical #feed li {
+  padding: 6px 10px;
+  font-size: 17px;
+}
+
+/* Now playing: one bar across, right under the machine. */
+body.vertical #np {
+  left: 24px;
+  top: 1121px;
+  right: auto;
+  bottom: auto;
+  width: 1032px;
+  height: 56px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+body.vertical .np-line {
+  min-width: 0;
+  flex: 1;
+}
+
+body.vertical #np-by {
+  flex: none;
+  max-width: 260px;
+}
+
+body.vertical #np-cmd {
+  flex: none;
+  margin-top: 0;
 }
 
 /*

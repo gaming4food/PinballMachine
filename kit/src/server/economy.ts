@@ -119,9 +119,8 @@ export class Economy {
   private readonly unsynced = new Set<User>();
   private nextId = 1;
   /**
-   * On the owner's own channel (set by Channel), the channel's own account buys without paying: song requests, skips,
-   * skins, colors and fireworks cost it nothing, so the owner can try them out on the stream (the owner's ask,
-   * 2026-10-04). Drops still cost coins. Streamers' channels never have it.
+   * On the owner's own channel (set by Channel), the channel's own account buys without paying: skips, skins, colors
+   * and fireworks cost it nothing, so the owner can try them out on the stream (the owner's ask, 2026-10-04). Drops still cost coins. Streamers' channels never have it.
    */
   ownerBuysFree = false;
   /** The channel's own account, once it has chatted (see noteStreamer). */
@@ -334,8 +333,7 @@ export class Economy {
 
   /**
    * Notes a viewer as changed: saved with the next flush, and sent with the next dashboard sync. Not a viewer removed
-   * since: a machine or a song request still holding them (paying a claw turn they steered, say) must never write them
-   * back.
+   * since: a machine still holding them (paying a claw turn they steered, say) must never write them back.
    */
   private mark(user: User): void {
     if (this.users.get(user.id) !== user) return;
@@ -394,21 +392,23 @@ export class Economy {
     return out;
   }
 
-  /** Whether a viewer can use a coin skin without paying: it's free, or they've bought it before. */
+  /** Whether a viewer can use a coin skin without a purchase: it's the default one, or they've bought it before. */
   ownsSkin(user: User, skin: Skin): boolean {
-    return skin.price <= 0 || user.unlocked.has(skin.id);
+    return skin.id === DEFAULT_SKIN || user.unlocked.has(skin.id);
   }
 
   /**
    * Switches a viewer to a coin skin, buying it first if they don't own it.
-   * Returns what they paid (0 if they already owned it), or null (changing nothing) if they can't afford it.
+   * `price` is what the channel charges for it (the skin's own price unless the caller says otherwise); a price of 0
+   * or less equips it without marking it bought, so a later price rise charges for it.
+   * Returns what they paid (0 if they already owned it or it's free), or null (changing nothing) if they can't afford it.
    */
-  equipSkin(user: User, skin: Skin): number | null {
+  equipSkin(user: User, skin: Skin, price = skin.price): number | null {
     let paid = 0;
-    if (!this.ownsSkin(user, skin)) {
-      if (!this.spend(user, skin.price, 'skins')) return null;
+    if (!this.ownsSkin(user, skin) && price > 0) {
+      if (!this.spend(user, price, 'skins')) return null;
       user.unlocked.add(skin.id);
-      paid = skin.price;
+      paid = price;
     }
     user.skin = skin.id;
     this.mark(user);
@@ -418,7 +418,7 @@ export class Economy {
   /** Buys a viewer a new neon color; returns false (changing nothing) if they can't afford it. */
   /** A new name color, plain or animated (`fx`, see NAME_EFFECTS); a plain one ends an animated name. */
   buyColor(user: User, color: number, price: number, fx = ''): boolean {
-    if (!this.spend(user, price, 'colors')) return false;
+    if (price > 0 && !this.spend(user, price, 'colors')) return false; // a price of 0 is free
     user.color = color;
     user.nameFx = fx;
     this.mark(user);

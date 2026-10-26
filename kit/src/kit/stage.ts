@@ -9,4 +9,4 @@ export { FULL_QUALITY, HEIGHT, LIGHT_QUALITY, type RenderQuality, WIDTH } from '
 export { neonEnvironment } from '../client/stage/environment';
 export { INVERSE_ACES_GLSL, pictureUniforms } from '../client/stage/photo';
 export { cssColor, nameFxClass } from '../client/common';
-export { definePages, type MachinePages, type OverlayFactory, type SnapshotFormat } from './pages';
+export { definePages, type MachineOverlay, type MachinePages, type OverlayFactory, type SnapshotFormat } from './pages';

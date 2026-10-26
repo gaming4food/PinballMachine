@@ -12,7 +12,7 @@ export const MACHINE_API = 1;
  * How to Play's lines every machine shares, by id, in their order on the stage's page, where each is #howto-<id>
  * (machines-test checks the page's shared lines are these, in this order).
  */
-export const SHARED_HOW_TO_IDS = ['coins', 'fireworks', 'stats', 'sr', 'skip'] as const;
+export const SHARED_HOW_TO_IDS = ['coins', 'fireworks', 'stats', 'skip'] as const;
 
 /**
  * One of How to Play's lines, HTML (<b> only). It goes before the lines every machine shares, or, given with `after`,

@@ -1,8 +1,8 @@
-// What Coin-Op City costs streamers (your picks 2026-10-02, 2026-10-03 and 2026-10-06): one machine (the Coin Pusher
-// or the Claw Machine) at $12 a month or $100 a year ($44 less than twelve months), or All machines (every machine,
-// now and to come) at $29 a month or $290 a year, with a 14-day free trial that starts when they add a card
-// (docs/DOWNLOADABLE_APP.md). Shared by the website, sign-up and the hosted server's billing (server/billing.ts), which
-// still sells only the Coin Pusher's one-machine plan.
+// What Coin-Op City costs streamers (your picks 2026-10-02, 2026-10-03 and 2026-10-06; the Pinball joined 2026-10-20):
+// one machine (the Coin Pusher, the Claw Machine or the Pinball) at $12 a month or $100 a year ($44 less than twelve
+// months), or All machines (every machine, now and to come) at $29 a month or $290 a year, with a 14-day free trial that
+// starts when they add a card (docs/DOWNLOADABLE_APP.md). Shared by the website, sign-up and the hosted server's billing
+// (server/billing.ts), which still sells only the Coin Pusher's one-machine plan.
 export const TRIAL_DAYS = 14;
 /** A failed payment keeps the machine running this long while Stripe retries the card (the owner's pick, 2026-10-03). */
 export const GRACE_DAYS = 3;
@@ -21,12 +21,12 @@ export function yearlySaving(monthly: number, yearly: number): number {
   return Math.floor((1 - yearly / (monthly * 12)) * 100);
 }
 
-/** The machines: the coin pusher and the claw are in the app; the others are coming. */
+/** The machines: the coin pusher, the claw and the pinball are in the app; the others are coming. */
 export const MACHINES = [
   { id: 'coinpusher', name: 'Coin Pusher', live: true },
   { id: 'claw', name: 'Claw Machine', live: true },
   { id: 'speedway', name: 'Speedway', live: false },
-  { id: 'pinball', name: 'Pinball', live: false },
+  { id: 'pinball', name: 'Pinball', live: true },
   { id: 'plinko', name: 'Plinko', live: false },
 ] as const;
 
@@ -38,6 +38,7 @@ export const MACHINES = [
 export const LICENCE_PLANS = {
   coinpusher: { label: 'Coin Pusher', covers: ['main'], monthly: 12, yearly: 100, lookup: { month: 'coinpusher_monthly', year: 'coinpusher_yearly' } },
   clawmachine: { label: 'Claw Machine', covers: ['claw'], monthly: 12, yearly: 100, lookup: { month: 'clawmachine_monthly', year: 'clawmachine_yearly' } },
+  pinball: { label: 'Pinball', covers: ['pinball'], monthly: 12, yearly: 100, lookup: { month: 'pinball_monthly', year: 'pinball_yearly' } },
   allmachines: { label: 'All machines', covers: ['*'], monthly: 29, yearly: 290, lookup: { month: 'allmachines_monthly', year: 'allmachines_yearly' } },
 } as const satisfies Record<string, { label: string; covers: readonly string[]; monthly: number; yearly: number; lookup: { month: string; year: string } }>;
 export type LicencePlan = keyof typeof LICENCE_PLANS;
