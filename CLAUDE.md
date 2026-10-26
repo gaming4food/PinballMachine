@@ -61,8 +61,8 @@ the stage and the control panel.
   and the titles), pinball-sounds-test (when each sound plays), light-show-test (the light shows and their player, and
   that no light rises more than 3 times a second), pinball-effects-test (the sparks' pool, the tomb's beam, the coin
   burst and the screen flash), pinball-shows-test (what each moment plays, and when), pinball-parts-test (the live parts
-  sit on the picture's pixels) and picture-test (the picture is of this table and camera, and the camera puts the
-  table's rails between FRAME_TOP and FRAME_BOTTOM).
+  sit on the picture's pixels) and picture-test (the picture is of this table and camera, and the camera puts its fitted
+  box, the table's frame, between FRAME_TOP and FRAME_BOTTOM).
 - `npm run pinball-stress`: the long physics run (minutes, so not in `npm test`): 250 launches and 3000 flipper shots,
   expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up, and
   `-- lock=held` with a ball held in the lock throughout. Run all three after a change to the table or the physics.
@@ -312,11 +312,13 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   as the picture shows it. The pyramid there is carved for the tomb's doorway as the picture's is, so a ball the tomb
   holds is seen, and the risen door is hidden. The stand-in table in that file is only the fallback if the picture
   doesn't load.
-- **The stage's layout** (the owner placed it, 2026-10-26). The table's rails fill `FRAME_TOP` 58 to `FRAME_BOTTOM` 882
-  of the 1920 × 1080 frame (`pinball.ts`; picture-test holds `stageCamera` to them), so the temple reaches the frame's
-  top edge and the cabinet's front with the plunger's knob shows below the rails. The scoreboard (`#pinball-hud`,
-  `pinball.css`) is a 448-px box centred at the frame's foot (`bottom: 0`), growing upward over the cabinet's front as
-  its lines come; the big titles stay over the playfield. Both stay inside the stage's middle 1040 px, which the city's
+- **The stage's layout** (the owner placed it, 2026-10-26). `stageCamera` fits a box to `FRAME_TOP` 58 to
+  `FRAME_BOTTOM` 882 of the 1920 × 1080 frame (`pinball.ts`; picture-test holds it to them). The box is the table's
+  frame by its size, from the cabinet's front (z -1.7) to past the top rail and from the playfield to the rails' tops,
+  not the rails themselves. As drawn, the rails run from about y 22 to 805, the temple's top is at y 3, and the cabinet's
+  front with the plunger's knob ends at about y 941. The scoreboard (`#pinball-hud`, `pinball.css`) is a 448-px box
+  centred at the frame's foot (`bottom: 0`), growing upward as its lines come; it covers the cabinet's front only when
+  it's tall. The big titles stay over the playfield. Both stay inside the stage's middle 1040 px, which the city's
   corner and vertical layouts show. Changing the FRAME numbers changes the camera: run `npm run picture` after.
 - **After any change to the table or the camera, run `npm run picture`** (about 15 s; Blender 5.2, and Python with
   Pillow and numpy; `blender/README.md` says the rest) **and commit the new `pinball.png` and `pinball.json`.**

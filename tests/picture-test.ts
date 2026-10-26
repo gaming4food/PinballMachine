@@ -41,9 +41,9 @@ test("the picture's camera is the stage's camera", () => {
   assert.ok(Math.abs(camera.viewY - stage.viewY) <= 1e-6, `viewY: ${camera.viewY} vs the stage's ${stage.viewY}`);
 });
 
-test("the stage's camera fits the table's frame between FRAME_TOP and FRAME_BOTTOM", () => {
-  // The box stageCamera fits: the side rails' outsides, the front rail to past the top rail, from the playfield up to
-  // the rails' tops (TABLE's size), placed as the stage places the table.
+test("the stage's camera puts its fitted box (the table's frame, not the rails) between FRAME_TOP and FRAME_BOTTOM", () => {
+  // The box stageCamera fits: the side rails' outsides, from the cabinet's front (z -1.7) to past the top rail, from the
+  // playfield up to the rails' tops (TABLE's size), placed as the stage places the table.
   const fit = stageCamera(TABLE_IN_USE, WIDTH, HEIGHT);
   const camera = new THREE.PerspectiveCamera(fit.fovY, WIDTH / HEIGHT, 0.5, 200);
   camera.matrixAutoUpdate = false;

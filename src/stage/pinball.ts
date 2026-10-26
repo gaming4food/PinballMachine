@@ -73,11 +73,14 @@ const onAt = (event: { until: number } | null | undefined, now: number): boolean
 const CAMERA_PITCH = 40;
 const CAMERA_FOV = 32;
 /**
- * Where the table's frame (its rails, the front rail to past the top rail: stageCamera) sits in the frame, in frame
- * pixels from the top. The owner placed it by hand (2026-10-26): high in the frame, at 92% of its old size (168 to 1066),
- * so the cabinet's front and the plunger's knob below the rails (to about y 942) are in view, and the temple behind the
- * top rail reaches the frame's top edge. The scoreboard (pinball.css) sits under it at the frame's foot, over the
- * cabinet's front.
+ * Where stageCamera's fitted box sits in the frame, in frame pixels from the top. The box is the table's frame by
+ * TABLE's size: the side rails' outsides, from the cabinet's front (z -1.7) to past the top rail (z length + 0.6), from
+ * the playfield up to the rails' tops (0.9). It is not the rails themselves, and things outside it show past it. The owner
+ * placed it by hand (2026-10-26), high in the frame and at 92% of its old size (168 to 1066). As drawn there:
+ * - the rails run from about y 22 to 805;
+ * - the temple behind the top rail reaches y 3, just inside the frame's top edge;
+ * - the cabinet's front with the plunger's knob ends at about y 941.
+ * The scoreboard (pinball.css) sits at the frame's foot under it, and covers the cabinet's front only when it's tall.
  */
 export const FRAME_TOP = 58;
 export const FRAME_BOTTOM = 882;
@@ -109,9 +112,9 @@ export function tiltTable<T extends THREE.Object3D>(group: T): T {
 
 /**
  * The stage's camera, for a frame `width` × `height`: at the player's end, looking down the table at CAMERA_PITCH, as
- * far back as it must be for the whole table (its side rails, the front rail and the arch's walls, by the table's size,
- * TABLE) to fit between FRAME_TOP and FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put
- * it there.
+ * far back as it must be for the table's frame (the box FRAME_TOP describes: the side rails' outsides, the cabinet's
+ * front to past the top rail, the playfield to the rails' tops, by the table's size, TABLE) to fit between FRAME_TOP and
+ * FRAME_BOTTOM; then moved in the frame by a view offset of `viewY` pixels to put it there.
  * `matrix` is the camera's world matrix (column-major, three's Y-up world, with the table tilted in it as the stage
  * tilts it) and `fovY` its vertical field of view in degrees. The stage (fitCamera) and the Blender picture
  * (tools/export-scene.ts) both use it, so the picture lines up with the live parts drawn over it.
