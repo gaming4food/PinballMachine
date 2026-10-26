@@ -1,6 +1,6 @@
 # The table's picture, built in Blender
 
-The stage draws the table as one picture, `src/assets/pinball.png` (1920 × 1080, transparent round the cabinet), with
+The stage draws the table as one picture, `src/assets/pinball.png` (2880 × 1620: the stage's 1920 × 1080 frame at `PICTURE_SCALE` 1.5, so the full layout's zoom stays sharp; transparent round the cabinet), with
 the live parts (the balls, the flippers, the flip plaques, the drop targets and the spinners) drawn over it in three.js.
 The quest's toys move too (the pop-ups, the mummy, the tomb's door and the diverter's gate), so the picture leaves them
 out as well and has what stays put round them: the rising targets' gold-rimmed slots, the doorway in the pyramid's

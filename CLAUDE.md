@@ -20,7 +20,7 @@ the stage and the control panel.
 |---|---|
 | `src/entry.ts` | The machine as the city shows it: its name, icon, How to Play lines, corner tag and Test button, and its seven hype buttons (chat's three events among them) with their chat sales. Plain data. |
 | `src/manifest.ts` | The server side's manifest: the machine interface version, the entry, how the server makes the game, and that it stops when no stage is open. |
-| `src/pages.ts` | The stage side: the scene, the scoreboard drawn over it, the snapshot type and its header. |
+| `src/pages.ts` | The stage side: the scene, its overlay (`pinballOverlay`: the scoreboard, in the city's right-column panel in the full layout and under the table otherwise, and the big titles), the snapshot type and its header. |
 | `src/panel.ts` | The machine in the streamer's control panel: its card, which of its hype buttons wait (for the panel's Ready), and the words for its Reset. |
 | `src/server/` | The pinball: the game (`game.ts`: the line, the flips and the auto-save, scoring, the banks, the lock and multiball, the kickback, the ball saver, a stuck ball, paying, the hype buttons and paid support, chat's events (the sandstorm's wind, the curse and the summoned mummy), moving the quest's toys and running the quest (feeding it the table's hits and its clock, and doing what it says), the high scores and the saved quest), the quest's rules on their own (`quest.ts`: the four god modes the banks start, their clock, goals and prizes, the finale and its jackpots, and what to save; plain logic with no physics) and the table's physics (`sim.ts`: Rapier, the ball a sphere with CCD, three flippers as kinematic bodies, the ramps and the dish as triangle meshes, flip targets in banks, targets at an angle, the saucers and the magnet, a second spinner). |
 | `src/shared/` | What the server, the stage, the panel and the Blender build all read: the table as data (`pyramid.ts`: `PYRAMID`), its types, `TABLE`, `TABLE_IN_USE` and the flipper's shape, which the physics and the stage share (`table.ts`), and `pinball.ts` (the state the server sends, the quest's in it, the hype moments and the cues (the toys' hits and the quest's moments), `RULES`, the quest's gods and numbers (`QUEST`), chat's words, the snapshot's 47-byte header, written in `sim.ts` and read in `pinball-header.ts`, its lit inserts and toy bits, and `DIVERTER_SPEED`, the speed the physics and the stage both swing the diverter's gate at). |
@@ -58,11 +58,13 @@ the stage and the control panel.
   names hold them), pinball-test (the game, step by step, the quest played through it too), pinball-hype-test (the hype
   buttons and paid support; `npm run pinball-hype-test -- <words>` runs only the tests whose names hold them),
   pinball-header-test (the stage reads the snapshot's header as the server writes it), pinball-hud-test (the scoreboard
-  and the titles), pinball-sounds-test (when each sound plays), light-show-test (the light shows and their player, and
+  and the titles, in the panel or under the table), pinball-sounds-test (when each sound plays), light-show-test (the light shows and their player, and
   that no light rises more than 3 times a second), pinball-effects-test (the sparks' pool, the tomb's beam, the coin
   burst and the screen flash), pinball-shows-test (what each moment plays, and when), pinball-parts-test (the live parts
-  sit on the picture's pixels) and picture-test (the picture is of this table and camera, and the camera puts its fitted
-  box, the table's frame, between FRAME_TOP and FRAME_BOTTOM).
+  sit on the picture's pixels) and picture-test (the picture is of this table and camera at PICTURE_SCALE, the camera puts
+  its fitted box, the table's frame, between FRAME_TOP and FRAME_BOTTOM, the machine in the picture is where MACHINE
+  says, and the full layout's zoom puts it between FULL_TOP and FULL_BOTTOM with the live parts on the picture's
+  pixels).
 - `npm run pinball-stress`: the long physics run (minutes, so not in `npm test`): 250 launches and 3000 flipper shots,
   expecting `found 0 in 3250 runs`; `-- toys=up` makes the same run with every one of the quest's toys up, and
   `-- lock=held` with a ball held in the lock throughout. Run all three after a change to the table or the physics.
@@ -75,7 +77,8 @@ the stage and the control panel.
   ball and per 30 s; the top of `tests/pinball-play.ts` says how. It's how `RULES.pointsPerCoin` was tuned (530 points
   a coin with `chat=human`: about 9 coins a ball that finishes no mode) and `QUEST`'s numbers chosen, and how the toys'
   spots were measured. It's for tuning, not a test.
-- `npm run picture`: builds the table's picture in Blender (below); `-- hero` makes the promotional one instead.
+- `npm run picture`: builds the table's picture in Blender (below), at `PICTURE_SCALE` (1.5) times the frame; `-- hero`
+  makes the promotional one instead.
 - `npm run typecheck`.
 
 Run `npm run typecheck` and `npm test` before every commit. pinball-test and pinball-hype-test run the same every time:
@@ -312,7 +315,8 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   as the picture shows it. The pyramid there is carved for the tomb's doorway as the picture's is, so a ball the tomb
   holds is seen, and the risen door is hidden. The stand-in table in that file is only the fallback if the picture
   doesn't load.
-- **The stage's layout** (the owner placed it, 2026-10-26). `stageCamera` fits a box to `FRAME_TOP` 58 to
+- **The stage's layout** (the owner placed it, 2026-10-26), as the corner and vertical (9:16) layouts draw it; the full
+  layout zooms it (below). `stageCamera` fits a box to `FRAME_TOP` 58 to
   `FRAME_BOTTOM` 882 of the 1920 × 1080 frame (`pinball.ts`; picture-test holds it to them). The box is the table's
   frame by its size, from the cabinet's front (z -1.7) to past the top rail and from the playfield to the rails' tops,
   not the rails themselves. As drawn, the rails run from about y 22 to 805, the temple's top is at y 3, and the cabinet's
@@ -320,7 +324,28 @@ picture, sparks and a shake. The show book (`src/stage/pinball-shows.ts`) says w
   centred at the frame's foot (`bottom: 0`), growing upward as its lines come; it covers the cabinet's front only when
   it's tall. The big titles stay over the playfield. Both stay inside the stage's middle 1040 px, which the city's
   corner and vertical layouts show. Changing the FRAME numbers changes the camera: run `npm run picture` after.
-- **After any change to the table or the camera, run `npm run picture`** (about 15 s; Blender 5.2, and Python with
+- **The full layout** (the owner's design, 2026-10-26). The kit hands the overlay factory a second argument, `panel`
+  (`#machine-panel`, the top of the city's 372-px right column above LIVE FEED, 332 px of content), in the full layout
+  only, and null in corner and 9:16; the stand-in host gives one too. `pinballOverlay` (`pinball.ts`, the pages'
+  overlay) takes a non-null panel as the full layout, for both of these:
+  - **The scoreboard goes in the panel**, once (not under the table too), marked `data-place="panel"` and styled for
+    the column in `pinball.css`: the same parts in the arcade font, smaller and closed all round, so it stays short
+    (the city's How to Play shrinks to fit under it). Measured on the dev host: about 70 px with a ball and a line,
+    218 px with a mode, three balls in multiball and four flags. It sets `panel.hidden = false` whenever it draws,
+    since the city hides an empty slot after mounting. The big titles stay over the table in every layout.
+  - **The machine fills the frame's height**: the picture's opaque box, `MACHINE` (the temple's top y 4 to the knob's
+    foot y 942, x 555 to 1365; picture-test holds it to the picture), is zoomed to `FULL_TOP` 8 to `FULL_BOTTOM` 1072,
+    about 1.134x, centred across (`fullFrameView`). It is one 2D zoom, not a second render (`setStageView`): the 3D
+    camera keeps its place and aim and its view offset becomes the zoomed sub-rectangle of the frame it was fitted
+    for, and the picture's plate camera takes the same sub-rectangle. A pinhole camera's sub-rectangle is exactly a
+    zoom, so the live parts stay on the picture's pixels; a shake is divided by the zoom, so it moves the screen as
+    before. The city behind has its own camera and never zooms. The scene learns the layout from the overlay
+    (`PinballScene.frameFull`), since the stage makes the scene first.
+  - **The picture is rendered at `PICTURE_SCALE` (1.5)**, 2880 x 1620 (about 4.9 MB), so the zoom has more than a
+    texel a screen pixel. The camera and CAMERA MATCH are the frame's (`scene.json`'s `width` and `height`); only the
+    render is bigger (`renderWidth`, `renderHeight`). The plate stretches it over the frame whatever its size, and
+    samples it linearly with no mipmaps (1.32 to 1.5 texels a pixel, where mipmaps would only blur it).
+- **After any change to the table or the camera, run `npm run picture`** (about 25 s; Blender 5.2, and Python with
   Pillow and numpy; `blender/README.md` says the rest) **and commit the new `pinball.png` and `pinball.json`.**
   picture-test fails until you do (the picture is of another table or camera, or size), but it can't see a change to
   `blender/` itself: run `npm run picture` after one of those too.

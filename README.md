@@ -16,7 +16,7 @@ npm run pinball-play    # plays unattended balls and prints what a ball scores a
                         # toys=up, rates)
 npm run pinball-stress  # the long physics run (minutes): 250 launches and 3000 flipper shots, expecting "found 0"
                         # (-- toys=up: the same with every toy up; -- lock=held: with a ball held in the lock)
-npm run picture         # builds the table's picture in Blender (about 15 s): src/assets/pinball.png
+npm run picture         # builds the table's picture in Blender (about 25 s): src/assets/pinball.png
 npm run picture -- hero # the promotional picture instead, into blender/renders/hero.png
 ```
 
@@ -44,8 +44,9 @@ npm run picture -- hero # the promotional picture instead, into blender/renders/
   is the stress run. The stage draws the picture as its backdrop with the live parts over it: the balls, the three
   flippers, the turning plaques, the drop targets, the quest's toys (the pop-ups and the mummy rising and sinking, the
   tomb's door sliding up into the pyramid, the diverter's gate swinging), both spinners and glows over the lamps and
-  bumpers. The table fills the frame from near its top edge, and the scoreboard sits under it at the frame's foot,
-  across the cabinet's front (`CLAUDE.md`, The stage's layout). Change the table and run `npm run picture` again, then commit the new picture and its sidecar
+  bumpers. In the city's full-screen layout the scoreboard is in the right column (the kit's machine panel) and the
+  machine fills the frame's height; in the corner and 9:16 layouts the table fills the frame from near its top edge,
+  and the scoreboard sits under it at the frame's foot, across the cabinet's front (`CLAUDE.md`, The stage's layout). Change the table and run `npm run picture` again, then commit the new picture and its sidecar
   (`blender/README.md` says what it needs). If the picture doesn't load, the stage draws a plain three.js stand-in table
   instead (`src/stage/table-mesh.ts`).
 - The ball: chrome that reflects the table's picture, with a glow under it and a trail at speed in its owner's colour
